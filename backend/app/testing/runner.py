@@ -10,13 +10,16 @@ failed step whose message carries the exception summary. Every step gets a one-s
 narrative («علی در «کارگاه سفال» ثبت‌نام می‌کند ← تأیید شد»).
 """
 
+import inspect
 import time
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 
 from app.botspec.models import BookingCapability, BotSpec
 from app.botspec.records import validate_record
 from app.runtime import formatting
 from app.runtime.memory_store import MemoryStore
+from app.runtime.store import Store
 from app.testing.drivers import RunContext, StepFailure, describe_step, execute_step, narrative
 from app.testing.scenario import (
     OWNER,
@@ -27,6 +30,10 @@ from app.testing.scenario import (
     TranscriptEntry,
     resolve_relative,
 )
+
+# Builds the fresh store a scenario runs on (sync or async). Default: an in-memory store; the
+# Postgres integration tests pass a factory that returns a PgStore bound to a new bot.
+StoreFactory = Callable[[], Store | Awaitable[Store]]
 
 START_CLOCK = datetime(2026, 10, 4, 8, 0, tzinfo=UTC)  # the clock every scenario starts at
 SEED_STEP = -1  # index reported for a failure while loading the seed
@@ -83,11 +90,16 @@ def _failure_summary(exc: BaseException) -> str:
     return f"خطای غیرمنتظره هنگام اجرای گام: {type(exc).__name__}: {exc}"
 
 
-async def run_scenario(spec: BotSpec, scenario: Scenario) -> ScenarioResult:
+async def run_scenario(
+    spec: BotSpec, scenario: Scenario, *, store_factory: StoreFactory | None = None
+) -> ScenarioResult:
     """Run one scenario. Never raises."""
     try:
         run_spec = apply_capacity_override(spec, scenario.capacity_override)
-        ctx = RunContext(run_spec, MemoryStore(owner_actor_id=OWNER), START_CLOCK)
+        store = store_factory() if store_factory is not None else MemoryStore(owner_actor_id=OWNER)
+        if inspect.isawaitable(store):
+            store = await store
+        ctx = RunContext(run_spec, store, START_CLOCK)
     except Exception as exc:  # defensive: a malformed spec object
         return _setup_failure(scenario, _failure_summary(exc), [])
     try:
@@ -141,10 +153,12 @@ def _setup_failure(scenario: Scenario, message: str, transcript: list[Transcript
     )
 
 
-async def run_scenarios(spec: BotSpec, scenarios: list[Scenario]) -> TestReport:
+async def run_scenarios(
+    spec: BotSpec, scenarios: list[Scenario], *, store_factory: StoreFactory | None = None
+) -> TestReport:
     """Run every scenario (each on a fresh store) and summarize. Never raises."""
     started = time.perf_counter()
-    results = [await run_scenario(spec, s) for s in scenarios]
+    results = [await run_scenario(spec, s, store_factory=store_factory) for s in scenarios]
     passed = sum(1 for r in results if r.passed)
     return TestReport(
         total=len(results),

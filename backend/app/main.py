@@ -25,6 +25,7 @@ import app.api as api_package
 from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
+from app.security.body_limit import BodyLimitMiddleware
 from app.security.redact import install_log_redaction
 
 log = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ _HTTP_MESSAGES = {
     404: "مورد درخواستی پیدا نشد.",
     405: "این روش درخواست مجاز نیست.",
     409: "درخواست با وضعیت فعلی سازگار نیست.",
+    413: "حجم درخواست بیش از حد مجاز است.",
     422: "اطلاعات ارسال‌شده نامعتبر است.",
 }
 
@@ -119,6 +121,9 @@ def create_app() -> FastAPI:
     settings = get_settings()
     install_log_redaction()  # SECURITY (WP4b): redact tokens and credentials from every log record
     app = FastAPI(title="BotForge", lifespan=lifespan)
+    # SECURITY: FastAPI parses a body before authentication runs, so bodies are capped up front.
+    # Added before CORS so that CORS stays the outer layer and also decorates 413 answers.
+    app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.FRONTEND_ORIGIN],
