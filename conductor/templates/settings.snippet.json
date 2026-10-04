@@ -1,0 +1,41 @@
+{
+  "model": "best",
+  "fallbackModel": ["opus", "sonnet"],
+  "modelSettings": {
+    "claude-fable-5-1": { "effortLevel": "high" },
+    "claude-opus-5-5": { "effortLevel": "high" },
+    "claude-sonnet-5-5": { "effortLevel": "medium" }
+  },
+  "env": {
+    "CLAUDE_CODE_ENABLE_TODO_TOOLS": "1"
+  },
+  "statusLine": {
+    "type": "command",
+    "command": "{{PYTHON}} \"{{CONDUCTOR_DIR}}/statusline.py\""
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Agent",
+        "hooks": [
+          { "type": "command", "command": "{{PYTHON}} \"{{CONDUCTOR_DIR}}/hooks/agent_guard.py\"" }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write|MultiEdit|NotebookEdit",
+        "hooks": [
+          { "type": "command", "command": "{{PYTHON}} \"{{CONDUCTOR_DIR}}/hooks/inline_edit_nudge.py\"" }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "{{PYTHON}} \"{{CONDUCTOR_DIR}}/hooks/subagent_ledger.py\"" }
+        ]
+      }
+    ]
+  }
+}
