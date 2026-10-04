@@ -144,12 +144,16 @@ async def test_create_run_to_activation_over_the_api(
 
     events = await api.events(run["id"])  # the run is done: replay, then the stream ends
     types = [e["type"] for e in events]
-    assert types[0] == "owner_message" and "test_report" in types and types[-1] == "phase_finished"
+    assert (
+        types[0] == "owner_message"
+        and "test_report" in types
+        and types[-2:] == ["phase_finished", "run_status"]
+    )
     assert [e["id"] for e in events] == sorted(e["id"] for e in events)
     assert events[: len(stored)] == stored
     assert set(events[0]) == {"id", "run_id", "ts", "type", "payload"}
     tail = await api.events(run["id"], last_event_id=stored[-1]["id"])
-    assert [e["type"] for e in tail][:2] == ["phase_started", "deployed"]
+    assert [e["type"] for e in tail][:3] == ["run_status", "phase_started", "deployed"]
     assert all(e["id"] > stored[-1]["id"] for e in tail)
 
     listed = await client.get(f"/bots/{bot_id}/runs", headers=ALICE)
@@ -192,7 +196,8 @@ async def test_clarification_answer_one_active_run_and_reject(
         statuses = (await session.execute(select(Revision.status).where(Revision.bot_id == bot_id))).scalars()
         assert list(statuses) == ["rejected"]
     events = await api.events(created["id"])  # a terminal run's stream ends after the replay
-    assert events[-1]["type"] == "agent_message"
+    assert [e["type"] for e in events][-2:] == ["agent_message", "run_status"]
+    assert events[-1]["payload"] == {"status": "rejected", "phase": "await_approval"}
     after_reject = await client.post(f"/bots/{bot_id}/runs", json={"message": "از نو"}, headers=ALICE)
     assert after_reject.status_code == 201
 
@@ -223,7 +228,7 @@ async def test_blocked_approval_and_failed_run_over_the_api(
     failed = await api.start(other_bot)
     run = await api.run(failed["id"])
     assert run["status"] == "failed" and run["phase"] == "failed"
-    assert [e["type"] for e in await api.events(failed["id"])][-1] == "error"
+    assert [e["type"] for e in await api.events(failed["id"])][-2:] == ["error", "run_status"]
 
 
 async def test_runs_are_owned(
@@ -422,3 +427,35 @@ async def test_modify_stale_base_and_triage_over_the_api(
             select(func.count()).select_from(Revision).where(Revision.bot_id == bot_id)
         )
         assert count.scalar_one() == 3  # base, the stale draft, the other revision: triage adds none
+
+
+async def test_run_status_events_and_startup_interruption_over_the_api(
+    app_client: tuple[Any, httpx.AsyncClient], make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    app, client = app_client
+    api = make_api(session_factory, client, app)
+    bot_id, _ = await make_bot("alice", active=False)
+    token = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
+    created = await api.start(bot_id, f"{GOLDEN_PROMPT} {token}")
+    events = await api.events(created["id"])
+    statuses = [e["payload"] for e in events if e["type"] == "run_status"]
+    assert statuses == [
+        {"status": "running", "phase": "understand"},
+        {"status": "waiting_approval", "phase": "await_approval"},
+    ]
+    async with session_factory() as session:
+        stored = (
+            await session.execute(
+                select(AgentEvent.payload).where(AgentEvent.run_id == uuid.UUID(created["id"]))
+            )
+        ).scalars()
+        assert token not in json.dumps(list(stored), ensure_ascii=False)
+        run_row = await session.get(AgentRun, uuid.UUID(created["id"]))
+        assert token not in json.dumps(run_row.state, ensure_ascii=False)
+        # A restart marks the run interrupted outside the orchestrator (app.main.mark_interrupted_runs).
+        run_row.status = "interrupted"
+        await session.commit()
+    events = await api.events(created["id"])  # the stream adds the missing run_status, then ends
+    assert events[-1]["type"] == "run_status" and events[-1]["payload"]["status"] == "interrupted"
+    again = await api.events(created["id"])
+    assert [e["type"] for e in again].count("run_status") == 3  # not duplicated

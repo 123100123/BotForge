@@ -16,6 +16,7 @@ from tests.unit.agent.helpers import (
     DEADLINE_HOURS,
     MOD_CAPACITY,
     MOD_DEADLINE,
+    build_ok,
     capacity_requirement,
     capacity_scenario,
     change_out,
@@ -286,3 +287,169 @@ async def test_repair_tool_limit_blocks_approval() -> None:
     assert approval["can_approve"] is False and STEP_LIMIT_TEXT in approval["blocked_reason"]
     with pytest.raises(OrchestratorError):
         await h.orch.approve(run.id)
+
+
+# --------------------------------------------------------------------------- item 4
+
+
+def _statuses(h, run_id: str) -> list[tuple[str, str]]:
+    return [(p["status"], p["phase"]) for p in h.of_type(run_id, "run_status")]
+
+
+async def test_modify_run_status_sequence() -> None:
+    from tests.unit.agent.helpers import capacity_scripts
+
+    h = modify_harness(capacity_scripts(12))
+    run = await h.start_change()
+    await h.orch.approve(run.id)
+    assert _statuses(h, run.id) == [
+        ("running", "triage"),
+        ("waiting_approval", "await_approval"),
+        ("running", "deploy"),
+        ("done", "deploy"),
+    ]
+    assert h.types(run.id)[-1] == "run_status"
+
+
+@pytest.mark.parametrize("intent", ["question", "data_request", "unsupported"])
+async def test_triage_outcomes_announce_done(intent: str) -> None:
+    h = modify_harness({"structured": {"triage": [triage_out(intent, "")]}})
+    run = await h.start_change("سؤال")
+    assert _statuses(h, run.id) == [("running", "triage"), ("done", "triage")]
+    types = h.types(run.id)
+    assert types[-1] == "run_status" and "agent_message" in types
+    assert "error" not in types
+
+
+async def test_silent_waiting_user_pauses_announce_status_and_explain() -> None:
+    # modify: empty delta (no questions event)
+    h = modify_harness({"structured": {"triage": [triage_out()], "understand": [change_out()] * 3}})
+    run = await h.start_change("بهترش کن")
+    assert run.status == "waiting_user" and h.of_type(run.id, "questions") == []
+    assert _statuses(h, run.id)[-1] == ("waiting_user", "clarify")
+    assert h.of_type(run.id, "agent_message")
+    run = await h.answer(run.id, "نمی‌دانم")
+    run = await h.answer(run.id, "هیچ")  # end_without_change
+    assert run.status == "done" and _statuses(h, run.id)[-1] == ("done", "understand")
+    # create: no capability requirement
+    no_caps = understand_out()
+    no_caps["requirements"]["items"] = [
+        r for r in no_caps["requirements"]["items"] if r["kind"] != "capability"
+    ]
+    c = harness(structured={"understand": [no_caps]})
+    created = await c.start()
+    assert created.status == "waiting_user" and c.of_type(created.id, "questions") == []
+    assert _statuses(c, created.id) == [("running", "understand"), ("waiting_user", "clarify")]
+    assert c.of_type(created.id, "agent_message")
+
+
+async def test_activation_refused_returns_to_waiting_approval_without_an_error_event() -> None:
+    from app.agent.repository import ActivationRefused
+
+    h = harness()
+    run = await h.start()
+
+    async def refuse(revision_id: str) -> int:
+        raise ActivationRefused("نسخه هنوز آماده نیست.", code="invalid_revision_state")
+
+    h.repo.activate = refuse  # type: ignore[method-assign]
+    with pytest.raises(OrchestratorError) as refused:
+        await h.orch.approve(run.id)
+    assert refused.value.code == "invalid_revision_state"
+    assert (await h.repo.load_run(run.id)).status == "waiting_approval"
+    assert "error" not in h.types(run.id)
+    assert "نسخه هنوز آماده نیست." in h.of_type(run.id, "agent_message")[-1]["text"]
+    assert _statuses(h, run.id)[-2:] == [("running", "deploy"), ("waiting_approval", "await_approval")]
+
+
+async def test_rejected_interrupted_and_reconciled_statuses() -> None:
+    import asyncio
+
+    h = harness()
+    run = await h.start()
+    await h.orch.reject(run.id)
+    assert _statuses(h, run.id)[-1] == ("rejected", "await_approval")
+
+    def cancel(messages: list) -> dict:
+        raise asyncio.CancelledError
+
+    c = harness(structured={"understand": [cancel]})
+    record = await c.orch.start_create(c.bot_id, "x")
+    with pytest.raises(asyncio.CancelledError):
+        await c.orch.advance(record.id)
+    assert _statuses(c, record.id)[-1] == ("interrupted", "understand")
+
+    # A run marked interrupted outside the orchestrator (startup) gets its event once.
+    d = harness()
+    other = await d.orch.start_create(d.bot_id, "x")
+    d.repo.runs[other.id].status = "interrupted"
+    await d.orch.ensure_status_event(other.id)
+    await d.orch.ensure_status_event(other.id)
+    assert _statuses(d, other.id) == [("running", "understand"), ("interrupted", "understand")]
+
+
+# --------------------------------------------------------------------------- item 6
+
+TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
+
+
+async def test_a_pasted_telegram_token_never_reaches_events_state_or_the_model() -> None:
+    from tests.unit.agent.helpers import GOLDEN_PROMPT
+
+    h = harness(
+        structured={
+            "understand": [understand_out(), understand_out()],
+            "testgen": [{"scenarios": golden_acceptance()}] * 2,
+            "sample_data": [sample_out()] * 2,
+        },
+        loops={"build": [build_ok(), build_ok()]},
+    )
+    run = await h.start(f"{GOLDEN_PROMPT} توکن ربات: {TOKEN}")
+    run = await h.answer(run.id, f"این هم توکن {TOKEN}")
+    assert run.status == "waiting_approval", run.state.error
+    dumped = run.state.model_dump_json() + str([e.payload for e in h.events(run.id)])
+    assert TOKEN not in dumped and "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ" not in dumped
+    assert TOKEN not in str([c.messages for c in h.llm.calls])
+    assert "[REDACTED]" in h.events(run.id)[0].payload["text"]
+    notices = [m["text"] for m in h.of_type(run.id, "agent_message") if "«تنظیمات»" in m["text"]]
+    assert len(notices) == 2
+
+
+async def test_a_token_in_a_change_request_is_redacted_before_triage() -> None:
+    h = modify_harness({"structured": {"triage": [triage_out("question", "بله.")]}})
+    run = await h.start_change(f"توکن جدید {TOKEN} را بگذار")
+    assert TOKEN not in str(h.llm.calls[0].messages) and TOKEN not in run.state.model_dump_json()
+    assert any("«تنظیمات»" in m["text"] for m in h.of_type(run.id, "agent_message"))
+
+
+# --------------------------------------------------------------------------- item 7
+
+
+async def test_tool_result_summaries_list_the_changes() -> None:
+    from app.agent.tools import change_summary
+    from app.botspec.models import BotSpec
+    from tests.unit.agent.helpers import capacity_scripts, golden_spec
+
+    h = modify_harness(capacity_scripts(12))
+    run = await h.start_change()
+    results = [
+        e.payload
+        for e in h.events(run.id)
+        if e.type == "tool_result" and e.payload["name"] == "apply_spec_patch"
+    ]
+    assert results[0]["summary"] == "ظرفیت: ۱۰ ← ۱۲"
+    c = harness()
+    created = await c.start()
+    first = next(p for p in c.of_type(created.id, "tool_result") if p["name"] == "set_spec")
+    assert first["summary"].startswith("مشخصات کامل ربات نوشته شد")
+    base = BotSpec.model_validate(golden_spec())
+    many = golden_spec()
+    booking = many["capabilities"][1]
+    booking["capacity"]["value"] = 12
+    booking["cancellation"]["deadline_hours"] = 2
+    booking["max_active_per_user"] = 3
+    booking["closes_hours_before_start"] = 1
+    many["bot"]["name"] = "نام تازه"
+    summary = change_summary(base, BotSpec.model_validate(many))
+    assert summary.count("؛") == 3 and summary.endswith("و ۱ مورد دیگر")
+    assert change_summary(base, base) == "تغییری در مشخصات ایجاد نشد"

@@ -19,6 +19,7 @@ from app.agent.context import Emit
 from app.agent.llm import ToolDef, ToolOutcome
 from app.agent.modify import supersede_refusal, target_ids
 from app.agent.state import RunState, ScenarioFix, SupersededScenario
+from app.botspec.diff import diff_specs
 from app.botspec.models import BotSpec
 from app.botspec.outline import spec_outline
 from app.botspec.patch import ROOT, PatchError, PatchOp, apply_patch, child
@@ -209,6 +210,20 @@ MODIFY_REPAIR_TOOLS = (
 CompatCheck = Callable[[BotSpec], list[SpecIssue]]
 
 
+SUMMARY_LINES = 4
+
+
+def change_summary(before: BotSpec, after: BotSpec) -> str:
+    """Owner-readable ``tool_result`` summary of a spec edit: the diff's Persian lines."""
+    labels = [c.label_fa for c in diff_specs(before, after)]
+    if not labels:
+        return "تغییری در مشخصات ایجاد نشد"
+    text = "؛ ".join(labels[:SUMMARY_LINES])
+    if len(labels) > SUMMARY_LINES:
+        text += f" و {fa(len(labels) - SUMMARY_LINES)} مورد دیگر"
+    return text
+
+
 def _call_summary(name: str, args: dict[str, Any]) -> str:
     if name == "set_spec":
         return "نوشتن مشخصات کامل ربات"
@@ -311,12 +326,15 @@ class AgentTools:
                 f"{fa(len(schema_issues))} خطای ساختاری؛ ذخیره نشد"
             )
         issues = validate_spec(spec)
+        before = self.state.draft_spec
         self.state.draft_spec = spec
         await self._spec_changed()
         ok = not _errors(issues)
-        return ToolOutcome({"ok": ok, "stored": True, "issues": compact_issues(issues)}), self._issue_summary(
-            issues
-        )
+        if before is None:
+            summary = f"مشخصات کامل ربات نوشته شد؛ {self._issue_summary(issues)}"
+        else:
+            summary = f"{change_summary(before, spec)}؛ {self._issue_summary(issues)}"
+        return ToolOutcome({"ok": ok, "stored": True, "issues": compact_issues(issues)}), summary
 
     async def _t_apply_spec_patch(self, args: dict[str, Any]) -> tuple[ToolOutcome, str]:
         if self.state.draft_spec is None:
@@ -344,6 +362,7 @@ class AgentTools:
                     "the current draft already has errors; fix all of them in one call or use set_spec"
                 )
             return ToolOutcome({"ok": False, "error": detail}), "تغییر رد شد"
+        before = self.state.draft_spec
         self.state.draft_spec = new
         if self.state.kind == "modify":
             self.state.patch_ops.extend(ops)
@@ -357,7 +376,7 @@ class AgentTools:
         compat = self.compat_errors()
         if compat:
             content["compat_errors"] = compact_issues(compat)
-        return ToolOutcome(content), f"{fa(len(ops))} تغییر اعمال شد"
+        return ToolOutcome(content), change_summary(before, new)
 
     async def _t_validate_spec(self, args: dict[str, Any]) -> tuple[ToolOutcome, str]:
         if self.state.draft_spec is None:

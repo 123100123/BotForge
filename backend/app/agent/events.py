@@ -36,6 +36,7 @@ APPROVAL_REQUESTED = "approval_requested"
 DEPLOYED = "deployed"
 USAGE = "usage"
 ERROR = "error"
+RUN_STATUS = "run_status"
 
 EVENT_TYPES = frozenset(
     {
@@ -55,6 +56,7 @@ EVENT_TYPES = frozenset(
         DEPLOYED,
         USAGE,
         ERROR,
+        RUN_STATUS,
     }
 )
 
@@ -187,7 +189,14 @@ def usage(u: Usage) -> Event:
 
 
 def error(message: str) -> Event:
+    """Only for runs that end ``failed``."""
     return ERROR, {"message": message}
+
+
+def run_status(status: str, phase: str) -> Event:
+    """Emitted on every run status transition (running, waiting_user, waiting_approval, done,
+    failed, rejected, interrupted), so a client never has to infer the status from other events."""
+    return RUN_STATUS, {"status": status, "phase": phase}
 
 
 # --------------------------------------------------------------------------- live bus

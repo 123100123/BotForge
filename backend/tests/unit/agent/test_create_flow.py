@@ -78,8 +78,17 @@ async def test_event_sequence_and_payload_shapes_for_a_normal_run() -> None:
     assert types.index("requirements") < types.index("tool_call") < types.index("tests_generated")
     assert types.index("tests_generated") < types.index("test_report") < types.index("approval_requested")
     assert types.index("approval_requested") < types.index("deployed")
+    statuses = [(e.payload["status"], e.payload["phase"]) for e in events if e.type == "run_status"]
+    assert statuses == [
+        ("running", "understand"),
+        ("waiting_approval", "await_approval"),
+        ("running", "deploy"),
+        ("done", "deploy"),
+    ]
+    assert types[-1] == "run_status"
 
     shapes = {
+        "run_status": {"status", "phase"},
         "owner_message": {"text"},
         "agent_message": {"text"},
         "phase_started": {"phase"},
@@ -415,7 +424,8 @@ async def test_exception_inside_a_phase_marks_the_run_failed() -> None:
     assert "RuntimeError: boom" in run.state.error
     (error,) = h.of_type(run.id, "error")
     assert error["message"].startswith("خطای غیرمنتظره")
-    assert h.types(run.id)[-1] == "error"
+    assert h.types(run.id)[-2:] == ["error", "run_status"]
+    assert h.of_type(run.id, "run_status")[-1] == {"status": "failed", "phase": "failed"}
 
 
 async def test_exception_in_a_tool_handler_is_reported_to_the_model_not_raised() -> None:
