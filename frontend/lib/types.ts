@@ -6,9 +6,8 @@
  *   backend/app/runtime/contracts.py
  *   IMPLEMENTATION_ROADMAP.md ("Agent Architecture" events, "Backend API")
  *
- * Shapes marked "provisional" are not frozen by the roadmap (REST response models are owned by
- * the backend packages); they follow the roadmap's wording and should be re-checked against the
- * Pydantic response models when those land.
+ * REST shapes follow the roadmap's "Response shapes" table and the backend code that exists
+ * (backend/app/api/bots.py, data.py). Where the code exists it is authoritative.
  */
 
 /* ------------------------------------------------------------------ BotSpec */
@@ -390,24 +389,44 @@ export interface RuntimeResponse {
   effects: RuntimeEffect[];
 }
 
-/* ------------------------------------------------------------------ Bots, runs, revisions (provisional REST shapes) */
+export type Persona = "ali" | "sara" | "reza" | "owner";
+
+/** POST /bots/{bot_id}/simulator/events. `revision_id: null` means the active revision. */
+export interface SimulatorEventBody {
+  revision_id: string | null;
+  persona: Persona;
+  kind: "start" | "text" | "callback";
+  text?: string;
+  data?: string;
+}
+
+/** POST /bots/{bot_id}/simulator/reset response; `loaded` = sample records loaded. */
+export interface SimulatorResetResult {
+  ok: boolean;
+  loaded: number;
+}
+
+/* ------------------------------------------------------------------ Bots, runs, revisions (REST shapes) */
 
 export type BotStatus = "draft" | "live" | "paused";
 
+/** backend/app/api/bots.py BotOut */
 export interface Bot {
   id: string;
   name: string;
   status: BotStatus;
-  active_revision_id: string | null;
-  /** Convenience for the workspace header; the backend is expected to include it. */
-  active_revision_number: number | null;
   tg_username: string | null;
+  active_revision_id: string | null;
+  active_revision_number: number | null;
+  owner_link_code: string | null;
+  owner_linked: boolean;
   created_at: string;
 }
 
+/** backend/app/api/bots.py MeOut */
 export interface Me {
   id: string;
-  email: string;
+  email: string | null;
 }
 
 export type RunKind = "create" | "modify";
@@ -447,47 +466,78 @@ export interface AgentRun {
   status: RunStatus;
   base_revision_id: string | null;
   result_revision_id: string | null;
-  usage: Usage | null;
+  /** Not part of the roadmap's run object; usage arrives as a `usage` event. */
+  usage?: Usage | null;
   created_at: string;
   updated_at: string;
 }
 
 export type RevisionStatus = "draft" | "active" | "superseded" | "rejected";
 
+export interface TestCounts {
+  total: number;
+  passed: number;
+  failed: number;
+}
+
+/** GET /bots/{bot_id}/revisions row (newest first) and the response of POST /revisions/{id}/activate. */
 export interface RevisionSummary {
   id: string;
-  bot_id: string;
   number: number;
-  parent_id: string | null;
   status: RevisionStatus;
   change_request: string | null;
   created_at: string;
   activated_at: string | null;
-  tests_total: number | null;
-  tests_passed: number | null;
+  tests: TestCounts | null;
 }
 
-export interface RevisionDetail extends RevisionSummary {
+/** GET /revisions/{revision_id}. `diff` is diff_specs(parent, this); empty for a first revision. */
+export interface RevisionDetail {
+  id: string;
+  bot_id: string;
+  number: number;
+  status: RevisionStatus;
+  parent_id: string | null;
+  change_request: string | null;
+  created_at: string;
+  activated_at: string | null;
   spec: BotSpec;
   requirements: Requirements | null;
-  diff: SpecChange[];
   scenarios: Scenario[];
+  /** Scenarios superseded while building this revision; shape not specified by the roadmap, unused. */
+  superseded: unknown[];
   test_report: TestReport | null;
+  diff: SpecChange[];
 }
 
-/* ------------------------------------------------------------------ Data admin / Telegram (provisional) */
+/* ------------------------------------------------------------------ Data admin / Telegram */
 
+export interface SystemColumn {
+  key: string;
+  label: string;
+}
+
+/** backend/app/api/data.py CollectionOut */
 export interface DataCollection {
   key: string;
   kind: "resource" | "booking" | "request";
   label: string;
+  label_plural: string;
+  writable: boolean;
+  /** resource: its fields; booking/request: the form fields */
   fields: FieldDef[];
+  system_columns: SystemColumn[];
+  /** resource only */
+  title_field?: string | null;
+  /** booking: the bookable resource; request: item_resource */
+  resource?: string | null;
 }
 
 export interface DataOverview {
   collections: DataCollection[];
 }
 
+/** backend/app/api/data.py RecordOut */
 export interface DataRecord {
   id: number;
   collection: string;
@@ -499,10 +549,28 @@ export interface DataRecord {
   updated_at: string;
 }
 
+/** backend/app/api/data.py RecordsPage (newest first) */
+export interface RecordsPage {
+  collection: string;
+  total: number;
+  limit: number;
+  offset: number;
+  items: DataRecord[];
+}
+
+/** POST /bots/{bot_id}/data/{collection}/{record_id}/actions/{action} */
+export interface DataActionResult {
+  ok: boolean;
+  outcome: Outcome | null;
+  message: string;
+}
+
+/** GET/POST connect on /bots/{bot_id}/telegram; DELETE returns the same shape. */
 export interface TelegramStatus {
   connected: boolean;
   username: string | null;
   bot_link: string | null;
+  owner_linked: boolean;
   owner_link: string | null;
   last_error: string | null;
 }

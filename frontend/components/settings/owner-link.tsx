@@ -1,0 +1,100 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
+import { Bell, Check, Copy, ExternalLink, RefreshCw } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import type { TelegramStatus } from "@/lib/types";
+
+interface OwnerLinkProps {
+  status: TelegramStatus;
+  onRefresh: () => Promise<void>;
+}
+
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** The deep link the owner opens in Telegram so alerts (new bookings, requests) reach them. */
+export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
+  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
+  const [refreshing, setRefreshing] = useState(false);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
+
+  async function copy() {
+    if (!status.owner_link) return;
+    setCopied((await copyText(status.owner_link)) ? "yes" : "no");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(null), 2500);
+  }
+
+  async function refresh() {
+    setRefreshing(true);
+    try {
+      await onRefresh();
+    } finally {
+      setRefreshing(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Bell className="size-5 text-muted-foreground" />
+          دریافت اعلان‌ها در تلگرام
+          {status.connected && (
+            <Badge variant={status.owner_linked ? "success" : "warning"} className="ms-auto">
+              {status.owner_linked ? "متصل شد" : "هنوز متصل نشده"}
+            </Badge>
+          )}
+        </CardTitle>
+        <CardDescription>
+          با باز کردن پیوند زیر در تلگرام، شما مدیر ربات می‌شوید و ثبت‌نام‌ها و درخواست‌های جدید را همان‌جا می‌گیرید.
+        </CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {!status.connected || !status.owner_link ? (
+          <p className="text-sm leading-7 text-muted-foreground">
+            پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها اینجا نمایش داده می‌شود.
+          </p>
+        ) : (
+          <>
+            <div className="rounded-md border bg-muted/40 p-3 text-sm break-all" dir="ltr">
+              {status.owner_link}
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild>
+                <a href={status.owner_link} target="_blank" rel="noreferrer">
+                  <ExternalLink />
+                  باز کردن در تلگرام
+                </a>
+              </Button>
+              <Button variant="outline" onClick={copy}>
+                {copied === "yes" ? <Check /> : <Copy />}
+                {copied === "yes" ? "کپی شد" : "کپی پیوند"}
+              </Button>
+              <Button variant="ghost" onClick={refresh} disabled={refreshing}>
+                <RefreshCw className={refreshing ? "animate-spin" : undefined} />
+                بررسی وضعیت
+              </Button>
+            </div>
+            {copied === "no" && <p role="status" className="text-sm text-destructive">کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.</p>}
+            <p className="text-sm leading-7 text-muted-foreground">
+              پیوند را فقط خودتان باز کنید. هر کس آن را باز کند، اعلان‌های مدیر را دریافت می‌کند.
+            </p>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}

@@ -1,6 +1,6 @@
 import type { Api } from "@/lib/api";
-import { ApiError } from "@/lib/errors";
 import * as engine from "@/lib/mock/engine";
+import * as tabs from "@/lib/mock/tabs";
 
 /** Small latency so loading states are real. */
 const LATENCY_MS = 120;
@@ -10,11 +10,7 @@ async function call<T>(fn: () => T): Promise<T> {
   return fn();
 }
 
-function unavailable(): never {
-  throw new ApiError("mock_unavailable", "این بخش در حالت نمایشی در دسترس نیست.", 501);
-}
-
-/** Mock implementation of the API client. Only the agent flow and bots are backed by fixtures. */
+/** Mock implementation of the API client. Agent runs, bots and the workspace tabs are backed by fixtures. */
 export const mockApi: Api = {
   me: () => call(() => ({ id: "mock-user", email: "demo@botforge.test" })),
 
@@ -31,32 +27,24 @@ export const mockApi: Api = {
   approveRun: (runId) => call(() => engine.approveRun(runId)),
   rejectRun: (runId) => call(() => engine.rejectRun(runId)),
 
-  listRevisions: (botId) => call(() => engine.listRevisions(botId)),
-  getRevision: () => call(unavailable),
-  activateRevision: () => call(unavailable),
-  runRevisionTests: () => call(unavailable),
+  listRevisions: (botId) => call(() => tabs.listRevisions(botId)),
+  getRevision: (revisionId) => call(() => tabs.getRevision(revisionId)),
+  activateRevision: (revisionId) => call(() => tabs.activateRevision(revisionId)),
+  runRevisionTests: (revisionId) => call(() => tabs.runRevisionTests(revisionId)),
 
-  simulatorEvent: () => call(unavailable),
-  simulatorReset: () => call(() => undefined),
+  simulatorEvent: (botId, body) => call(() => tabs.simulatorEvent(botId, body)),
+  simulatorReset: (botId, revisionId) => call(() => tabs.simulatorReset(botId, revisionId)),
 
-  getDataOverview: () => call(() => ({ collections: [] })),
-  listRecords: () => call(() => []),
-  createRecord: () => call(unavailable),
-  updateRecord: () => call(unavailable),
-  deleteRecord: () => call(unavailable),
-  runRecordAction: () => call(unavailable),
+  getDataOverview: (botId) => call(() => tabs.getDataOverview(botId)),
+  listRecords: (botId, collection, page) => call(() => tabs.listRecords(botId, collection, page)),
+  createRecord: (botId, collection, data) => call(() => tabs.createRecord(botId, collection, data)),
+  updateRecord: (botId, collection, recordId, data) =>
+    call(() => tabs.updateRecord(botId, collection, recordId, data)),
+  deleteRecord: (botId, collection, recordId) => call(() => tabs.deleteRecord(botId, collection, recordId)),
+  runRecordAction: (botId, collection, recordId, action) =>
+    call(() => tabs.runRecordAction(botId, collection, recordId, action)),
 
-  getTelegram: (botId) =>
-    call(() => {
-      const bot = engine.getBot(botId);
-      return {
-        connected: bot.tg_username !== null,
-        username: bot.tg_username,
-        bot_link: bot.tg_username ? `https://t.me/${bot.tg_username}` : null,
-        owner_link: null,
-        last_error: null,
-      };
-    }),
-  connectTelegram: () => call(unavailable),
-  disconnectTelegram: () => call(unavailable),
+  getTelegram: (botId) => call(() => tabs.getTelegram(botId)),
+  connectTelegram: (botId, token) => call(() => tabs.connectTelegram(botId, token)),
+  disconnectTelegram: (botId) => call(() => tabs.disconnectTelegram(botId)),
 };
