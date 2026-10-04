@@ -30,4 +30,5 @@ export function ev<T extends AgentEventType>(
   return { event: { type, payload } as ScriptEvent, delay };
 }
 
+/** Scripts must not set the run's status themselves; the mock engine emits `run_status` events. */
 export const waitFor = (wait: "message" | "approve"): ScriptItem => ({ wait });

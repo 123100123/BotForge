@@ -55,10 +55,30 @@ export function formatTime(input: string | number | Date): string {
   return d ? timeFmt.format(d) : "";
 }
 
-/** Jalali date and time. */
-export function formatDateTime(input: string | number | Date): string {
+const zonedFormats = new Map<string, Intl.DateTimeFormat>();
+
+/** Jalali date and time, in Asia/Tehran unless `timeZone` (an IANA zone) is given. */
+export function formatDateTime(input: string | number | Date, timeZone?: string): string {
   const d = parse(input);
-  return d ? dateTimeFmt.format(d) : "";
+  if (!d) return "";
+  if (!timeZone || timeZone === TIME_ZONE) return dateTimeFmt.format(d);
+  let fmt = zonedFormats.get(timeZone);
+  if (!fmt) {
+    try {
+      fmt = new Intl.DateTimeFormat("fa-IR-u-ca-persian", {
+        year: "numeric",
+        month: "long",
+        day: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+        timeZone,
+      });
+    } catch {
+      fmt = dateTimeFmt; // unknown zone name: fall back to the default zone
+    }
+    zonedFormats.set(timeZone, fmt);
+  }
+  return fmt.format(d);
 }
 
 const relFmt = new Intl.RelativeTimeFormat("fa", { numeric: "auto" });

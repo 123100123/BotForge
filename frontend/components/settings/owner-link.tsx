@@ -63,9 +63,25 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        {!status.connected || !status.owner_link ? (
+        {!status.connected ? (
           <p className="text-sm leading-7 text-muted-foreground">
-            پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها اینجا نمایش داده می‌شود.
+            پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
+          </p>
+        ) : status.owner_linked ? (
+          // The link is single-use: once an account is linked, the server no longer returns it.
+          <div className="flex flex-col gap-3">
+            <p role="status" className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm leading-7 text-success">
+              <Check className="mt-1.5 size-4 shrink-0" />
+              حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
+            </p>
+            <p className="text-sm leading-7 text-muted-foreground">
+              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای متصل کردن حساب تلگرام دیگری، ابتدا اتصال را قطع کنید و توکن ربات را
+              دوباره وارد کنید؛ با اتصال دوباره یک پیوند تازه ساخته می‌شود.
+            </p>
+          </div>
+        ) : !status.owner_link ? (
+          <p className="text-sm leading-7 text-muted-foreground">
+            الان پیوندی در دسترس نیست. با وارد کردن دوبارهٔ توکن ربات (پس از قطع اتصال)، یک پیوند تازه ساخته می‌شود.
           </p>
         ) : (
           <>

@@ -17,14 +17,16 @@ interface JalaliDateTimeInputProps {
   value: string;
   /** ISO 8601 string with the Tehran offset, or "" when cleared. */
   onChange: (iso: string) => void;
+  /** IANA zone the wall-clock time is entered and shown in (the collection's `timezone`). */
+  timeZone?: string;
   invalid?: boolean;
   describedBy?: string;
 }
 
 /** Jalali date and time picker: a field that opens an inline calendar with a time selector. */
-export function JalaliDateTimeInput({ id, value, onChange, invalid, describedBy }: JalaliDateTimeInputProps) {
+export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, describedBy }: JalaliDateTimeInputProps) {
   const [open, setOpen] = useState(false);
-  const selected = useMemo(() => isoToJalali(value), [value]);
+  const selected = useMemo(() => isoToJalali(value, timeZone), [value, timeZone]);
 
   return (
     <div className="flex flex-col gap-2">
@@ -42,7 +44,7 @@ export function JalaliDateTimeInput({ id, value, onChange, invalid, describedBy 
           )}
         >
           <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
-          <span className="truncate">{value ? formatDateTime(value) : "انتخاب تاریخ و ساعت"}</span>
+          <span className="truncate">{value ? formatDateTime(value, timeZone) : "انتخاب تاریخ و ساعت"}</span>
         </button>
         {value && (
           <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
@@ -57,7 +59,7 @@ export function JalaliDateTimeInput({ id, value, onChange, invalid, describedBy 
             locale={persian_fa}
             value={selected}
             onChange={(d) => {
-              if (d && !Array.isArray(d)) onChange(jalaliToIso(d));
+              if (d && !Array.isArray(d)) onChange(jalaliToIso(d, timeZone));
             }}
             plugins={[<TimePicker key="time" hideSeconds />]}
           />

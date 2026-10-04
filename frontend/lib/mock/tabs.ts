@@ -4,7 +4,7 @@
  * error codes and Persian messages the tabs react to.
  */
 import { ApiError, ERROR_CODES } from "@/lib/errors";
-import { countsOf, detailOf, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
+import { countsOf, detailOf, hasNoStoredTests, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
 import { reportOf } from "@/lib/fixtures/scenarios";
 import { getDb, persist } from "@/lib/mock/engine";
 import { resetSandbox, simulate } from "@/lib/mock/simulator";
@@ -37,7 +37,7 @@ function summaryOf(rev: StoredRevision): RevisionSummary {
     change_request: rev.change_request,
     created_at: rev.created_at,
     activated_at: rev.activated_at,
-    tests: countsOf(rev.variant),
+    tests: hasNoStoredTests(rev) ? null : countsOf(rev.variant),
   };
 }
 
@@ -80,8 +80,13 @@ export function activateRevision(revisionId: string): RevisionSummary {
 }
 
 export function runRevisionTests(revisionId: string): TestReport {
-  const report = detailOf(findRevision(revisionId)).test_report;
-  return report ?? reportOf([]);
+  const rev = findRevision(revisionId);
+  // A revision stored without scenarios gets them derived from its spec, then stored with the report.
+  if (hasNoStoredTests(rev)) {
+    rev.ran = true;
+    persist();
+  }
+  return detailOf(rev).test_report ?? reportOf([]);
 }
 
 /* ------------------------------------------------------------------ simulator */
@@ -129,10 +134,28 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
     fields: r.fields,
     system_columns: [],
     title_field: r.title_field,
+    timezone: spec.bot.timezone,
   }));
   for (const cap of spec.capabilities) {
     if (cap.type === "booking") {
-      out.push({ key: cap.key, kind: "booking", label: cap.title, label_plural: cap.title, writable: false, fields: cap.form_fields, system_columns: SYSTEM_COLUMNS, resource: cap.resource });
+      out.push({
+        key: cap.key,
+        kind: "booking",
+        label: cap.title,
+        label_plural: cap.title,
+        writable: false,
+        fields: cap.form_fields,
+        system_columns: SYSTEM_COLUMNS,
+        resource: cap.resource,
+        timezone: spec.bot.timezone,
+        statuses: [
+          { key: "confirmed", label: "تأیید شده" },
+          { key: "waitlisted", label: "لیست انتظار" },
+          { key: "cancelled", label: "لغو شده" },
+        ],
+        // The admin cancel ignores the cancellation deadline; it applies to active bookings only.
+        actions: cap.cancellation.enabled ? [{ key: "cancel", label: "لغو ثبت‌نام", from_statuses: ["confirmed", "waitlisted"] }] : [],
+      });
     } else if (cap.type === "request") {
       out.push({
         key: cap.key,
@@ -143,6 +166,9 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
         fields: cap.form_fields,
         system_columns: SYSTEM_COLUMNS.filter((c) => cap.item_resource !== null || c.key !== "item_id"),
         resource: cap.item_resource,
+        timezone: spec.bot.timezone,
+        statuses: cap.statuses,
+        actions: cap.owner_actions.map((a) => ({ key: a.key, label: a.label, from_statuses: a.from_statuses })),
       });
     }
   }
@@ -170,14 +196,38 @@ function writable(botId: string, key: string): DataCollection {
   return col;
 }
 
+const FIXTURE_NAMES: Record<string, string> = {
+  "5012345701": "نگین کاظمی",
+  "5012345702": "پویا صادقی",
+  "5012345801": "مهسا رحیمی",
+  "6001001": "زهرا موسوی",
+  "6001003": "امیر نادری",
+};
+
+/** The booking/request fields the real backend adds: the customer's name and the item's title. */
+function decorate(botId: string, spec: BotSpec, record: DataRecord): DataRecord {
+  const out: DataRecord = { ...record };
+  if (record.actor_id) out.actor_name = FIXTURE_NAMES[record.actor_id] ?? null;
+  if (record.item_id !== null) {
+    const cap = spec.capabilities.find((c) => c.key === record.collection);
+    const resourceKey = cap?.type === "booking" ? cap.resource : cap?.type === "request" ? cap.item_resource : null;
+    const resource = spec.resources.find((r) => r.key === resourceKey);
+    const item = recordsOf(botId).find((r) => r.collection === resourceKey && r.id === record.item_id);
+    const title = resource && item ? item.data[resource.title_field] : null;
+    out.item_title = typeof title === "string" ? title : null;
+  }
+  return out;
+}
+
 export function listRecords(botId: string, collection: string, page?: { limit?: number; offset?: number }): RecordsPage {
   findCollection(botId, collection);
+  const spec = activeSpec(botId);
   const limit = page?.limit ?? 50;
   const offset = page?.offset ?? 0;
   const all = recordsOf(botId)
     .filter((r) => r.collection === collection)
     .sort((a, b) => b.id - a.id);
-  return { collection, total: all.length, limit, offset, items: all.slice(offset, offset + limit).map((r) => ({ ...r })) };
+  return { collection, total: all.length, limit, offset, items: all.slice(offset, offset + limit).map((r) => decorate(botId, spec, r)) };
 }
 
 const PERSIAN_TO_ASCII: Record<string, string> = {};
@@ -187,16 +237,29 @@ const ascii = (s: string) => s.replace(/[۰-۹٠-٩]/g, (c) => PERSIAN_TO_ASCII[
 const isEmpty = (v: unknown) => v === null || v === undefined || (typeof v === "string" && v.trim() === "");
 
 /** Mirrors backend/app/botspec/records.py validate_record closely enough for the same Persian errors. */
-function validateRecord(fields: FieldDef[], data: Record<string, unknown>): { cleaned: Record<string, unknown>; errors: string[] } {
+function validateRecord(
+  fields: FieldDef[],
+  data: Record<string, unknown>,
+): { cleaned: Record<string, unknown>; errors: string[]; fieldErrors: { field: string | null; message: string }[] } {
   const cleaned: Record<string, unknown> = {};
   const errors: string[] = [];
+  const fieldErrors: { field: string | null; message: string }[] = [];
   for (const f of fields) {
+    const before = errors.length;
+    validateField(f, data, cleaned, errors);
+    for (const message of errors.slice(before)) fieldErrors.push({ field: f.key, message });
+  }
+  return { cleaned, errors, fieldErrors };
+}
+
+function validateField(f: FieldDef, data: Record<string, unknown>, cleaned: Record<string, unknown>, errors: string[]): void {
+  {
     let raw = data[f.key];
     if (isEmpty(raw)) raw = f.default;
     if (isEmpty(raw)) {
       if (f.required) errors.push(`«${f.label}» الزامی است.`);
       cleaned[f.key] = null;
-      continue;
+      return;
     }
     switch (f.type) {
       case "integer": {
@@ -240,17 +303,16 @@ function validateRecord(fields: FieldDef[], data: Record<string, unknown>): { cl
         cleaned[f.key] = String(raw).trim();
     }
   }
-  return { cleaned, errors };
 }
 
-function invalid(errors: string[]): ApiError {
-  return new ApiError(ERROR_CODES.invalidRecord, "داده‌های واردشده نامعتبر است: " + errors.join(" "), 400, errors);
+function invalid(errors: string[], fieldErrors: { field: string | null; message: string }[]): ApiError {
+  return new ApiError(ERROR_CODES.invalidRecord, "داده‌های واردشده نامعتبر است: " + errors.join(" "), 400, errors, fieldErrors);
 }
 
 export function createRecord(botId: string, collection: string, data: Record<string, unknown>): DataRecord {
   const col = writable(botId, collection);
-  const { cleaned, errors } = validateRecord(col.fields, data);
-  if (errors.length > 0) throw invalid(errors);
+  const { cleaned, errors, fieldErrors } = validateRecord(col.fields, data);
+  if (errors.length > 0) throw invalid(errors, fieldErrors);
   const d = getDb();
   d.recordSeq += 1;
   const now = new Date().toISOString();
@@ -264,8 +326,8 @@ export function updateRecord(botId: string, collection: string, recordId: number
   const col = writable(botId, collection);
   const record = recordsOf(botId).find((r) => r.collection === collection && r.id === recordId);
   if (!record) throw new ApiError("record_not_found", "این رکورد پیدا نشد.", 404);
-  const { cleaned, errors } = validateRecord(col.fields, { ...record.data, ...data });
-  if (errors.length > 0) throw invalid(errors);
+  const { cleaned, errors, fieldErrors } = validateRecord(col.fields, { ...record.data, ...data });
+  if (errors.length > 0) throw invalid(errors, fieldErrors);
   record.data = { ...record.data, ...cleaned };
   record.updated_at = new Date().toISOString();
   persist();
@@ -361,7 +423,7 @@ function statusOf(botId: string): TelegramStatus {
     username: bot.tg_username,
     bot_link: connected ? `https://t.me/${bot.tg_username}` : null,
     owner_linked: bot.owner_linked,
-    owner_link: connected && bot.owner_link_code ? `https://t.me/${bot.tg_username}?start=owner_${bot.owner_link_code}` : null,
+    owner_link: connected && !bot.owner_linked && bot.owner_link_code ? `https://t.me/${bot.tg_username}?start=owner_${bot.owner_link_code}` : null,
     last_error: d.telegramErrors[botId] ?? null,
   };
 }

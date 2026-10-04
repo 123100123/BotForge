@@ -44,16 +44,25 @@ export function toPayload(fields: FieldDef[], values: FormValues): Record<string
 }
 
 /**
- * Splits the backend's `invalid_record` messages into per-field messages. Each message starts with
- * the field label in «» (backend/app/botspec/records.py); anything else stays a general error.
+ * Splits the backend's `invalid_record` messages into per-field messages, using `field_errors` when
+ * present; anything not tied to a field stays a general error.
  */
 export function splitFieldErrors(
   fields: FieldDef[],
-  details: unknown,
+  err: { fieldErrors: { field: string | null; message: string }[] | null; details: unknown },
 ): { byField: Record<string, string>; general: string[] } {
   const byField: Record<string, string> = {};
   const general: string[] = [];
-  const list = Array.isArray(details) ? details.filter((d): d is string => typeof d === "string") : [];
+  // Preferred: the backend says which field each message belongs to.
+  if (err.fieldErrors) {
+    for (const { field, message } of err.fieldErrors) {
+      if (field && fields.some((f) => f.key === field) && !byField[field]) byField[field] = message;
+      else general.push(message);
+    }
+    return { byField, general };
+  }
+  // Fallback: older responses list plain messages that start with the field label in «».
+  const list = Array.isArray(err.details) ? err.details.filter((d): d is string => typeof d === "string") : [];
   for (const message of list) {
     const field = fields.find((f) => message.startsWith(`«${f.label}»`));
     if (field && !byField[field.key]) byField[field.key] = message;
@@ -63,7 +72,7 @@ export function splitFieldErrors(
 }
 
 /** Plain-text rendering of one stored value for table cells. */
-export function formatCell(field: FieldDef, value: unknown): string {
+export function formatCell(field: FieldDef, value: unknown, timeZone?: string): string {
   if (value === null || value === undefined || value === "") return "";
   switch (field.type) {
     case "boolean":
@@ -72,7 +81,7 @@ export function formatCell(field: FieldDef, value: unknown): string {
     case "decimal":
       return typeof value === "number" ? formatNumber(value) : toFaDigits(String(value));
     case "datetime":
-      return formatDateTime(String(value));
+      return formatDateTime(String(value), timeZone);
     case "phone":
       return toFaDigits(String(value));
     default:

@@ -1,5 +1,5 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
-import { ApiError } from "@/lib/errors";
+import { ApiError, parseFieldErrors } from "@/lib/errors";
 import { getAccessToken } from "@/lib/supabase";
 import { mockApi } from "@/lib/mock/api";
 import type {
@@ -90,9 +90,15 @@ export async function authHeaders(): Promise<Record<string, string>> {
 /** Parses the backend's `{"error": {"code", "message"}}` envelope into an ApiError. */
 export async function parseErrorResponse(res: Response): Promise<ApiError> {
   try {
-    const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } };
+    const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown; field_errors?: unknown } };
     if (body?.error?.message) {
-      return new ApiError(body.error.code ?? "error", body.error.message, res.status, body.error.details);
+      return new ApiError(
+        body.error.code ?? "error",
+        body.error.message,
+        res.status,
+        body.error.details,
+        parseFieldErrors(body.error),
+      );
     }
   } catch {
     /* body was not JSON */

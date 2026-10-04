@@ -1,6 +1,8 @@
 import type { CapabilityType, Phase, RequirementKind, RiskLevel, RunStatus } from "@/lib/types";
 
 export const PHASE_LABELS: Record<Phase, string> = {
+  triage: "بررسی پیام شما",
+  failed: "خطا",
   understand: "درک نیازها",
   clarify: "پرسش‌های ضروری",
   build: "ساخت ربات",
@@ -11,6 +13,11 @@ export const PHASE_LABELS: Record<Phase, string> = {
   await_approval: "انتظار برای تأیید شما",
   deploy: "فعال‌سازی",
 };
+
+/** Label for any phase name; a phase this client does not know gets a generic label, never an empty row. */
+export function phaseLabel(phase: string): string {
+  return (PHASE_LABELS as Record<string, string>)[phase] ?? "مرحلهٔ پردازش";
+}
 
 export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   running: "در حال کار",

@@ -58,9 +58,17 @@ export type FeedItem =
   | { kind: "deployed"; id: number; revisionId: string; number: number }
   | { kind: "error"; id: number; message: string };
 
+/**
+ * Where `RunView.status` came from. "inferred": guessed from events (the fallback for a backend that
+ * sends no `run_status`); "server": a GET /runs/{id} answer; "event": a `run_status` event.
+ * Inference never overrides an "event" status.
+ */
+export type StatusSource = "inferred" | "server" | "event";
+
 export interface RunView {
   lastEventId: number;
   status: RunStatus;
+  statusSource: StatusSource;
   feed: FeedItem[];
   phases: PhaseEntry[];
   requirements: Requirements | null;
@@ -71,6 +79,7 @@ export interface RunView {
 export const emptyRunView: RunView = {
   lastEventId: 0,
   status: "running",
+  statusSource: "inferred",
   feed: [],
   phases: [],
   requirements: null,
@@ -94,6 +103,13 @@ function withLastOf<T extends FeedItem["kind"]>(
   return null;
 }
 
+/** Status change by inference; ignored once a `run_status` event has set the status. */
+function infer(state: RunView, status: RunStatus): Pick<RunView, "status" | "statusSource"> {
+  return state.statusSource === "event"
+    ? { status: state.status, statusSource: "event" }
+    : { status, statusSource: "inferred" };
+}
+
 function applyKnown(state: RunView, event: AgentEvent): RunView {
   const base: RunView = { ...state, lastEventId: event.id };
   switch (event.type) {
@@ -104,7 +120,7 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       );
       return {
         ...base,
-        status: state.status === "waiting_user" ? "running" : state.status,
+        ...infer(state, state.status === "waiting_user" ? "running" : state.status),
         feed: [...answered, { kind: "owner", id: event.id, ts: event.ts, text: event.payload.text }],
       };
     }
@@ -116,7 +132,7 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       const attempt = state.phases.filter((p) => p.phase === phase).length + 1;
       return {
         ...base,
-        status: "running",
+        ...infer(state, "running"),
         phases: [
           ...state.phases,
           { key: `${phase}-${attempt}`, phase, attempt, state: "running", summary: null, tools: [] },
@@ -183,7 +199,7 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
     case "questions":
       return {
         ...base,
-        status: "waiting_user",
+        ...infer(state, "waiting_user"),
         feed: [...state.feed, { kind: "questions", id: event.id, questions: event.payload.questions, answer: null }],
       };
     case "spec_updated":
@@ -212,23 +228,25 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       const updated = withLastOf(state.feed, "review", (item) => ({ ...item, approval: event.payload }));
       return {
         ...base,
-        status: "waiting_approval",
+        ...infer(state, "waiting_approval"),
         feed: updated ?? [...state.feed, { kind: "review", id: event.id, diff: null, approval: event.payload }],
       };
     }
     case "deployed":
       return {
         ...base,
-        status: "done",
+        ...infer(state, "done"),
         feed: [...state.feed, { kind: "deployed", id: event.id, revisionId: event.payload.revision_id, number: event.payload.number }],
       };
 
     case "usage":
       return { ...base, usage: event.payload };
+    case "run_status":
+      return { ...base, status: event.payload.status, statusSource: "event" };
     case "error":
+      // An error event does not by itself end the run; the server status decides.
       return {
         ...base,
-        status: "failed",
         feed: [...state.feed, { kind: "error", id: event.id, message: event.payload.message }],
       };
   }
@@ -239,6 +257,16 @@ export function reduceEvent(state: RunView, raw: RawAgentEvent): RunView {
   if (raw.id <= state.lastEventId) return state;
   if (!isKnownEvent(raw)) return { ...state, lastEventId: raw.id };
   return applyKnown(state, raw);
+}
+
+/**
+ * Applies the server's answer to GET /runs/{id}. `atEventId` is the last event id the view had when the
+ * request started: a `run_status` event newer than that wins over this (older) answer.
+ */
+export function applyServerStatus(state: RunView, status: RunStatus, atEventId: number): RunView {
+  if (state.statusSource === "event" && state.lastEventId > atEventId) return state;
+  if (state.status === status && state.statusSource !== "inferred") return state;
+  return { ...state, status, statusSource: "server" };
 }
 
 /** The most recent report across the feed, or null. */
