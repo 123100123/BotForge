@@ -1,0 +1,166 @@
+import { API_BASE_URL, IS_MOCK } from "@/lib/config";
+import { ApiError } from "@/lib/errors";
+import { getAccessToken } from "@/lib/supabase";
+import { mockApi } from "@/lib/mock/api";
+import type {
+  AgentRun,
+  Bot,
+  DataOverview,
+  DataRecord,
+  Me,
+  RevisionDetail,
+  RevisionSummary,
+  RuntimeResponse,
+  TelegramStatus,
+  TestReport,
+} from "@/lib/types";
+
+export { ApiError } from "@/lib/errors";
+
+export interface SimulatorEventBody {
+  revision_id: string;
+  persona: string;
+  kind: "start" | "text" | "callback";
+  text?: string;
+  data?: string;
+}
+
+/** Typed client for the roadmap's "Backend API" table. The mock implements the same interface. */
+export interface Api {
+  // Me
+  me(): Promise<Me>;
+  // Bots
+  listBots(): Promise<Bot[]>;
+  createBot(name: string): Promise<Bot>;
+  getBot(botId: string): Promise<Bot>;
+  updateBot(botId: string, patch: { name: string }): Promise<Bot>;
+  deleteBot(botId: string): Promise<void>;
+  // Agent runs (events are read with streamRunEvents in lib/sse.ts)
+  createRun(botId: string, message: string): Promise<AgentRun>;
+  listRuns(botId: string): Promise<AgentRun[]>;
+  getRun(runId: string): Promise<AgentRun>;
+  postRunMessage(runId: string, message: string): Promise<AgentRun>;
+  approveRun(runId: string): Promise<AgentRun>;
+  rejectRun(runId: string): Promise<AgentRun>;
+  // Revisions and tests
+  listRevisions(botId: string): Promise<RevisionSummary[]>;
+  getRevision(revisionId: string): Promise<RevisionDetail>;
+  activateRevision(revisionId: string): Promise<RevisionSummary>;
+  runRevisionTests(revisionId: string): Promise<TestReport>;
+  // Simulator
+  simulatorEvent(botId: string, body: SimulatorEventBody): Promise<RuntimeResponse>;
+  simulatorReset(botId: string, revisionId: string): Promise<void>;
+  // Data admin
+  getDataOverview(botId: string): Promise<DataOverview>;
+  listRecords(botId: string, collection: string): Promise<DataRecord[]>;
+  createRecord(botId: string, collection: string, data: Record<string, unknown>): Promise<DataRecord>;
+  updateRecord(
+    botId: string,
+    collection: string,
+    recordId: number,
+    data: Record<string, unknown>,
+  ): Promise<DataRecord>;
+  deleteRecord(botId: string, collection: string, recordId: number): Promise<void>;
+  runRecordAction(botId: string, collection: string, recordId: number, action: string): Promise<DataRecord>;
+  // Telegram
+  getTelegram(botId: string): Promise<TelegramStatus>;
+  connectTelegram(botId: string, token: string): Promise<TelegramStatus>;
+  disconnectTelegram(botId: string): Promise<void>;
+}
+
+const STATUS_MESSAGES: Record<number, string> = {
+  401: "نشست شما منقضی شده است؛ دوباره وارد شوید.",
+  403: "به این بخش دسترسی ندارید.",
+  404: "مورد درخواستی پیدا نشد.",
+  409: "این کار در وضعیت فعلی ممکن نیست.",
+  422: "اطلاعات واردشده معتبر نیست.",
+  429: "درخواست‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.",
+};
+
+/** Auth headers shared by JSON requests and the SSE reader. */
+export async function authHeaders(): Promise<Record<string, string>> {
+  const token = await getAccessToken();
+  return token ? { Authorization: `Bearer ${token}` } : {};
+}
+
+/** Parses the backend's `{"error": {"code", "message"}}` envelope into an ApiError. */
+export async function parseErrorResponse(res: Response): Promise<ApiError> {
+  try {
+    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    if (body?.error?.message) {
+      return new ApiError(body.error.code ?? "error", body.error.message, res.status);
+    }
+  } catch {
+    /* body was not JSON */
+  }
+  return new ApiError(
+    "http_" + res.status,
+    STATUS_MESSAGES[res.status] ?? "خطایی در سرور رخ داد. دوباره امتحان کنید.",
+    res.status,
+  );
+}
+
+async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE_URL}${path}`, {
+      method,
+      headers: {
+        ...(await authHeaders()),
+        ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
+      },
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
+  }
+  if (!res.ok) throw await parseErrorResponse(res);
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+const enc = encodeURIComponent;
+
+export const realApi: Api = {
+  me: () => request("GET", "/me"),
+
+  listBots: () => request("GET", "/bots"),
+  createBot: (name) => request("POST", "/bots", { name }),
+  getBot: (botId) => request("GET", `/bots/${enc(botId)}`),
+  updateBot: (botId, patch) => request("PATCH", `/bots/${enc(botId)}`, patch),
+  deleteBot: (botId) => request("DELETE", `/bots/${enc(botId)}`),
+
+  createRun: (botId, message) => request("POST", `/bots/${enc(botId)}/runs`, { message }),
+  listRuns: (botId) => request("GET", `/bots/${enc(botId)}/runs`),
+  getRun: (runId) => request("GET", `/runs/${enc(runId)}`),
+  postRunMessage: (runId, message) => request("POST", `/runs/${enc(runId)}/messages`, { message }),
+  approveRun: (runId) => request("POST", `/runs/${enc(runId)}/approve`),
+  rejectRun: (runId) => request("POST", `/runs/${enc(runId)}/reject`),
+
+  listRevisions: (botId) => request("GET", `/bots/${enc(botId)}/revisions`),
+  getRevision: (revisionId) => request("GET", `/revisions/${enc(revisionId)}`),
+  activateRevision: (revisionId) => request("POST", `/revisions/${enc(revisionId)}/activate`),
+  runRevisionTests: (revisionId) => request("POST", `/revisions/${enc(revisionId)}/tests/run`),
+
+  simulatorEvent: (botId, body) => request("POST", `/bots/${enc(botId)}/simulator/events`, body),
+  simulatorReset: (botId, revisionId) =>
+    request("POST", `/bots/${enc(botId)}/simulator/reset`, { revision_id: revisionId }),
+
+  getDataOverview: (botId) => request("GET", `/bots/${enc(botId)}/data`),
+  listRecords: (botId, collection) => request("GET", `/bots/${enc(botId)}/data/${enc(collection)}`),
+  createRecord: (botId, collection, data) =>
+    request("POST", `/bots/${enc(botId)}/data/${enc(collection)}`, data),
+  updateRecord: (botId, collection, recordId, data) =>
+    request("PATCH", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}`, data),
+  deleteRecord: (botId, collection, recordId) =>
+    request("DELETE", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}`),
+  runRecordAction: (botId, collection, recordId, action) =>
+    request("POST", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}/actions/${enc(action)}`),
+
+  getTelegram: (botId) => request("GET", `/bots/${enc(botId)}/telegram`),
+  connectTelegram: (botId, token) => request("POST", `/bots/${enc(botId)}/telegram/connect`, { token }),
+  disconnectTelegram: (botId) => request("DELETE", `/bots/${enc(botId)}/telegram`),
+};
+
+/** The client the app uses: fixtures in mock mode, the real backend otherwise. */
+export const api: Api = IS_MOCK ? mockApi : realApi;
