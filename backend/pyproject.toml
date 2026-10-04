@@ -11,6 +11,8 @@ dependencies = [
     "asyncpg",
     "alembic",
     "pydantic-settings",
+    "pyjwt[crypto]>=2.10.1",
+    "cryptography>=44.0.1",
 ]
 
 [dependency-groups]

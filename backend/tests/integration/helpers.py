@@ -1,8 +1,9 @@
 """Shared test helpers: stand-in auth dependencies and an ASGI client factory.
 
-Authentication is not implemented in this work package, so tests replace ``get_current_user`` with
-a header-driven stand-in (``X-Test-User``) and ``get_owned_bot`` with a stand-in that applies the
-ownership rule (404 for another user's bot).
+Endpoint tests replace ``get_current_user`` with a header-driven stand-in (``X-Test-User``) and
+``get_owned_bot`` with a stand-in that applies the ownership rule (404 for another user's bot), so
+they can focus on endpoint behavior. The real dependencies (JWT verification, ownership) are tested
+without overrides in ``test_ownership.py`` and ``tests/unit/security/``.
 """
 
 import uuid

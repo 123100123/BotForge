@@ -25,6 +25,7 @@ import app.api as api_package
 from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
+from app.security.redact import install_log_redaction
 
 log = logging.getLogger(__name__)
 
@@ -116,6 +117,7 @@ def include_api_routers(app: FastAPI) -> list[str]:
 
 def create_app() -> FastAPI:
     settings = get_settings()
+    install_log_redaction()  # SECURITY (WP4b): redact tokens and credentials from every log record
     app = FastAPI(title="BotForge", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,

@@ -98,7 +98,8 @@ async def _active_spec(session: AsyncSession, bot: Bot) -> BotSpec:
     revision = (
         await session.get(Revision, bot.active_revision_id) if bot.active_revision_id is not None else None
     )
-    if revision is None:
+    # The FK does not tie the active revision to this bot; never serve another bot's spec.
+    if revision is None or revision.bot_id != bot.id:
         raise _err(409, "no_active_revision", "این ربات هنوز نسخهٔ فعالی ندارد.")
     return BotSpec.model_validate(revision.spec)
 
