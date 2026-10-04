@@ -170,14 +170,24 @@ async def test_repair_example_does_not_crash() -> None:
             "title": "ثبت درخواست",
             "source": "acceptance",
             "steps": [
-                {"do": "submit_request", "actor": "ali", "capability": "repair", "expect": "submitted"},
+                {
+                    "do": "submit_request",
+                    "actor": "ali",
+                    "capability": "repair",
+                    "form": [
+                        {"key": "device", "value": "یخچال"},
+                        {"key": "problem", "value": "صدا می‌دهد"},
+                        {"key": "phone", "value": "09120000000"},
+                        {"key": "address", "value": "تهران"},
+                    ],
+                    "expect": "submitted",
+                },
                 {"do": "expect_request", "actor": "ali", "capability": "repair", "expect": "new"},
             ],
         }
     )
-    unsupported = await run_scenarios(spec, [request_step])
-    assert unsupported.failed == 1
-    assert "not supported yet" in (unsupported.results[0].steps[-1].message or "")
+    supported = await run_scenarios(spec, [request_step])
+    assert failed(supported) == {}
 
 
 @pytest.mark.parametrize("scenario_id", GOLDEN_IDS)
