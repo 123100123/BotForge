@@ -6,16 +6,19 @@
  */
 import { ApiError } from "@/lib/errors";
 import { initialMockBots, initialMockRevisions } from "@/lib/fixtures/bots";
+import { blockedRunScript } from "@/lib/fixtures/blocked-run";
 import { createRunScript } from "@/lib/fixtures/create-run";
 import { modifyRunScript } from "@/lib/fixtures/modify-run";
+import { initialMockRecords } from "@/lib/fixtures/records";
+import { nextVariant, type StoredRevision } from "@/lib/fixtures/revisions";
 import type { ScriptContext, ScriptItem } from "@/lib/fixtures/types";
 import type {
   AgentEvent,
   AgentEventType,
   AgentRun,
   Bot,
+  DataRecord,
   EventPayloads,
-  RevisionSummary,
   RunKind,
 } from "@/lib/types";
 
@@ -24,6 +27,8 @@ interface RunMeta {
   revisionNumber: number;
   /** Index of the next script item to play (the item a paused run waits on, while paused). */
   cursor: number;
+  /** "blocked": a request the product cannot fulfil (exercises `unsupported` and a blocked approval). */
+  variant?: "blocked";
 }
 
 interface StoredRun extends AgentRun {
@@ -32,13 +37,19 @@ interface StoredRun extends AgentRun {
 
 interface MockDb {
   bots: Bot[];
-  revisions: RevisionSummary[];
+  revisions: StoredRevision[];
+  /** Live records per bot (data admin). */
+  records: Record<string, DataRecord[]>;
+  /** Next record id. */
+  recordSeq: number;
+  /** Last Telegram connection error per bot. */
+  telegramErrors: Record<string, string>;
   runs: StoredRun[];
   events: Record<string, AgentEvent[]>;
   seq: number;
 }
 
-const STORAGE_KEY = "botforge.mock.db.v1";
+const STORAGE_KEY = "botforge.mock.db.v2";
 
 let db: MockDb | null = null;
 const playing = new Set<string>();
@@ -46,7 +57,7 @@ const listeners = new Map<string, Set<(e: AgentEvent) => void>>();
 
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
 
-function persist() {
+export function persist() {
   if (!db) return;
   try {
     window.localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
@@ -56,7 +67,16 @@ function persist() {
 }
 
 function freshDb(): MockDb {
-  return { bots: initialMockBots(), revisions: initialMockRevisions(), runs: [], events: {}, seq: 0 };
+  return {
+    bots: initialMockBots(),
+    revisions: initialMockRevisions(),
+    records: initialMockRecords(),
+    recordSeq: 1000,
+    telegramErrors: {},
+    runs: [],
+    events: {},
+    seq: 0,
+  };
 }
 
 export function getDb(): MockDb {
@@ -76,7 +96,7 @@ export function getDb(): MockDb {
   return db;
 }
 
-function newId(prefix: string): string {
+export function newId(prefix: string): string {
   const d = getDb();
   d.seq += 1;
   return `${prefix}_${Date.now().toString(36)}${d.seq}`;
@@ -90,6 +110,7 @@ function publicRun(run: StoredRun): AgentRun {
 
 function buildScript(run: StoredRun): ScriptItem[] {
   const ctx: ScriptContext = { revisionId: run.meta.revisionId, revisionNumber: run.meta.revisionNumber };
+  if (run.meta.variant === "blocked") return blockedRunScript(ctx);
   return run.kind === "create" ? createRunScript(ctx) : modifyRunScript(ctx);
 }
 
@@ -133,6 +154,7 @@ function applyDeployed(run: StoredRun, revisionId: string, number: number) {
     if (rev.bot_id === run.bot_id && rev.status === "active") rev.status = "superseded";
   }
   const first = (d.events[run.id] ?? []).find((e) => e.type === "owner_message");
+  const parent = d.revisions.find((r) => r.id === run.base_revision_id);
   d.revisions.push({
     id: revisionId,
     bot_id: run.bot_id,
@@ -142,8 +164,7 @@ function applyDeployed(run: StoredRun, revisionId: string, number: number) {
     change_request: first && first.type === "owner_message" ? first.payload.text : null,
     created_at: now,
     activated_at: now,
-    tests_total: 12,
-    tests_passed: 12,
+    variant: nextVariant(parent?.variant ?? null),
   });
   const bot = d.bots.find((b) => b.id === run.bot_id);
   if (bot) {
@@ -210,6 +231,8 @@ export function createBot(name: string): Bot {
     active_revision_id: null,
     active_revision_number: null,
     tg_username: null,
+    owner_link_code: newId("code"),
+    owner_linked: false,
     created_at: new Date().toISOString(),
   };
   getDb().bots.unshift(bot);
@@ -230,14 +253,8 @@ export function deleteBot(botId: string) {
   d.bots = d.bots.filter((b) => b.id !== botId);
   d.runs = d.runs.filter((r) => r.bot_id !== botId);
   d.revisions = d.revisions.filter((r) => r.bot_id !== botId);
+  delete d.records[botId];
   persist();
-}
-
-export function listRevisions(botId: string): RevisionSummary[] {
-  return getDb()
-    .revisions.filter((r) => r.bot_id === botId)
-    .sort((a, b) => b.number - a.number)
-    .map((r) => ({ ...r }));
 }
 
 export function listRuns(botId: string): AgentRun[] {
@@ -273,7 +290,12 @@ export function createRun(botId: string, message: string): AgentRun {
     usage: null,
     created_at: now,
     updated_at: now,
-    meta: { revisionId: `rev_${id}`, revisionNumber: maxNumber + 1, cursor: 0 },
+    meta: {
+      revisionId: `rev_${id}`,
+      revisionNumber: maxNumber + 1,
+      cursor: 0,
+      variant: kind === "modify" && message.includes("پرداخت") ? "blocked" : undefined,
+    },
   };
   d.runs.push(run);
   d.events[id] = [];

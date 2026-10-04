@@ -5,25 +5,22 @@ import { mockApi } from "@/lib/mock/api";
 import type {
   AgentRun,
   Bot,
+  DataActionResult,
   DataOverview,
   DataRecord,
   Me,
+  RecordsPage,
   RevisionDetail,
   RevisionSummary,
   RuntimeResponse,
+  SimulatorEventBody,
+  SimulatorResetResult,
   TelegramStatus,
   TestReport,
 } from "@/lib/types";
 
 export { ApiError } from "@/lib/errors";
-
-export interface SimulatorEventBody {
-  revision_id: string;
-  persona: string;
-  kind: "start" | "text" | "callback";
-  text?: string;
-  data?: string;
-}
+export type { SimulatorEventBody } from "@/lib/types";
 
 /** Typed client for the roadmap's "Backend API" table. The mock implements the same interface. */
 export interface Api {
@@ -49,10 +46,11 @@ export interface Api {
   runRevisionTests(revisionId: string): Promise<TestReport>;
   // Simulator
   simulatorEvent(botId: string, body: SimulatorEventBody): Promise<RuntimeResponse>;
-  simulatorReset(botId: string, revisionId: string): Promise<void>;
-  // Data admin
+  simulatorReset(botId: string, revisionId: string | null): Promise<SimulatorResetResult>;
+  // Data admin (live data of the ACTIVE revision; bodies are `{"data": {...}}`)
   getDataOverview(botId: string): Promise<DataOverview>;
-  listRecords(botId: string, collection: string): Promise<DataRecord[]>;
+  /** Newest first. */
+  listRecords(botId: string, collection: string, page?: { limit?: number; offset?: number }): Promise<RecordsPage>;
   createRecord(botId: string, collection: string, data: Record<string, unknown>): Promise<DataRecord>;
   updateRecord(
     botId: string,
@@ -61,11 +59,17 @@ export interface Api {
     data: Record<string, unknown>,
   ): Promise<DataRecord>;
   deleteRecord(botId: string, collection: string, recordId: number): Promise<void>;
-  runRecordAction(botId: string, collection: string, recordId: number, action: string): Promise<DataRecord>;
+  /** `action`: "cancel" on a booking record, an owner-action key on a request record. */
+  runRecordAction(
+    botId: string,
+    collection: string,
+    recordId: number,
+    action: string,
+  ): Promise<DataActionResult>;
   // Telegram
   getTelegram(botId: string): Promise<TelegramStatus>;
   connectTelegram(botId: string, token: string): Promise<TelegramStatus>;
-  disconnectTelegram(botId: string): Promise<void>;
+  disconnectTelegram(botId: string): Promise<TelegramStatus>;
 }
 
 const STATUS_MESSAGES: Record<number, string> = {
@@ -86,9 +90,9 @@ export async function authHeaders(): Promise<Record<string, string>> {
 /** Parses the backend's `{"error": {"code", "message"}}` envelope into an ApiError. */
 export async function parseErrorResponse(res: Response): Promise<ApiError> {
   try {
-    const body = (await res.json()) as { error?: { code?: string; message?: string } };
+    const body = (await res.json()) as { error?: { code?: string; message?: string; details?: unknown } };
     if (body?.error?.message) {
-      return new ApiError(body.error.code ?? "error", body.error.message, res.status);
+      return new ApiError(body.error.code ?? "error", body.error.message, res.status, body.error.details);
     }
   } catch {
     /* body was not JSON */
@@ -147,11 +151,17 @@ export const realApi: Api = {
     request("POST", `/bots/${enc(botId)}/simulator/reset`, { revision_id: revisionId }),
 
   getDataOverview: (botId) => request("GET", `/bots/${enc(botId)}/data`),
-  listRecords: (botId, collection) => request("GET", `/bots/${enc(botId)}/data/${enc(collection)}`),
+  listRecords: (botId, collection, page) => {
+    const q = new URLSearchParams();
+    if (page?.limit !== undefined) q.set("limit", String(page.limit));
+    if (page?.offset !== undefined) q.set("offset", String(page.offset));
+    const qs = q.toString();
+    return request("GET", `/bots/${enc(botId)}/data/${enc(collection)}${qs ? `?${qs}` : ""}`);
+  },
   createRecord: (botId, collection, data) =>
-    request("POST", `/bots/${enc(botId)}/data/${enc(collection)}`, data),
+    request("POST", `/bots/${enc(botId)}/data/${enc(collection)}`, { data }),
   updateRecord: (botId, collection, recordId, data) =>
-    request("PATCH", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}`, data),
+    request("PATCH", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}`, { data }),
   deleteRecord: (botId, collection, recordId) =>
     request("DELETE", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}`),
   runRecordAction: (botId, collection, recordId, action) =>
@@ -159,7 +169,9 @@ export const realApi: Api = {
 
   getTelegram: (botId) => request("GET", `/bots/${enc(botId)}/telegram`),
   connectTelegram: (botId, token) => request("POST", `/bots/${enc(botId)}/telegram/connect`, { token }),
-  disconnectTelegram: (botId) => request("DELETE", `/bots/${enc(botId)}/telegram`),
+  disconnectTelegram: async (botId) =>
+    (await request<TelegramStatus | undefined>("DELETE", `/bots/${enc(botId)}/telegram`)) ??
+    (await request<TelegramStatus>("GET", `/bots/${enc(botId)}/telegram`)),
 };
 
 /** The client the app uses: fixtures in mock mode, the real backend otherwise. */

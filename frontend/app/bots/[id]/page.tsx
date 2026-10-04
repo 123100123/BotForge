@@ -110,19 +110,19 @@ export default function BotWorkspacePage() {
           <AgentTab bot={bot} onBotChanged={reload} onOpenTab={setTab} />
         </TabsContent>
         <TabsContent value="simulator">
-          <SimulatorTab bot={bot} />
+          <SimulatorTab bot={bot} onOpenTab={setTab} />
         </TabsContent>
         <TabsContent value="tests">
-          <TestsTab bot={bot} />
+          <TestsTab bot={bot} onOpenTab={setTab} />
         </TabsContent>
         <TabsContent value="data">
-          <DataTab bot={bot} />
+          <DataTab bot={bot} onOpenTab={setTab} />
         </TabsContent>
         <TabsContent value="versions">
-          <VersionsTab bot={bot} />
+          <VersionsTab bot={bot} onBotChanged={reload} onOpenTab={setTab} />
         </TabsContent>
         <TabsContent value="settings">
-          <SettingsTab bot={bot} />
+          <SettingsTab bot={bot} onBotChanged={reload} />
         </TabsContent>
       </Tabs>
     </div>
