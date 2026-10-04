@@ -26,6 +26,7 @@ from app.runtime.callbacks import (
     ACT_CANCEL,
     ACT_ITEM,
     ACT_LIST,
+    ACT_MINE,
     ACT_OPEN,
     ACT_SKIP,
     MENU,
@@ -322,6 +323,10 @@ async def open_menu(ctx: RunContext, actor_id: str, cap: AnyCapability, view: st
     return await ctx.press(actor_id, button)
 
 
+class ItemNotListed(StepFailure):
+    """The item's button is not in the list (e.g. the item has started and the engine hides it)."""
+
+
 async def reach_item(
     ctx: RunContext, actor_id: str, cap: AnyCapability, item_id: int, title: str, view: str = "main"
 ) -> RuntimeResponse:
@@ -335,7 +340,8 @@ async def reach_item(
         if nxt is None:
             break
         resp = await ctx.press(actor_id, nxt)
-    raise _missing_button(f"آیتم «{title}» ({cap.key}:{ACT_ITEM}:{item_id}) در فهرست", resp, actor_id)
+    missing = _missing_button(f"آیتم «{title}» ({cap.key}:{ACT_ITEM}:{item_id}) در فهرست", resp, actor_id)
+    raise ItemNotListed(missing.message)
 
 
 # --- driver protocol and registry ------------------------------------------------------------------
@@ -381,8 +387,18 @@ class BookingDriver:
 
     async def _book(self, ctx: RunContext, step: Step, cap: BookingCapability) -> str:
         actor = step.actor or ""
+        field_keys = {f.key for f in cap.form_fields}
+        unknown = [kv.key for kv in step.form if kv.key not in field_keys]
+        if unknown:
+            known = "، ".join(sorted(field_keys)) or "هیچ"
+            names = "، ".join(f"«{k}»" for k in unknown)
+            raise StepFailure(f"کلید فرم {names} جزو فیلدهای فرم «{cap.key}» نیست (فیلدهای موجود: {known}).")
         item_id = ctx.item_id(step)
-        resp = await reach_item(ctx, actor, cap, item_id, ctx.item_title(step.item))
+        try:
+            resp = await reach_item(ctx, actor, cap, item_id, ctx.item_title(step.item))
+        except ItemNotListed:
+            # A started item is hidden from the list, but a user can still press an old item button.
+            resp = await ctx.send(actor, "callback", data=make_callback(cap.key, ACT_ITEM, str(item_id)))
         button = find_button(resp, actor, cap.key, ACT_BOOK, str(item_id))
         if button is None:
             raise _missing_button(f"ثبت‌نام ({cap.key}:{ACT_BOOK}:{item_id})", resp, actor)
@@ -449,12 +465,23 @@ class BookingDriver:
         booking = await _active_booking(ctx, cap.key, actor, item_id)
         if booking is None:
             raise StepFailure(f"{ctx.name(actor)} ثبت‌نام فعالی در «{title}» ندارد که لغو شود.")
-        resp = await reach_item(ctx, actor, cap, item_id, title)
+        try:
+            resp = await reach_item(ctx, actor, cap, item_id, title)
+        except ItemNotListed:
+            resp = await self._open_mine(ctx, actor, cap)
         button = find_button(resp, actor, cap.key, ACT_CANCEL, str(booking.id))
         if button is None:
             raise _missing_button(f"لغو ({cap.key}:{ACT_CANCEL}:{booking.id})", resp, actor)
         resp = await ctx.press(actor, button)
         return _check_outcome(step, resp, actor, cap.key, ("cancel",))
+
+    @staticmethod
+    async def _open_mine(ctx: RunContext, actor: str, cap: BookingCapability) -> RuntimeResponse:
+        """The "my bookings" view: through the menu if the spec has one, else by its callback."""
+        if any(m.capability == cap.key and m.view == "mine" for m in ctx.spec.menu):
+            return await open_menu(ctx, actor, cap, "mine")
+        await ctx.send(actor, "start")
+        return await ctx.send(actor, "callback", data=make_callback(cap.key, ACT_MINE))
 
     async def _owner_cancel(self, ctx: RunContext, step: Step, cap: BookingCapability) -> str:
         actor = step.actor or OWNER

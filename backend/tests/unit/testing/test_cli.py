@@ -21,7 +21,7 @@ def test_golden_spec_with_derived_exits_zero(capsys: pytest.CaptureFixture[str])
     )
     out = capsys.readouterr().out
     assert code == 0
-    assert out.splitlines()[-1] == "19 scenarios, 19 passed, 0 failed"
+    assert out.splitlines()[-1] == "20 scenarios, 20 passed, 0 failed"
     assert "[PASS]" in out
     assert "علی در «کارگاه عکاسی» ثبت‌نام می‌کند ← تأیید شد" in out
 

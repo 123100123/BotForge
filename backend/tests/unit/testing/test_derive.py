@@ -162,6 +162,7 @@ ALL_BOOKING = {
     "owner_cancel",
     "owner_cancel_promotes",
     "configured_capacity",
+    "item_started",
 }
 
 
@@ -224,6 +225,7 @@ def test_waitlist_off_templates() -> None:
         "cancel_frees_seat",
         "owner_cancel",
         "configured_capacity",
+        "item_started",
     }
     capacity = next(s for s in derive_scenarios(spec) if s.id.endswith(":capacity_reached"))
     last = [st for st in capacity.steps if st.do == "book"][-1]
@@ -253,12 +255,30 @@ def test_conditional_templates_appear_with_their_configuration() -> None:
     assert "configured_capacity" not in derived_ids(patched(*PER_ITEM))
 
 
-def test_deadline_and_cutoff_zero_skip_the_unreachable_half() -> None:
+def test_deadline_and_cutoff_zero_now_include_the_after_halves() -> None:
     spec = patched(set_cap("cancellation.deadline_hours", 0), set_cap("closes_hours_before_start", 0))
-    ids = derived_ids(spec)
-    assert "booking_cutoff" not in ids
-    deadline = next(s for s in derive_scenarios(spec) if s.id.endswith(":cancel_deadline"))
-    assert not any(st.reason == "cancel_deadline_passed" for st in deadline.steps)
+    by_id = {s.id: s for s in derive_scenarios(spec)}
+    assert any(st.reason == "cancel_deadline_passed" for st in by_id[f"derived:{CAP}:cancel_deadline"].steps)
+    assert any(st.reason == "booking_closed" for st in by_id[f"derived:{CAP}:booking_cutoff"].steps)
+    assert f"derived:{CAP}:item_started" in by_id
+
+
+def test_duplicate_allowed_only_when_the_flag_is_false() -> None:
+    assert "duplicate_allowed" not in derived_ids(workshop())
+    off = patched(set_cap("one_active_per_user_per_item", False))
+    assert "duplicate_allowed" in derived_ids(off)
+    assert "duplicate" not in derived_ids(off)
+    limited = patched(set_cap("one_active_per_user_per_item", False), set_cap("max_active_per_user", 1))
+    assert "duplicate_allowed" not in derived_ids(limited)  # a limit of 1 would refuse the second booking
+
+
+async def test_duplicate_allowed_catches_a_spec_that_still_forbids_duplicates() -> None:
+    allowed = patched(set_cap("one_active_per_user_per_item", False))
+    scenario = next(s for s in derive_scenarios(allowed) if s.id.endswith(":duplicate_allowed"))
+    report = await run_scenarios(workshop(), [scenario])  # the flag is true here
+    assert report.failed == 1
+    assert report.results[0].failed_step == 1
+    assert "duplicate" in (report.results[0].steps[-1].message or "")
 
 
 def test_per_item_capacity_is_seeded_not_overridden() -> None:

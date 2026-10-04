@@ -2,6 +2,8 @@
 
 from typing import ClassVar
 
+import pytest
+
 from app.botspec.models import AnyCapability, BotSpec
 from app.runtime.memory_store import MemoryStore
 from app.testing import drivers
@@ -357,3 +359,54 @@ async def test_request_driver_registry_extension_point() -> None:
     finally:
         drivers.register_driver("request", before)
     assert not (await run_scenario(repair, sc)).passed
+
+
+# --- started items (not listed) and unknown form keys ------------------------------------------------
+
+
+async def test_book_on_a_started_item_is_rejected_booking_closed() -> None:
+    ok, msg = await run_steps(
+        workshop(),
+        [
+            step("book", actor="ali", item="w1", expect="rejected", reason="booking_closed"),
+            step("expect_booking", actor="ali", item="w1", expect="none"),
+        ],
+        seed=[seed_item(start="-1h")],
+    )
+    assert ok, msg
+
+
+async def test_book_fallback_fails_when_the_detail_has_no_book_button() -> None:
+    ctx = await make_ctx(workshop())
+    ctx.refs["w1"] = 9999  # stale id: neither listed nor shown by the engine
+    with pytest.raises(StepFailure) as exc:
+        await execute_step(ctx, step("book", actor="ali", item="w1"))
+    assert "book_workshop:book:9999" in exc.value.message
+
+
+@pytest.mark.parametrize("with_mine_menu", [True, False])
+async def test_cancel_after_the_start_is_rejected_via_mine(with_mine_menu: bool) -> None:
+    ops = [set_cap("cancellation.deadline_hours", 0)]
+    if not with_mine_menu:
+        ops.append(op("remove", ["menu", "my_bookings"]))
+    ok, msg = await run_steps(
+        patched(*ops),
+        [
+            step("book", actor="ali", item="w1", expect="confirmed"),
+            step("advance_time", hours=49),
+            step("cancel", actor="ali", item="w1", expect="rejected", reason="cancel_deadline_passed"),
+            step("expect_booking", actor="ali", item="w1", expect="confirmed"),
+        ],
+    )
+    assert ok, msg
+
+
+async def test_unknown_form_key_fails_naming_it() -> None:
+    form = [{"key": "levl", "value": "مبتدی"}]
+    ok, msg = await run_steps(patched(*FORM_FIELDS), [step("book", actor="ali", item="w1", form=form)])
+    assert not ok
+    assert "«levl»" in msg
+    assert "level" in msg  # lists the real keys
+    ok, msg = await run_steps(workshop(), [step("book", actor="ali", item="w1", form=form)])
+    assert not ok
+    assert "«levl»" in msg

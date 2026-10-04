@@ -240,8 +240,12 @@ class _Booking:
                 self.cancel_deadline(deadline)
         else:
             self.cancellation_disabled()
-        if cap.closes_hours_before_start:
+        if cap.closes_hours_before_start is not None:
             self.booking_cutoff(cap.closes_hours_before_start)
+        if cap.start_field:
+            self.item_started()
+        if not cap.one_active_per_user_per_item and (limit is None or limit >= 2):
+            self.duplicate_allowed()
         self.owner_cancel_basic()
         if promotes:
             self.owner_cancel_promotes()
@@ -394,12 +398,11 @@ class _Booking:
             self.cancel("ali", "i1", "cancelled"),
             self.booking("ali", "i1", "cancelled"),
         ]
-        if deadline > 0:  # deadline 0 means "until the start", after which the item is no longer listed
-            steps += [
-                self.advance(self.start_hours - deadline + 0.5),
-                self.cancel("sara", "i1", "rejected", "cancel_deadline_passed"),
-                self.booking("sara", "i1", "confirmed"),
-            ]
+        steps += [  # for deadline 0 this is past the start, where the driver cancels via "mine"
+            self.advance(self.start_hours - deadline + 0.5),
+            self.cancel("sara", "i1", "rejected", "cancel_deadline_passed"),
+            self.booking("sara", "i1", "confirmed"),
+        ]
         self.add(
             "cancel_deadline",
             f"لغو تا {formatting.to_persian_digits(deadline)} ساعت پیش از شروع مجاز و پس از آن رد می‌شود",
@@ -421,6 +424,24 @@ class _Booking:
             steps,
             self.seeds(),
         )
+
+    def item_started(self) -> None:
+        steps = [
+            self.book("ali", "i1", "confirmed"),
+            self.advance(self.start_hours + 0.5),
+            self.book("sara", "i1", "rejected", "booking_closed"),
+            self.booking("sara", "i1", "none"),
+            self.counts("i1", 1, 0),
+        ]
+        self.add("item_started", "پس از شروع، ثبت‌نام در مورد بسته است", steps, self.seeds())
+
+    def duplicate_allowed(self) -> None:
+        steps = [
+            self.book("ali", "i1", "confirmed"),
+            self.book("ali", "i1", "confirmed"),  # capacity 2: both fit
+            self.counts("i1", 2, 0),
+        ]
+        self.add("duplicate_allowed", "ثبت‌نام مکرر یک نفر در یک مورد مجاز است", steps, self.seeds())
 
     def owner_cancel_basic(self) -> None:
         steps = [

@@ -157,8 +157,8 @@ async def test_stops_at_first_failing_step() -> None:
 
 
 async def test_missing_button_names_it() -> None:
-    # The item started in the past, so the list does not offer its button.
-    sc = scenario([step("book", actor="ali", item="w1", expect="confirmed")], seed=[seed_item(start="-1h")])
+    # The item started in the past, so the list does not offer its button (`open` has no fallback).
+    sc = scenario([step("open", actor="ali", item="w1")], seed=[seed_item(start="-1h")])
     msg = failure(await run(sc))
     assert "book_workshop:item:" in msg
     assert "کارگاه عکاسی" in msg
