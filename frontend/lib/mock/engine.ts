@@ -10,6 +10,7 @@ import { blockedRunScript } from "@/lib/fixtures/blocked-run";
 import { createRunScript } from "@/lib/fixtures/create-run";
 import { modifyRunScript } from "@/lib/fixtures/modify-run";
 import { initialMockRecords } from "@/lib/fixtures/records";
+import { plainWaitRunScript, triageRunScript } from "@/lib/fixtures/stuck-runs";
 import { nextVariant, type StoredRevision } from "@/lib/fixtures/revisions";
 import type { ScriptContext, ScriptItem } from "@/lib/fixtures/types";
 import type {
@@ -27,8 +28,12 @@ interface RunMeta {
   revisionNumber: number;
   /** Index of the next script item to play (the item a paused run waits on, while paused). */
   cursor: number;
-  /** "blocked": a request the product cannot fulfil (exercises `unsupported` and a blocked approval). */
-  variant?: "blocked";
+  /**
+   * "blocked": a request the product cannot fulfil (exercises `unsupported` and a blocked approval);
+   * "triage": a question answered with one message, the run ends `done`; "plain_wait": the agent asks in
+   * plain text and the run waits without a `questions` event.
+   */
+  variant?: "blocked" | "triage" | "plain_wait";
 }
 
 interface StoredRun extends AgentRun {
@@ -111,6 +116,8 @@ function publicRun(run: StoredRun): AgentRun {
 function buildScript(run: StoredRun): ScriptItem[] {
   const ctx: ScriptContext = { revisionId: run.meta.revisionId, revisionNumber: run.meta.revisionNumber };
   if (run.meta.variant === "blocked") return blockedRunScript(ctx);
+  if (run.meta.variant === "triage") return triageRunScript();
+  if (run.meta.variant === "plain_wait") return plainWaitRunScript();
   return run.kind === "create" ? createRunScript(ctx) : modifyRunScript(ctx);
 }
 
@@ -118,6 +125,12 @@ function findRun(runId: string): StoredRun {
   const run = getDb().runs.find((r) => r.id === runId);
   if (!run) throw new ApiError("not_found", "اجرای مورد نظر پیدا نشد.", 404);
   return run;
+}
+
+/** Moves the run to `status` and emits the `run_status` event the real backend sends on every transition. */
+function setStatus(run: StoredRun, status: StoredRun["status"]) {
+  run.status = status;
+  emit(run, "run_status", { status, phase: run.phase });
 }
 
 function touch(run: StoredRun) {
@@ -139,7 +152,6 @@ function emit<T extends AgentEventType>(run: StoredRun, type: T, payload: EventP
 
   if (event.type === "phase_started") run.phase = event.payload.phase;
   if (event.type === "usage") run.usage = event.payload;
-  if (event.type === "error") run.status = "failed";
   if (event.type === "deployed") applyDeployed(run, event.payload.revision_id, event.payload.number);
 
   touch(run);
@@ -185,13 +197,11 @@ async function advance(runId: string): Promise<void> {
       if (!run || run.status !== "running") return;
       const item = buildScript(run)[run.meta.cursor];
       if (!item) {
-        run.status = "done";
-        touch(run);
+        setStatus(run, "done");
         return;
       }
       if ("wait" in item) {
-        run.status = item.wait === "message" ? "waiting_user" : "waiting_approval";
-        touch(run);
+        setStatus(run, item.wait === "message" ? "waiting_user" : "waiting_approval");
         return;
       }
       await sleep(item.delay);
@@ -206,8 +216,7 @@ async function advance(runId: string): Promise<void> {
 
 function resume(run: StoredRun) {
   run.meta.cursor += 1; // step over the gate
-  run.status = "running";
-  touch(run);
+  setStatus(run, "running");
   void advance(run.id);
 }
 
@@ -268,6 +277,14 @@ export function getRun(runId: string): AgentRun {
   return publicRun(findRun(runId));
 }
 
+/** Which scripted run a message on a live bot starts (keywords stand in for the agent's triage). */
+function variantFor(message: string): RunMeta["variant"] {
+  if (message.includes("پرداخت")) return "blocked";
+  if (message.includes("پیامک")) return "plain_wait";
+  if (message.includes("چند")) return "triage";
+  return undefined;
+}
+
 export function createRun(botId: string, message: string): AgentRun {
   const d = getDb();
   const bot = d.bots.find((b) => b.id === botId);
@@ -294,12 +311,13 @@ export function createRun(botId: string, message: string): AgentRun {
       revisionId: `rev_${id}`,
       revisionNumber: maxNumber + 1,
       cursor: 0,
-      variant: kind === "modify" && message.includes("پرداخت") ? "blocked" : undefined,
+      variant: kind === "modify" ? variantFor(message) : undefined,
     },
   };
   d.runs.push(run);
   d.events[id] = [];
   emit(run, "owner_message", { text: message });
+  emit(run, "run_status", { status: "running", phase: run.phase });
   void advance(id);
   return publicRun(run);
 }
@@ -340,8 +358,7 @@ export function rejectRun(runId: string): AgentRun {
   }
   emit(run, "phase_finished", { phase: "await_approval", ok: false, summary: "پیش‌نویس رد شد" });
   emit(run, "agent_message", { text: "پیش‌نویس کنار گذاشته شد و ربات فعلی بدون تغییر ماند." });
-  run.status = "rejected";
-  touch(run);
+  setStatus(run, "rejected");
   return publicRun(run);
 }
 

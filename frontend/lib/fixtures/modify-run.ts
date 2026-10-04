@@ -17,7 +17,11 @@ export function modifyRunScript(ctx: ScriptContext): ScriptItem[] {
     // --- build ---
     ev("phase_started", { phase: "build" }, 500),
     ev("tool_call", { loop: "build", name: "apply_spec_patch", summary: "تغییر ظرفیت قابلیت ثبت‌نام از ۱۰ به ۱۲ نفر" }, 1100),
-    ev("tool_result", { name: "apply_spec_patch", ok: true, summary: "یک تغییر اعمال شد؛ سازگاری با داده‌های موجود تأیید شد" }, 800),
+    ev(
+      "tool_result",
+      { name: "apply_spec_patch", ok: true, summary: "یک تغییر اعمال شد:\nظرفیت: ۱۰ ← ۱۲\nسازگاری با داده‌های موجود تأیید شد" },
+      800,
+    ),
     ev("tool_call", { loop: "build", name: "validate_spec", summary: "اعتبارسنجی مشخصات جدید" }, 600),
     ev("tool_result", { name: "validate_spec", ok: true, summary: "بدون خطا و بدون هشدار" }, 700),
     ev("spec_updated", { outline: WORKSHOP_OUTLINE }, 300),
@@ -27,7 +31,15 @@ export function modifyRunScript(ctx: ScriptContext): ScriptItem[] {
 
     // --- testgen ---
     ev("phase_started", { phase: "testgen" }, 500),
-    ev("tests_generated", { derived: 9, acceptance: 1 }, 1300),
+    ev(
+      "tests_generated",
+      {
+        derived: 9,
+        acceptance: 1,
+        notes: ["آزمون «ظرفیت واقعی ۱۰ نفر» به نیازمندی تغییرکرده R3 وابسته است و دوباره نوشته شد."],
+      },
+      1300,
+    ),
     ev("phase_finished", { phase: "testgen", ok: true, summary: "آزمون‌های مشتق‌شده دوباره ساخته شد؛ ۳ آزمون پذیرش قبلی منتقل و ۱ آزمون جدید نوشته شد" }, 400),
 
     // --- run (first attempt: the capacity-10 scenario fails) ---
@@ -86,6 +98,17 @@ export function modifyRunScript(ctx: ScriptContext): ScriptItem[] {
         },
         risk: "low",
         warnings: [],
+        requirements: {
+          added: [],
+          changed: [
+            {
+              id: "R3",
+              before: "ظرفیت همهٔ کارگاه‌ها یکسان و ۱۰ نفر است.",
+              after: "ظرفیت همهٔ کارگاه‌ها یکسان و ۱۲ نفر است.",
+            },
+          ],
+          removed: [],
+        },
       },
       900,
     ),

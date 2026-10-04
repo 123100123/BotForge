@@ -81,6 +81,17 @@ export function initialMockRevisions(): StoredRevision[] {
       variant: "deadline2",
     },
     {
+      id: "rev_novin_1",
+      bot_id: "bot_novin",
+      number: 1,
+      parent_id: null,
+      status: "rejected",
+      change_request: "یک ربات برای ثبت‌نام کلاس‌های آموزشگاه می‌خواهم.",
+      created_at: iso(1 * DAY),
+      activated_at: null,
+      variant: "legacy",
+    },
+    {
       id: "rev_tamir_1",
       bot_id: "bot_tamir",
       number: 1,

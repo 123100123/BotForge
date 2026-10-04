@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fa, formatNumber } from "@/lib/format";
 import type { PhaseEntry, PhaseState, ToolEntry } from "@/lib/agent-state";
 import type { RunStatus, Usage } from "@/lib/types";
-import { PHASE_LABELS, RUN_STATUS_LABELS } from "./labels";
+import { phaseLabel, RUN_STATUS_LABELS } from "./labels";
 import { cn } from "@/lib/utils";
 
 function StateIcon({ state }: { state: PhaseState }) {
@@ -35,7 +35,7 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
       <div className="flex items-start gap-2">
         <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
         <div className="min-w-0">
-          <span>{tool.summary}</span>{" "}
+          <span className="whitespace-pre-line">{tool.summary}</span>{" "}
           <span dir="ltr" className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {tool.name}
           </span>
@@ -49,7 +49,7 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
           )}
         >
           {tool.result.ok ? <Check className="mt-0.5 size-3 shrink-0" /> : <CircleAlert className="mt-0.5 size-3 shrink-0" />}
-          <span>{tool.result.summary}</span>
+          <span className="whitespace-pre-line">{tool.result.summary}</span>
         </div>
       ) : (
         <div className="ms-3.5 flex items-center gap-1.5 text-xs text-muted-foreground">
@@ -70,7 +70,7 @@ function PhaseRow({ entry, last }: { entry: PhaseEntry; last: boolean }) {
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium">
-          <span>{PHASE_LABELS[entry.phase]}</span>
+          <span>{phaseLabel(entry.phase)}</span>
           {entry.attempt > 1 && <span className="text-xs font-normal text-muted-foreground">(تلاش {fa(entry.attempt)})</span>}
         </div>
         {entry.summary && <p className="mt-0.5 text-xs text-muted-foreground">{entry.summary}</p>}

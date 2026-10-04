@@ -40,6 +40,15 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
             نیازمندی‌های شما ساخته شد.
           </p>
         )}
+        {generated?.notes && generated.notes.length > 0 && (
+          <ul aria-label="نکته‌های ساخت آزمون" className="flex flex-col gap-1 rounded-lg bg-muted/60 p-3 text-sm leading-7">
+            {generated.notes.map((n, i) => (
+              <li key={i} className="whitespace-pre-line">
+                {n}
+              </li>
+            ))}
+          </ul>
+        )}
 
         {latest ? (
           <>

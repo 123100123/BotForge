@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { emptyRunView, reduceEvent, type RunView } from "@/lib/agent-state";
+import { applyServerStatus, emptyRunView, reduceEvent, type RunView } from "@/lib/agent-state";
 import { errorMessage } from "@/lib/errors";
 import { streamRunEvents } from "@/lib/sse";
-import { isTerminal, type AgentRun, type RawAgentEvent, type RunKind, type RunStatus } from "@/lib/types";
+import type { AgentRun, RawAgentEvent, RunKind, RunStatus } from "@/lib/types";
 
 interface State {
   runId: string | null;
@@ -13,16 +13,23 @@ interface State {
 }
 
 type Action =
-  | { type: "attach"; runId: string | null }
-  | { type: "event"; runId: string; event: RawAgentEvent };
+  | { type: "attach"; runId: string | null; status?: RunStatus }
+  | { type: "event"; runId: string; event: RawAgentEvent }
+  | { type: "server_status"; runId: string; status: RunStatus; atEventId: number };
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
     case "attach":
-      return { runId: action.runId, view: emptyRunView };
+      return {
+        runId: action.runId,
+        view: action.status ? { ...emptyRunView, status: action.status, statusSource: "server" } : emptyRunView,
+      };
     case "event":
       if (action.runId !== state.runId) return state;
       return { ...state, view: reduceEvent(state.view, action.event) };
+    case "server_status":
+      if (action.runId !== state.runId) return state;
+      return { ...state, view: applyServerStatus(state.view, action.status, action.atEventId) };
   }
 }
 
@@ -31,9 +38,10 @@ export interface AgentRunController {
   loading: boolean;
   runId: string | null;
   kind: RunKind | null;
+  /** The run's status: a `run_status` event or the server's answer to GET /runs/{id}; inferred from events only as a fallback. */
   status: RunStatus | null;
   view: RunView;
-  /** The owner's own approve/reject for this run, known before the stream reports it. */
+  /** The owner's own approve/reject for this run, known before the server confirms it. */
   decided: "approved" | "rejected" | null;
   connection: "open" | "reconnecting";
   /** A request (send, approve, reject) is in flight. */
@@ -47,7 +55,9 @@ export interface AgentRunController {
 
 /**
  * Owns the Agent tab's data: finds the bot's latest run, streams its events into a RunView, and
- * exposes the owner's actions. Only the latest run is shown; sending after a finished run starts a new one.
+ * exposes the owner's actions. The server decides the run's status: it is re-read after every
+ * action and whenever the event stream ends. Only the latest run is shown; sending after a finished
+ * run starts a new one.
  */
 export function useAgentRun(botId: string): AgentRunController {
   const [state, dispatch] = useReducer(reducer, { runId: null, view: emptyRunView });
@@ -57,8 +67,27 @@ export function useAgentRun(botId: string): AgentRunController {
   const [error, setError] = useState<string | null>(null);
   const [connection, setConnection] = useState<"open" | "reconnecting">("open");
   const [decision, setDecision] = useState<{ runId: string; value: "approved" | "rejected" } | null>(null);
+  /** Bumped to (re)start the event stream: after the owner acts on a run whose stream had stopped. */
+  const [streamTick, setStreamTick] = useState(0);
 
   const { runId, view } = state;
+  const lastEventRef = useRef(0);
+  useEffect(() => {
+    lastEventRef.current = view.lastEventId;
+  });
+
+  /** Reads the run from the server and takes its status as the truth. Returns that status. */
+  const syncRun = useCallback(async (id: string): Promise<RunStatus | null> => {
+    const atEventId = lastEventRef.current;
+    try {
+      const fresh = await api.getRun(id);
+      setServerRun(fresh);
+      dispatch({ type: "server_status", runId: id, status: fresh.status, atEventId });
+      return fresh.status;
+    } catch {
+      return null;
+    }
+  }, []);
 
   // Find the latest run once per bot.
   useEffect(() => {
@@ -68,7 +97,7 @@ export function useAgentRun(botId: string): AgentRunController {
         if (cancelled) return;
         const latest = [...runs].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
         setServerRun(latest);
-        dispatch({ type: "attach", runId: latest?.id ?? null });
+        dispatch({ type: "attach", runId: latest?.id ?? null, status: latest?.status });
         setLoading(false);
       },
       (err) => {
@@ -82,28 +111,35 @@ export function useAgentRun(botId: string): AgentRunController {
     };
   }, [botId]);
 
-  // Stream the attached run. The server replays from the first event (or from Last-Event-ID on reconnect).
+  // Stream the attached run. When the stream ends, the server's status says whether to reconnect.
   useEffect(() => {
     if (!runId) return;
     const controller = new AbortController();
     void streamRunEvents(runId, {
       signal: controller.signal,
+      lastEventId: lastEventRef.current,
       onEvent: (event) => dispatch({ type: "event", runId, event }),
       onConnection: setConnection,
       onFatal: setError,
+      onClosed: async () => {
+        const status = await syncRun(runId);
+        // Reconnect only while the run is running (or when its status could not be read).
+        return status === null || status === "running";
+      },
     });
     return () => controller.abort();
-  }, [runId]);
+  }, [runId, streamTick, syncRun]);
 
-  // Re-read the run's server-side status whenever the stream-derived status changes (and on demand).
-  const [refreshTick, setRefreshTick] = useState(0);
-  const refreshRun = useCallback(() => setRefreshTick((t) => t + 1), []);
+  // Read the run once when it is attached (the server status is the truth, not the events).
   useEffect(() => {
     if (!runId) return;
     let cancelled = false;
+    const atEventId = lastEventRef.current;
     api.getRun(runId).then(
       (fresh) => {
-        if (!cancelled) setServerRun(fresh);
+        if (cancelled) return;
+        setServerRun(fresh);
+        dispatch({ type: "server_status", runId, status: fresh.status, atEventId });
       },
       () => {
         /* the event stream still drives the view */
@@ -112,27 +148,25 @@ export function useAgentRun(botId: string): AgentRunController {
     return () => {
       cancelled = true;
     };
-  }, [runId, view.status, refreshTick]);
+  }, [runId]);
+
+  // Fallback for a backend that sends no `run_status`: while the view only *infers* "running", ask the server.
+  const inferredRunning = runId !== null && view.status === "running" && view.statusSource !== "event";
+  useEffect(() => {
+    if (!runId || !inferredRunning) return;
+    const timer = setInterval(() => void syncRun(runId), 4000);
+    return () => clearInterval(timer);
+  }, [runId, inferredRunning, syncRun]);
 
   const current = serverRun && serverRun.id === runId ? serverRun : null;
   const decided = decision && decision.runId === runId ? decision.value : null;
-  const status: RunStatus | null = useMemo(() => {
-    if (!runId) return null;
-    if (current && isTerminal(current.status)) return current.status;
-    // Between the owner's click and the stream's next event the run is no longer waiting for approval.
-    if (decided && view.status === "waiting_approval") return decided === "approved" ? "running" : "rejected";
-    return view.status;
-  }, [runId, current, view.status, decided]);
+  const status: RunStatus | null = runId ? view.status : null;
 
-  const act = useCallback(async (fn: () => Promise<AgentRun | null>) => {
+  const act = useCallback(async (fn: () => Promise<void>) => {
     setBusy(true);
     setError(null);
     try {
-      const run = await fn();
-      if (run) {
-        setServerRun(run);
-        dispatch({ type: "attach", runId: run.id });
-      }
+      await fn();
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -146,34 +180,42 @@ export function useAgentRun(botId: string): AgentRunController {
       if (!message) return;
       await act(async () => {
         if (runId && (status === "waiting_user" || status === "waiting_approval")) {
-          await api.postRunMessage(runId, message);
-          return null;
+          try {
+            await api.postRunMessage(runId, message);
+          } finally {
+            await syncRun(runId);
+            setStreamTick((t) => t + 1); // the stream may have stopped while the run waited
+          }
+          return;
         }
-        return api.createRun(botId, message);
+        const run = await api.createRun(botId, message);
+        setServerRun(run);
+        dispatch({ type: "attach", runId: run.id, status: run.status });
       });
     },
-    [act, botId, runId, status],
+    [act, botId, runId, status, syncRun],
   );
 
-  const approve = useCallback(async () => {
-    if (!runId) return;
-    await act(async () => {
-      await api.approveRun(runId);
-      setDecision({ runId, value: "approved" });
-      refreshRun();
-      return null;
-    });
-  }, [act, runId, refreshRun]);
+  const decide = useCallback(
+    async (value: "approved" | "rejected") => {
+      if (!runId) return;
+      await act(async () => {
+        try {
+          await (value === "approved" ? api.approveRun(runId) : api.rejectRun(runId));
+          setDecision({ runId, value });
+        } finally {
+          const next = await syncRun(runId);
+          // A refusal can return the run to waiting_approval: the decision did not take effect.
+          if (next === "waiting_approval") setDecision(null);
+          setStreamTick((t) => t + 1);
+        }
+      });
+    },
+    [act, runId, syncRun],
+  );
 
-  const reject = useCallback(async () => {
-    if (!runId) return;
-    await act(async () => {
-      await api.rejectRun(runId);
-      setDecision({ runId, value: "rejected" });
-      refreshRun();
-      return null;
-    });
-  }, [act, runId, refreshRun]);
+  const approve = useCallback(() => decide("approved"), [decide]);
+  const reject = useCallback(() => decide("rejected"), [decide]);
 
   return {
     loading,

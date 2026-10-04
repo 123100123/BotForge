@@ -4,7 +4,7 @@ import { repairSpec, workshopSpec } from "./specs";
 import type { BotSpec, Requirements, RevisionDetail, RevisionStatus, SpecChange, TestCounts } from "@/lib/types";
 
 /** Which fixture content a mock revision carries. */
-export type RevisionVariant = "initial" | "cap12" | "deadline2" | "repair" | "repair_failing";
+export type RevisionVariant = "initial" | "cap12" | "deadline2" | "repair" | "repair_failing" | "legacy";
 
 export interface StoredRevision {
   id: string;
@@ -16,12 +16,22 @@ export interface StoredRevision {
   created_at: string;
   activated_at: string | null;
   variant: RevisionVariant;
+  /**
+   * "legacy" revisions are stored without scenarios or a report (scenarios null); running the tests
+   * derives them, as the real backend does, and sets this flag.
+   */
+  ran?: boolean;
 }
 
 const CAP_LABEL = "ثبت‌نام در کارگاه — ";
 
 function capacityOf(v: RevisionVariant): number {
-  return v === "initial" ? 10 : 12;
+  return v === "initial" || v === "legacy" ? 10 : 12;
+}
+
+/** True while a legacy revision has nothing stored. */
+export function hasNoStoredTests(rev: StoredRevision): boolean {
+  return rev.variant === "legacy" && !rev.ran;
 }
 
 /* ------------------------------------------------------------------ workshop scenarios */
@@ -186,7 +196,7 @@ function diffOf(v: RevisionVariant): SpecChange[] {
 /* ------------------------------------------------------------------ public */
 
 function defsOf(v: RevisionVariant): ScenarioDef[] {
-  return v === "repair" ? repairDefs(false) : v === "repair_failing" ? repairDefs(true) : workshopDefs(v);
+  return v === "repair" ? repairDefs(false) : v === "repair_failing" ? repairDefs(true) : workshopDefs(v === "legacy" ? "initial" : v);
 }
 
 /** Test counts shown in the revision list. */
@@ -218,9 +228,9 @@ export function detailOf(rev: StoredRevision): RevisionDetail {
     activated_at: rev.activated_at,
     spec,
     requirements: requirementsOf(rev.variant),
-    scenarios: defs.map(scenarioOf),
-    superseded: [],
-    test_report: reportOf(defs),
+    scenarios: hasNoStoredTests(rev) ? null : defs.map(scenarioOf),
+    superseded: hasNoStoredTests(rev) ? null : [],
+    test_report: hasNoStoredTests(rev) ? null : reportOf(defs),
     diff: diffOf(rev.variant),
   };
 }
@@ -229,6 +239,7 @@ export function detailOf(rev: StoredRevision): RevisionDetail {
 export function nextVariant(parent: RevisionVariant | null): RevisionVariant {
   if (parent === null) return "initial";
   if (parent === "repair" || parent === "repair_failing") return "repair";
+  if (parent === "legacy") return "initial";
   if (parent === "initial") return "cap12";
   return "deadline2";
 }

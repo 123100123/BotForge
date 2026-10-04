@@ -131,6 +131,8 @@ export function ReviewCard({
               )}
             </section>
 
+            {diff.requirements && <RequirementsDelta delta={diff.requirements} />}
+
             {diff.affected_capabilities.length > 0 && (
               <section>
                 <h4 className="mb-2 text-sm font-semibold">قابلیت‌های تحت‌تأثیر</h4>
@@ -203,6 +205,54 @@ export function ReviewCard({
         </CardFooter>
       )}
     </Card>
+  );
+}
+
+/** "What changed in the requirements": added, changed (before and after) and removed statements. */
+function RequirementsDelta({ delta }: { delta: NonNullable<EventPayloads["diff"]["requirements"]> }) {
+  const added = delta.added ?? [];
+  const changed = delta.changed ?? [];
+  const removed = delta.removed ?? [];
+  if (added.length + changed.length + removed.length === 0) return null;
+  const idLabel = (id: string) => id.replace(/\d+/, (d) => fa(d));
+  return (
+    <section aria-label="تغییر نیازمندی‌ها">
+      <h4 className="mb-2 text-sm font-semibold">چه چیزی در نیازمندی‌ها تغییر کرد</h4>
+      <ul className="flex flex-col gap-1.5">
+        {added.map((r) => (
+          <li key={`a-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.added}`}>
+            <Plus className="mt-1.5 size-3.5 shrink-0" aria-label="افزوده شد" />
+            <span>
+              <span className="text-xs opacity-70">{idLabel(r.id)}</span> {r.statement}
+            </span>
+          </li>
+        ))}
+        {changed.map((r) => (
+          <li key={`c-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.changed}`}>
+            <Pencil className="mt-1.5 size-3.5 shrink-0" aria-label="تغییر کرد" />
+            <span className="flex flex-col">
+              <span className="text-xs opacity-70">{idLabel(r.id)}</span>
+              <span>
+                <span className="text-xs">قبل: </span>
+                <del className="opacity-80">{r.before}</del>
+              </span>
+              <span>
+                <span className="text-xs">بعد: </span>
+                {r.after}
+              </span>
+            </span>
+          </li>
+        ))}
+        {removed.map((r) => (
+          <li key={`r-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.removed}`}>
+            <Minus className="mt-1.5 size-3.5 shrink-0" aria-label="حذف شد" />
+            <span>
+              <span className="text-xs opacity-70">{idLabel(r.id)}</span> <del>{r.statement}</del>
+            </span>
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }
 

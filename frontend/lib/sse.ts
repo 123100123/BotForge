@@ -12,6 +12,12 @@ export interface StreamOptions {
   onConnection?: (state: "open" | "reconnecting") => void;
   /** Called with a Persian message for a failure that will not be retried (for example 401 or 404). */
   onFatal?: (message: string) => void;
+  /**
+   * Called when the connection ended (the server closed it, or it broke). Resolve true to reconnect
+   * (the run is still running) and false to stop until the caller restarts the stream (the run is
+   * finished or waiting for the owner). Default: reconnect.
+   */
+  onClosed?: () => Promise<boolean>;
 }
 
 /**
@@ -32,6 +38,13 @@ function streamMock(runId: string, opts: StreamOptions): Promise<void> {
       if (event.id <= last) return;
       last = event.id;
       opts.onEvent(event);
+      // The real server closes the stream once a run is terminal; the caller then reads the run's status.
+      if (event.type === "run_status") {
+        const status = (event.payload as { status?: string }).status;
+        if (status === "done" || status === "failed" || status === "rejected" || status === "interrupted") {
+          void opts.onClosed?.();
+        }
+      }
     };
     for (const event of engine.eventsAfter(runId, last)) deliver(event);
     const unsubscribe = engine.subscribe(runId, deliver);
@@ -122,6 +135,8 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
   const { signal } = opts;
   let last = opts.lastEventId ?? 0;
   let delay = RETRY_MIN_MS;
+  /** True when the last connection ended by an error rather than a normal close. */
+  let broken = false;
 
   while (!signal.aborted) {
     try {
@@ -144,6 +159,7 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       if (!res.body) throw new Error("no body");
       opts.onConnection?.("open");
       delay = RETRY_MIN_MS;
+      broken = false;
 
       const reader = res.body.getReader();
       const decoder = new TextDecoder();
@@ -165,10 +181,14 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       }
     } catch {
       if (signal.aborted) return;
+      broken = true;
     }
     if (signal.aborted) return;
-    opts.onConnection?.("reconnecting");
-    await wait(delay, signal);
-    delay = Math.min(delay * 2, RETRY_MAX_MS);
+    // The stream ended: ask the caller whether the run still needs it (the server closes it for finished runs).
+    if (opts.onClosed && !(await opts.onClosed())) return;
+    if (signal.aborted) return;
+    if (broken) opts.onConnection?.("reconnecting"); // a normal close of a running run reconnects silently
+    await wait(broken ? delay : RETRY_MIN_MS, signal);
+    if (broken) delay = Math.min(delay * 2, RETRY_MAX_MS);
   }
 }

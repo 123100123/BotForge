@@ -80,7 +80,7 @@ function RecordFormBody({
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.code === ERROR_CODES.invalidRecord) {
-        const { byField, general } = splitFieldErrors(fields, err.details);
+        const { byField, general } = splitFieldErrors(fields, err);
         setFieldErrors(byField);
         setGeneralErrors(general.length > 0 || Object.keys(byField).length > 0 ? general : [err.message]);
       } else {
@@ -107,6 +107,7 @@ function RecordFormBody({
           field={f}
           value={values[f.key]}
           error={fieldErrors[f.key]}
+          timeZone={collection.timezone}
           onChange={(v) => set(f.key, v)}
         />
       ))}
@@ -135,9 +136,11 @@ function FieldInput({
   field,
   value,
   error,
+  timeZone,
   onChange,
 }: {
   field: FieldDef;
+  timeZone?: string;
   value: FormValue;
   error?: string;
   onChange: (value: FormValue) => void;
@@ -200,7 +203,14 @@ function FieldInput({
       break;
     case "datetime":
       control = (
-        <JalaliDateTimeInput id={id} value={str} onChange={onChange} invalid={invalid} describedBy={invalid ? errId : undefined} />
+        <JalaliDateTimeInput
+          id={id}
+          value={str}
+          onChange={onChange}
+          timeZone={timeZone}
+          invalid={invalid}
+          describedBy={invalid ? errId : undefined}
+        />
       );
       break;
     default:

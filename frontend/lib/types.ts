@@ -441,6 +441,7 @@ export type RunStatus =
   | "interrupted";
 
 export type Phase =
+  | "triage"
   | "understand"
   | "clarify"
   | "build"
@@ -449,7 +450,8 @@ export type Phase =
   | "repair"
   | "review"
   | "await_approval"
-  | "deploy";
+  | "deploy"
+  | "failed";
 
 export interface Usage {
   input_tokens: number;
@@ -503,9 +505,10 @@ export interface RevisionDetail {
   activated_at: string | null;
   spec: BotSpec;
   requirements: Requirements | null;
-  scenarios: Scenario[];
-  /** Scenarios superseded while building this revision; shape not specified by the roadmap, unused. */
-  superseded: unknown[];
+  /** null (or empty) when no scenarios are stored for this revision. */
+  scenarios: Scenario[] | null;
+  /** Scenarios superseded while building this revision; shape not specified, unused. */
+  superseded: unknown[] | null;
   test_report: TestReport | null;
   diff: SpecChange[];
 }
@@ -515,6 +518,19 @@ export interface RevisionDetail {
 export interface SystemColumn {
   key: string;
   label: string;
+}
+
+export interface StatusOption {
+  key: string;
+  label: string;
+}
+
+/** A row action of a booking (`cancel`) or request (an owner action) collection. */
+export interface CollectionAction {
+  key: string;
+  label: string;
+  /** The action is offered only for records whose status is in this list. */
+  from_statuses: string[];
 }
 
 /** backend/app/api/data.py CollectionOut */
@@ -531,6 +547,12 @@ export interface DataCollection {
   title_field?: string | null;
   /** booking: the bookable resource; request: item_resource */
   resource?: string | null;
+  /** IANA zone of the bot (date-time fields are entered in it). */
+  timezone?: string;
+  /** booking/request collections: the status vocabulary */
+  statuses?: StatusOption[];
+  /** booking/request collections: the row actions */
+  actions?: CollectionAction[];
 }
 
 export interface DataOverview {
@@ -545,6 +567,9 @@ export interface DataRecord {
   status: string | null;
   actor_id: string | null;
   item_id: number | null;
+  /** booking/request records: the customer's display name and the item's title (null when unknown) */
+  actor_name?: string | null;
+  item_title?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -599,6 +624,13 @@ export interface DiffChange {
 
 export type RiskLevel = "low" | "medium" | "high";
 
+/** Requirement delta of a modify run (backend `diff` event; optional). */
+export interface RequirementsDeltaView {
+  added: { id: string; statement: string }[];
+  changed: { id: string; before: string; after: string }[];
+  removed: { id: string; statement: string }[];
+}
+
 export interface EventPayloads {
   owner_message: { text: string };
   agent_message: { text: string };
@@ -609,7 +641,7 @@ export interface EventPayloads {
   tool_call: { loop: "build" | "repair"; name: string; summary: string };
   tool_result: { name: string; ok: boolean; summary: string };
   spec_updated: { outline: SpecOutline };
-  tests_generated: { derived: number | Scenario[]; acceptance: number | Scenario[] };
+  tests_generated: { derived: number | Scenario[]; acceptance: number | Scenario[]; notes?: string[] };
   test_report: {
     total: number;
     passed: number;
@@ -622,9 +654,12 @@ export interface EventPayloads {
     tests: { carried: TestGroup; new: TestGroup; superseded: TestGroup };
     risk: RiskLevel;
     warnings: string[];
+    requirements?: RequirementsDeltaView;
   };
+  /** Authoritative run status on every transition. */
+  run_status: { status: RunStatus; phase: string };
   approval_requested: {
-    revision_id: string;
+    revision_id: string | null;
     can_approve: boolean;
     blocked_reason?: string | null;
   };
@@ -671,6 +706,7 @@ export const KNOWN_EVENT_TYPES: readonly AgentEventType[] = [
   "deployed",
   "usage",
   "error",
+  "run_status",
 ];
 
 export function isKnownEvent(e: RawAgentEvent): e is AgentEvent {

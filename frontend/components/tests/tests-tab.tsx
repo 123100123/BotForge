@@ -17,6 +17,10 @@ import type { Bot, RevisionDetail, ScenarioResult } from "@/lib/types";
 import { ScenarioDetail } from "./scenario-detail";
 import { ScenarioList } from "./scenario-list";
 
+function firstScenarioId(d: RevisionDetail): string | null {
+  return d.test_report?.results?.find((r) => !r.passed)?.scenario_id ?? d.scenarios?.[0]?.id ?? null;
+}
+
 export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
   const { revisions, error: loadError, reload } = useRevisions(bot.id, bot.active_revision_id);
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -38,7 +42,7 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
         setLoaded(d);
         setLoadedError(null);
         // Open on the first failing scenario, otherwise the first one.
-        setSelectedId(d.test_report?.results.find((r) => !r.passed)?.scenario_id ?? d.scenarios[0]?.id ?? null);
+        setSelectedId(firstScenarioId(d));
       },
       (err) => !cancelled && setLoadedError({ id: revisionId, message: errorMessage(err) }),
     );
@@ -63,7 +67,14 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
     setRunError(null);
     try {
       const report = await api.runRevisionTests(detail.id);
-      setLoaded({ ...detail, test_report: report });
+      // The backend derives scenarios when none are stored, so read the revision again.
+      try {
+        const fresh = await api.getRevision(detail.id);
+        setLoaded({ ...fresh, test_report: fresh.test_report ?? report });
+        setSelectedId(firstScenarioId(fresh));
+      } catch {
+        setLoaded({ ...detail, test_report: report });
+      }
       void reload();
     } catch (err) {
       setRunError(errorMessage(err));
@@ -91,7 +102,8 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
 
   const report = detail?.test_report ?? null;
   const allPassed = report !== null && report.failed === 0;
-  const selected = detail?.scenarios.find((s) => s.id === selectedId) ?? null;
+  const scenarios = detail?.scenarios ?? [];
+  const selected = scenarios.find((s) => s.id === selectedId) ?? null;
 
   return (
     <div className="flex flex-col gap-5">
@@ -111,7 +123,7 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
         </div>
         <Button variant="outline" onClick={runAgain} disabled={!detail || running}>
           <Play />
-          {running ? "در حال اجرا…" : "اجرای دوباره"}
+          {running ? "در حال اجرا…" : scenarios.length === 0 ? "اجرای آزمون" : "اجرای دوباره"}
         </Button>
       </div>
 
@@ -136,11 +148,25 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             </CardContent>
           </Card>
 
-          {detail.scenarios.length > 0 && (
+          {scenarios.length === 0 && (
+            <EmptyState
+              title="برای این نسخه سناریوی آزمونی ذخیره نشده است"
+              action={
+                <Button onClick={runAgain} disabled={running}>
+                  <Play />
+                  {running ? "در حال اجرا…" : "اجرای آزمون"}
+                </Button>
+              }
+            >
+              با اجرای آزمون، سناریوها از روی مشخصات همین نسخه ساخته و اجرا می‌شود و نتیجه اینجا نمایش داده می‌شود.
+            </EmptyState>
+          )}
+
+          {scenarios.length > 0 && (
             <div className="grid gap-5 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] md:items-start">
               <Card className="py-3">
                 <CardContent className="px-2">
-                  <ScenarioList scenarios={detail.scenarios} results={results} selectedId={selectedId} onSelect={setSelectedId} />
+                  <ScenarioList scenarios={scenarios} results={results} selectedId={selectedId} onSelect={setSelectedId} />
                 </CardContent>
               </Card>
               {selected && (
