@@ -155,6 +155,7 @@ async def test_tool_loop_passes_assistant_turns_back_unchanged() -> None:
     first, second = client.requests
     assert first["tools"][1]["strict"] is True and "strict" not in first["tools"][0]
     assert first["output_config"] == {"effort": "high"}
+    assert first["cache_control"] == {"type": "ephemeral"}
     history = second["messages"]
     assert history[1] == {"role": "assistant", "content": turn1}  # same blocks, thinking included
     assert history[1]["content"][0] is turn1[0]

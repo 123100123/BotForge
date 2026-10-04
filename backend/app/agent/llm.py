@@ -409,6 +409,8 @@ class AnthropicLLM:
         history: list[Any] = list(messages)
         params = self._params(task, tier, system, history)
         params["tools"] = [t.to_api() for t in tools]  # deterministic order: part of the cached prefix
+        # Automatic caching of the growing loop history (the system block carries its own breakpoint).
+        params["cache_control"] = {"type": "ephemeral"}
         total = Usage()
         state = {"calls": 0}
         nudged = False
