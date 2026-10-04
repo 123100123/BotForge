@@ -1,0 +1,66 @@
+{
+  "spec_version": 1,
+  "bot": {
+    "name": "کارگاه‌های آموزشگاه",
+    "welcome_text": "سلام! به ربات کارگاه‌های آموزشگاه خوش آمدید. از منوی زیر می‌توانید کارگاه‌ها را ببینید، ثبت‌نام کنید یا ثبت‌نام‌های خود را مدیریت کنید.",
+    "timezone": "Asia/Tehran",
+    "language": "fa"
+  },
+  "resources": [
+    {
+      "key": "workshop",
+      "label": "کارگاه",
+      "label_plural": "کارگاه‌ها",
+      "title_field": "title",
+      "fields": [
+        {"key": "title", "label": "عنوان", "type": "text", "required": true, "choices": null, "default": null},
+        {"key": "description", "label": "توضیحات", "type": "long_text", "required": true, "choices": null, "default": null},
+        {"key": "teacher", "label": "مدرس", "type": "text", "required": true, "choices": null, "default": null},
+        {"key": "starts_at", "label": "زمان شروع", "type": "datetime", "required": true, "choices": null, "default": null},
+        {"key": "price", "label": "هزینه (تومان)", "type": "integer", "required": false, "choices": null, "default": null}
+      ]
+    }
+  ],
+  "capabilities": [
+    {
+      "type": "info",
+      "key": "info",
+      "title": "دربارهٔ ما",
+      "pages": [
+        {
+          "key": "about",
+          "title": "دربارهٔ آموزشگاه",
+          "body": "آموزشگاه ما کارگاه‌های آموزشی کوتاه‌مدت و کاربردی با مدرسان باتجربه برگزار می‌کند. ظرفیت هر کارگاه محدود است تا همه بتوانند تمرین کنند."
+        },
+        {
+          "key": "address",
+          "title": "نشانی و تماس",
+          "body": "نشانی: تهران، خیابان انقلاب، کوچهٔ نمونه، پلاک ۱۲، طبقهٔ دوم.\nتلفن: ۰۲۱-۱۲۳۴۵۶۷۸\nساعت پاسخ‌گویی: شنبه تا پنجشنبه، ۹ تا ۱۸"
+        }
+      ]
+    },
+    {
+      "type": "booking",
+      "key": "book_workshop",
+      "title": "ثبت‌نام در کارگاه",
+      "resource": "workshop",
+      "capacity": {"mode": "fixed", "value": 10, "field": null},
+      "start_field": "starts_at",
+      "detail_fields": ["description", "teacher", "starts_at", "price"],
+      "form_fields": [],
+      "one_active_per_user_per_item": true,
+      "max_active_per_user": null,
+      "closes_hours_before_start": null,
+      "waitlist": {"enabled": true, "auto_promote": true},
+      "cancellation": {"enabled": true, "deadline_hours": null},
+      "notify_owner_on": ["booked", "cancelled"],
+      "notify_user_on": ["promoted"],
+      "texts": []
+    }
+  ],
+  "menu": [
+    {"key": "workshops", "label": "کارگاه‌ها و ثبت‌نام", "capability": "book_workshop", "view": "main"},
+    {"key": "my_bookings", "label": "ثبت‌نام‌های من", "capability": "book_workshop", "view": "mine"},
+    {"key": "about", "label": "دربارهٔ ما", "capability": "info", "view": "main"}
+  ]
+}

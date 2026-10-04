@@ -1,0 +1,61 @@
+{
+  "spec_version": 1,
+  "bot": {
+    "name": "تعمیرات لوازم خانگی",
+    "welcome_text": "سلام! به ربات تعمیرات لوازم خانگی خوش آمدید. از منوی زیر درخواست تعمیر ثبت کنید یا وضعیت درخواست‌های خود را ببینید.",
+    "timezone": "Asia/Tehran",
+    "language": "fa"
+  },
+  "resources": [],
+  "capabilities": [
+    {
+      "type": "request",
+      "key": "repair",
+      "title": "درخواست تعمیر",
+      "form_fields": [
+        {"key": "device", "label": "نوع دستگاه (مثلاً یخچال یا لباسشویی)", "type": "text", "required": true, "choices": null, "default": null},
+        {"key": "problem", "label": "شرح مشکل", "type": "long_text", "required": true, "choices": null, "default": null},
+        {"key": "phone", "label": "شماره تماس", "type": "phone", "required": true, "choices": null, "default": null},
+        {"key": "address", "label": "نشانی", "type": "long_text", "required": true, "choices": null, "default": null}
+      ],
+      "item_resource": null,
+      "statuses": [
+        {"key": "new", "label": "در انتظار بررسی"},
+        {"key": "approved", "label": "تأیید شده"},
+        {"key": "rejected", "label": "رد شده"},
+        {"key": "done", "label": "انجام شده"}
+      ],
+      "initial_status": "new",
+      "owner_actions": [
+        {"key": "approve", "label": "تأیید", "from_statuses": ["new"], "to_status": "approved"},
+        {"key": "reject", "label": "رد", "from_statuses": ["new"], "to_status": "rejected"},
+        {"key": "mark_done", "label": "انجام شد", "from_statuses": ["approved"], "to_status": "done"}
+      ],
+      "notify_owner_on": ["submitted"],
+      "notify_user_on": ["status_changed"],
+      "texts": []
+    },
+    {
+      "type": "info",
+      "key": "info",
+      "title": "دربارهٔ ما",
+      "pages": [
+        {
+          "key": "about",
+          "title": "دربارهٔ ما",
+          "body": "ما تعمیر انواع لوازم خانگی را در محل شما انجام می‌دهیم. پس از ثبت درخواست، کارشناس ما آن را بررسی می‌کند و نتیجه از همین ربات به شما اطلاع داده می‌شود."
+        },
+        {
+          "key": "hours",
+          "title": "ساعات کاری",
+          "body": "شنبه تا پنجشنبه، ساعت ۸ تا ۲۰"
+        }
+      ]
+    }
+  ],
+  "menu": [
+    {"key": "new_request", "label": "ثبت درخواست تعمیر", "capability": "repair", "view": "main"},
+    {"key": "my_requests", "label": "درخواست‌های من", "capability": "repair", "view": "mine"},
+    {"key": "about", "label": "دربارهٔ ما", "capability": "info", "view": "main"}
+  ]
+}

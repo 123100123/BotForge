@@ -1,0 +1,707 @@
+[
+  {
+    "id": "golden_basic_book",
+    "title": "ثبت‌نام ساده: علی کارگاه را می‌بیند، ثبت‌نام می‌کند و مدیر مطلع می‌شود",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "open",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "contains": "کارگاه عکاسی"
+      },
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 1,
+        "waitlisted": 0
+      },
+      {
+        "do": "expect_notified",
+        "actor": "owner",
+        "event": "booked"
+      }
+    ]
+  },
+  {
+    "id": "golden_capacity_10_real",
+    "title": "ظرفیت واقعی ۱۰ نفر: ده نفر تأیید می‌شوند و نفر یازدهم به لیست انتظار می‌رود",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "u1",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u2",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u3",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u4",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u5",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u6",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u7",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u8",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u9",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u10",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "u11",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 10,
+        "waitlisted": 1
+      },
+      {
+        "do": "expect_booking",
+        "actor": "u11",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      }
+    ]
+  },
+  {
+    "id": "golden_capacity_waitlist",
+    "title": "ظرفیت ۲: علی و سارا تأیید می‌شوند و رضا وارد لیست انتظار می‌شود",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 2,
+        "waitlisted": 1
+      },
+      {
+        "do": "expect_booking",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      }
+    ]
+  },
+  {
+    "id": "golden_duplicate_rejected",
+    "title": "ثبت‌نام تکراری: علی نمی‌تواند دو بار در یک کارگاه ثبت‌نام کند",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "rejected",
+        "reason": "duplicate"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 1,
+        "waitlisted": 0
+      }
+    ]
+  },
+  {
+    "id": "golden_cancel_frees_seat",
+    "title": "لغو ثبت‌نام جا را آزاد می‌کند: علی لغو می‌کند و رضا تأیید می‌شود",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "cancel",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_notified",
+        "actor": "owner",
+        "event": "cancelled"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 1,
+        "waitlisted": 0
+      },
+      {
+        "do": "book",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 2,
+        "waitlisted": 0
+      }
+    ]
+  },
+  {
+    "id": "golden_promotion_order",
+    "title": "جایگزینی خودکار به ترتیب: با لغو علی، رضا (اولین نفر لیست انتظار) تأیید می‌شود",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "book",
+        "actor": "nima",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "cancel",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "nima",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 2,
+        "waitlisted": 1
+      }
+    ]
+  },
+  {
+    "id": "golden_waitlisted_cancel_no_promotion",
+    "title": "لغو توسط نفر لیست انتظار کسی را جایگزین نمی‌کند",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "book",
+        "actor": "nima",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "cancel",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "nima",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "expect_counts",
+        "capability": "book_workshop",
+        "item": "w1",
+        "confirmed": 2,
+        "waitlisted": 1
+      }
+    ]
+  },
+  {
+    "id": "golden_promotion_notifies",
+    "title": "اطلاع‌رسانی جایگزینی: رضا پس از تأیید از لیست انتظار پیام می‌گیرد",
+    "source": "acceptance",
+    "requirement_ids": [],
+    "capability_keys": [
+      "book_workshop"
+    ],
+    "capacity_override": 2,
+    "seed": [
+      {
+        "ref": "w1",
+        "collection": "workshop",
+        "values": [
+          {
+            "key": "title",
+            "value": "کارگاه عکاسی"
+          },
+          {
+            "key": "description",
+            "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."
+          },
+          {
+            "key": "teacher",
+            "value": "مریم احمدی"
+          },
+          {
+            "key": "starts_at",
+            "value": "+48h"
+          },
+          {
+            "key": "price",
+            "value": "1500000"
+          }
+        ]
+      }
+    ],
+    "steps": [
+      {
+        "do": "book",
+        "actor": "ali",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      },
+      {
+        "do": "book",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "waitlisted"
+      },
+      {
+        "do": "cancel",
+        "actor": "sara",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "cancelled"
+      },
+      {
+        "do": "expect_notified",
+        "actor": "reza",
+        "event": "promoted"
+      },
+      {
+        "do": "expect_booking",
+        "actor": "reza",
+        "capability": "book_workshop",
+        "item": "w1",
+        "expect": "confirmed"
+      }
+    ]
+  }
+]
