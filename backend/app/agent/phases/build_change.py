@@ -8,7 +8,7 @@ the model normally fixes them inside the first loop. Warnings are left for the r
 
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
-from app.agent.phases import BUDGET_MESSAGE, fail, render_conversation, section, task_message
+from app.agent.phases import BUDGET_MESSAGE, fail, note_loop_end, render_conversation, section, task_message
 from app.agent.phases.build import _STOP_MESSAGES
 from app.agent.prompts import system_prompt
 from app.agent.tools import BUILD_PATCH_TOOLS, AgentTools, compact_issues
@@ -80,6 +80,7 @@ async def run(ctx: RunContext) -> Next:
         )
         used += result.tool_calls
         state.usage.tool_calls += result.tool_calls
+        note_loop_end(state, "build", result.stop_reason)
         valid = not has_errors(validate_spec(state.draft_spec))
         errors = [i for i in compat_issues(ctx, state.draft_spec) if i.severity == "error"]
         if valid and not errors and result.stop_reason in ("finished", "tool_limit", "end_turn", "budget"):

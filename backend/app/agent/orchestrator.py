@@ -36,8 +36,9 @@ from app.agent import events as ev
 from app.agent.context import Limits, Next, RunContext
 from app.agent.events import Event, EventBus, default_bus
 from app.agent.llm import LLMClient
-from app.agent.modify import empty_requirements
+from app.agent.modify import empty_requirements, uncovered_requirements, uncovered_text
 from app.agent.phases import (
+    STEP_LIMIT_TEXT,
     build,
     build_change,
     deploy,
@@ -51,6 +52,7 @@ from app.agent.phases import (
     understand_change,
 )
 from app.agent.phases import run as run_phase
+from app.agent.phases.testgen import NO_ACCEPTANCE
 from app.agent.repository import ActivationRefused, AgentRepository, RunRecord
 from app.agent.state import ChatTurn, Phase, RunState
 
@@ -110,11 +112,19 @@ def approval_block(state: RunState) -> str | None:
     report = state.test_report
     if state.approval_blocked_reason:
         return state.approval_blocked_reason
+    if state.step_limit_hit:
+        return STEP_LIMIT_TEXT
     if report is None or report.failed > 0:
         return "آزمون‌های این نسخه ناموفق است."
     passed = {r.scenario_id for r in report.results if r.passed}
     if any(s.id not in passed for s in state.all_scenarios()):
         return UNPROVEN
+    if state.kind == "create" and not any(s.source == "acceptance" for s in state.scenarios):
+        return NO_ACCEPTANCE
+    if state.kind == "modify":
+        uncovered = uncovered_requirements(state.delta, state.scenarios, state.new_scenario_ids, passed)
+        if uncovered:
+            return uncovered_text(uncovered)
     return None
 
 

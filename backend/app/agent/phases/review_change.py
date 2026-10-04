@@ -10,8 +10,15 @@ from typing import Any
 from app.agent import events as ev
 from app.agent.checks import check_sample_record, fa
 from app.agent.context import Next, RunContext
-from app.agent.modify import Risk, risk_level
-from app.agent.phases import fail, render_conversation, say
+from app.agent.modify import (
+    Risk,
+    empty_requirements,
+    requirements_card,
+    risk_level,
+    uncovered_requirements,
+    uncovered_text,
+)
+from app.agent.phases import STEP_LIMIT_TEXT, add_block_reason, fail, render_conversation, say
 from app.agent.phases.build_change import compat_issues
 from app.agent.phases.review import generate_sample_data
 from app.agent.repository import RepositoryError
@@ -41,6 +48,7 @@ def diff_payload(
         },
         risk=risk,
         warnings=warnings,
+        requirements=requirements_card(state.delta, state.base_requirements or empty_requirements()),
     )
     return payload
 
@@ -99,6 +107,13 @@ async def run(ctx: RunContext) -> Next:
         state.approval_blocked_reason = state.approval_blocked_reason or "آزمون‌ها اجرا نشده‌اند."
     elif report.failed > 0 and not state.approval_blocked_reason:
         state.approval_blocked_reason = f"{fa(report.failed)} آزمون ناموفق است."
+    # Every added or changed requirement of the cumulative delta needs a passing new scenario.
+    passed = {r.scenario_id for r in report.results if r.passed} if report else set()
+    uncovered = uncovered_requirements(state.delta, state.scenarios, state.new_scenario_ids, passed)
+    if uncovered:
+        add_block_reason(state, uncovered_text(uncovered))
+    if state.step_limit_hit:
+        add_block_reason(state, STEP_LIMIT_TEXT)
 
     changes = diff_specs(state.base_spec, state.draft_spec)
     compat = compat_issues(ctx, state.draft_spec)

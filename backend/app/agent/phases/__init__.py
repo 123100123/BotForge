@@ -12,9 +12,33 @@ from app.agent import events as ev
 from app.agent import prompts
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
-from app.agent.state import ChatTurn
+from app.agent.state import ChatTurn, RunState
 
 BUDGET_MESSAGE = "بودجهٔ این گفتگو برای ساخت ربات تمام شد."
+STEP_LIMIT_TEXT = (
+    "ایجنت پیش از تأیید نهایی کارش به سقف تعداد اقدام‌ها رسید. اگر می‌خواهید ادامه دهد، یک پیام بفرستید."
+)
+
+
+def add_block_reason(state: RunState, reason: str) -> None:
+    """Record a reason that blocks approval (reasons accumulate, each once)."""
+    current = state.approval_blocked_reason
+    if not current:
+        state.approval_blocked_reason = reason
+    elif reason not in current:
+        state.approval_blocked_reason = f"{current} {reason}"
+
+
+def note_loop_end(state: RunState, loop: str, stop_reason: str) -> None:
+    """Roadmap Limits: a loop that hit the tool-call cap without ``finish`` blocks approval.
+
+    The run still goes on to tests and review so the owner sees the state; a later loop of this
+    run that ends with ``finish`` clears the mark.
+    """
+    if stop_reason == "tool_limit":
+        state.step_limit_hit = loop
+    elif stop_reason == "finished":
+        state.step_limit_hit = None
 
 
 async def say(ctx: RunContext, text: str) -> None:

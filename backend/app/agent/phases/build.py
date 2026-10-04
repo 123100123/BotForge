@@ -7,7 +7,7 @@ the run fails with a Persian explanation.
 
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
-from app.agent.phases import BUDGET_MESSAGE, fail, render_conversation, section, task_message
+from app.agent.phases import BUDGET_MESSAGE, fail, note_loop_end, render_conversation, section, task_message
 from app.agent.prompts import system_prompt
 from app.agent.tools import BUILD_PATCH_TOOLS, BUILD_TOOLS, AgentTools
 from app.botspec.validate import has_errors, validate_spec
@@ -46,6 +46,7 @@ async def run(ctx: RunContext) -> Next:
         on_usage=ctx.usage_hook,
     )
     state.usage.tool_calls += result.tool_calls
+    note_loop_end(state, "build", result.stop_reason)
     valid = state.draft_spec is not None and not has_errors(validate_spec(state.draft_spec))
     if valid and (result.stop_reason == "finished" or result.stop_reason in ("tool_limit", "end_turn")):
         return Next("testgen")

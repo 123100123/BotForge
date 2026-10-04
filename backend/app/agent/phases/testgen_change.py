@@ -24,7 +24,26 @@ from app.botspec.outline import spec_outline
 from app.testing.derive import derive_scenarios
 from app.testing.scenario import Scenario
 
-NO_NEW_TESTS = "برای این تغییر آزمون معتبری نوشته نشد، پس درستی آن ثابت نشده است."
+
+def retained_scenarios(ctx: RunContext, targets: set[str]) -> list[Scenario]:
+    """This run's new scenarios from earlier rounds that still hold.
+
+    Dropped when a requirement they cite was touched in the latest round, when they no longer cite
+    any added or changed requirement, or when they no longer validate against the current draft.
+    """
+    state = ctx.state
+    touched = set(state.delta_touched)
+    kept: list[Scenario] = []
+    for s in state.scenarios:
+        if s.id not in state.new_scenario_ids:
+            continue
+        cites = set(s.requirement_ids)
+        if cites & touched or not cites & targets:
+            continue
+        sc, _ = _check(s.model_dump(mode="json"), ctx, targets)
+        if sc is not None:
+            kept.append(sc.model_copy(update={"id": s.id}))
+    return kept
 
 
 def _message(*sections: str) -> dict[str, Any]:
@@ -130,28 +149,35 @@ async def run(ctx: RunContext) -> Next:
     state.carried_ids = [s.id for s in carried]
 
     targets = target_ids(state.delta)
+    # New scenarios from earlier rounds of this run are kept unless a requirement they cite was
+    # added, changed or removed in the latest round (then they are regenerated).
+    kept = retained_scenarios(ctx, targets)
+    covered = {rid for s in kept for rid in s.requirement_ids}
+    focus = targets - covered
     accepted: list[Scenario] = []
     if not targets:
         notes.append("no added or changed requirements: no new acceptance scenarios")
+    elif not focus:
+        notes.append(f"kept {len(kept)} new scenario(s) from the previous round; nothing to rewrite")
     elif ctx.over_budget():
         state.approval_blocked_reason = BUDGET_MESSAGE + " آزمون‌های تغییر نوشته نشد."
         notes.append("token budget exhausted: no new acceptance scenarios")
     else:
-        accepted = await author(ctx, targets, notes)
+        accepted = await author(ctx, focus, notes)
 
-    taken = {s.id for s in state.derived} | {s.id for s in base_acceptance}
-    new: list[Scenario] = []
+    taken = {s.id for s in state.derived} | {s.id for s in base_acceptance} | {s.id for s in kept}
+    authored: list[Scenario] = []
     for sc in accepted:
         new_id = _unique_id(sc.id, taken)
         taken.add(new_id)
-        new.append(sc.model_copy(update={"id": new_id}))
-    if len(new) > ctx.limits.max_change_acceptance:
-        notes.append(f"kept the first {ctx.limits.max_change_acceptance} of {len(new)} new scenarios")
-        new = new[: ctx.limits.max_change_acceptance]
+        authored.append(sc.model_copy(update={"id": new_id}))
+    if len(authored) > ctx.limits.max_change_acceptance:
+        notes.append(f"kept the first {ctx.limits.max_change_acceptance} of {len(authored)} new scenarios")
+        authored = authored[: ctx.limits.max_change_acceptance]
+    new = [*kept, *authored]
     if targets and not new:
-        # The change itself is unproven: nothing tests the new behavior. Approval stays blocked.
         notes.append("no valid acceptance scenario for the changed requirements")
-        state.approval_blocked_reason = state.approval_blocked_reason or NO_NEW_TESTS
+    # Coverage of every added/changed requirement is enforced at review (uncovered_requirements).
 
     state.scenarios = [*carried, *new]
     state.new_scenario_ids = [s.id for s in new]

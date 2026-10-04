@@ -75,6 +75,9 @@ class RunState(BaseModel):
     sample_data: list[SeedRecord] = []
     revision_id: str | None = None  # the draft revision written at review
     approval_blocked_reason: str | None = None
+    # A build or repair loop that ended at the tool-call cap without ``finish`` ("build"/"repair").
+    # Blocks approval until a later loop of this run finishes.
+    step_limit_hit: str | None = None
     # --- modify only -------------------------------------------------------------------------
     base_revision_id: str | None = None  # the live revision the draft is a copy of
     base_spec: BotSpec | None = None
@@ -83,6 +86,7 @@ class RunState(BaseModel):
     carried_ids: list[str] = []  # carried-forward acceptance scenarios still in the active set
     record_counts: dict[str, int] = {}  # live records per collection (counts only, never records)
     max_confirmed_per_item: dict[str, int] = {}  # booking capability key -> highest confirmed count
+    delta_touched: list[str] = []  # requirement ids added/changed/removed in the LATEST round
     triage: str | None = None  # change / question / data_request / unsupported
     diff: dict[str, Any] | None = None  # the review card (the `diff` event payload)
     usage: Usage = Usage()

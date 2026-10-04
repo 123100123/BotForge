@@ -22,7 +22,6 @@ from tests.unit.agent.helpers import (
     all_golden_scenarios,
     blocking_question,
     capacity_requirement,
-    capacity_scenario,
     capacity_scripts,
     change_out,
     deadline_requirement,
@@ -93,6 +92,17 @@ async def test_golden_capacity_change_supersedes_only_the_capacity_scenario() ->
         },
         "risk": "low",
         "warnings": [],
+        "requirements": {
+            "added": [],
+            "changed": [
+                {
+                    "id": "R2",
+                    "before": golden_requirements()["items"][1]["statement"],
+                    "after": capacity_requirement(12)["statement"],
+                }
+            ],
+            "removed": [],
+        },
     }
     # Nothing else changed in the spec.
     base = BotSpec.model_validate(golden_spec())
@@ -538,7 +548,8 @@ async def test_owner_message_while_awaiting_approval_reenters_understand_change_
     scripts["structured"]["understand"].append(
         change_out(changed=[capacity_requirement(12)], added=[deadline_requirement("R8")])
     )
-    scripts["structured"]["testgen"].append({"scenarios": [capacity_scenario(12), *deadline_scenarios("R8")]})
+    # Round 2 keeps the 12-seat scenario (R2 untouched this round) and writes tests for R8 only.
+    scripts["structured"]["testgen"].append({"scenarios": deadline_scenarios("R8")})
     scripts["loops"]["build"].append([[patch({"op": "set", "path": DEADLINE_HOURS, "value": 2})], [finish()]])
     h = modify_harness(scripts)
     run = await h.start_change()
@@ -588,7 +599,9 @@ async def test_event_sequence_and_payload_shapes() -> None:
         < types.index("deployed")
     )
     (diff,) = h.of_type(run.id, "diff")
-    assert set(diff) == {"changes", "affected_capabilities", "tests", "risk", "warnings"}
+    assert set(diff) == {"changes", "affected_capabilities", "tests", "risk", "warnings", "requirements"}
+    assert set(diff["requirements"]) == {"added", "changed", "removed"}
+    assert all(set(c) == {"id", "before", "after"} for c in diff["requirements"]["changed"])
     assert set(diff["tests"]) == {"carried", "new", "superseded"}
     assert all(set(c) == {"label_fa", "kind"} for c in diff["changes"])
     assert all(set(s) == {"title", "reason"} for s in diff["tests"]["superseded"])

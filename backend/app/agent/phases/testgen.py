@@ -13,11 +13,13 @@ from app.agent import events as ev
 from app.agent.checks import check_acceptance, compact_json, requirement_ids
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
-from app.agent.phases import BUDGET_MESSAGE, section, task_message
+from app.agent.phases import BUDGET_MESSAGE, add_block_reason, section, task_message
 from app.agent.prompts import system_prompt
 from app.botspec.outline import spec_outline
 from app.testing.derive import derive_scenarios
 from app.testing.scenario import Scenario
+
+NO_ACCEPTANCE = "هیچ آزمون پذیرش معتبری برای خواسته‌های شما نوشته نشد، پس درستی ربات ثابت نشده است."
 
 
 class AcceptanceOut(BaseModel):
@@ -150,6 +152,10 @@ async def run(ctx: RunContext) -> Next:
         notes.append(
             f"only {len(final)} acceptance scenario(s); at least {ctx.limits.min_acceptance} expected"
         )
+    if not final:
+        # Derived scenarios only prove the runtime honors the spec, not that the spec is what the
+        # owner asked for: without one acceptance scenario the bot is unproven.
+        add_block_reason(state, NO_ACCEPTANCE)
 
     state.scenarios = final
     state.new_scenario_ids = [s.id for s in final]

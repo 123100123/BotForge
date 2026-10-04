@@ -149,15 +149,18 @@ def diff(
     tests: dict[str, Any],
     risk: str,
     warnings: list[str],
+    requirements: dict[str, list[dict[str, str]]] | None = None,
 ) -> Event:
     """``{changes: [{label_fa, kind}], affected_capabilities, tests: {carried, new, superseded:
-    [{title, reason}]}, risk, warnings}`` (MODIFY review card)."""
+    [{title, reason}]}, risk, warnings, requirements: {added: [{id, statement}], changed: [{id,
+    before, after}], removed: [{id, statement}]}}`` (MODIFY review card; cumulative delta)."""
     return DIFF, {
         "changes": changes,
         "affected_capabilities": affected_capabilities,
         "tests": tests,
         "risk": risk,
         "warnings": warnings,
+        "requirements": requirements or {"added": [], "changed": [], "removed": []},
     }
 
 

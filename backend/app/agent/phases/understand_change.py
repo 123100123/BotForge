@@ -1,7 +1,9 @@
 """understand_change: change request + base requirements + spec outline -> RequirementsDelta.
 
-One structured call (strong tier). The delta is normalized against the base requirements (new ids
-continue the base numbering) and the run's requirements become base + delta. Clarification follows
+One structured call (strong tier). The model's delta is merged into the run's CUMULATIVE delta
+against the base requirements (``modify.merge_delta``: earlier rounds stay unless this round
+changes or removes them; new ids continue the numbering) and the run's requirements become
+base + delta. Clarification follows
 the CREATE policy: blocking questions are asked (at most ``max_questions`` per round,
 ``max_clarify_rounds`` rounds), everything else becomes an assumed added requirement.
 """
@@ -13,9 +15,10 @@ from app.agent.modify import (
     apply_delta,
     delta_is_empty,
     empty_requirements,
+    merge_delta,
     next_requirement_number,
-    normalize_delta,
     requirement_lines,
+    same_statement,
 )
 from app.agent.phases import BUDGET_MESSAGE, fail, render_conversation, say, section, task_message
 from app.agent.phases.understand import question_as_assumption, questions_text, unsupported_text
@@ -35,18 +38,31 @@ class UnderstandChangeOut(StrictModel):
 
 
 def apply_question_policy(
-    delta: RequirementsDelta, base_numbers_from: int, *, allow_questions: bool, max_questions: int
+    delta: RequirementsDelta,
+    base_numbers_from: int,
+    *,
+    allow_questions: bool,
+    max_questions: int,
+    touched: set[str] | None = None,
 ) -> tuple[RequirementsDelta, list[Question]]:
-    """Blocking questions are asked (when allowed); the rest become assumed added requirements."""
+    """Blocking questions are asked (when allowed); the rest become assumed added requirements.
+
+    New assumption ids are added to ``touched``; an assumption already in the delta is not repeated.
+    """
     added = list(delta.added)
     n = max(base_numbers_from, next_requirement_number(added))
     blocking: list[Question] = []
     for q in delta.open_questions:
         if q.severity == "blocking" and allow_questions:
             blocking.append(q)
-        else:
-            added.append(question_as_assumption(q, f"R{n}"))
-            n += 1
+            continue
+        assumed = question_as_assumption(q, f"R{n}")
+        if any(same_statement(a.statement, assumed.statement) for a in added):
+            continue
+        added.append(assumed)
+        if touched is not None:
+            touched.add(assumed.id)
+        n += 1
     asked = blocking[:max_questions]
     return delta.model_copy(update={"added": added, "open_questions": blocking}), asked
 
@@ -102,13 +118,17 @@ async def run(ctx: RunContext) -> Next:
     ctx.charge(usage)
     assert isinstance(out, UnderstandChangeOut)
 
+    # The run's delta is cumulative: this round is merged into what earlier rounds established.
+    merged = merge_delta(state.delta, out.delta, base)
     delta, asked = apply_question_policy(
-        normalize_delta(out.delta, base),
+        merged.delta,
         next_requirement_number(base.items),
         allow_questions=allow_questions,
         max_questions=ctx.limits.max_questions,
+        touched=merged.touched,
     )
     state.delta = delta
+    state.delta_touched = sorted(merged.touched)
     state.requirements = apply_delta(base, delta)
     await ctx.emit(ev.requirements(state.requirements))
 
