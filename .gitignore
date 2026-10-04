@@ -34,3 +34,6 @@ Thumbs.db
 
 # Claude Code agent worktrees
 .claude/worktrees/
+
+# Local development database (scripts/dev_db.py)
+backend/.devdb/

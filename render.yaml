@@ -1,0 +1,63 @@
+# Render Blueprint for the BotForge backend (one web service, Docker).
+# The database is Supabase, so there is no database resource here. The frontend is a Vercel project.
+#
+# The service must stay always-on and single-instance: agent runs, rate limits and the Telegram
+# webhook handler live in one process. Use a paid plan that does not sleep (a free instance spins
+# down and drops in-flight agent runs). Never set numInstances above 1.
+#
+# Every variable is declared here; `sync: false` ones are asked for in the Render dashboard when the
+# Blueprint is applied and are never stored in git.
+services:
+  - type: web
+    name: botforge-api
+    runtime: docker
+    rootDir: backend           # uses backend/Dockerfile with backend/ as the build context
+    plan: starter              # paid, always-on
+    numInstances: 1
+    healthCheckPath: /healthz
+    autoDeploy: false          # deploy deliberately from the dashboard
+    envVars:
+      # --- database (Supabase Postgres) ---
+      - key: DATABASE_URL            # Supabase "Connect" -> connection string. Session pooler (port 5432) or direct.
+        sync: false
+      # --- authentication (Supabase Auth) ---
+      - key: SUPABASE_URL            # https://<project-ref>.supabase.co ; also pins the token issuer
+        sync: false
+      - key: SUPABASE_JWKS_URL       # <SUPABASE_URL>/auth/v1/.well-known/jwks.json (asymmetric keys)
+        sync: false
+      - key: SUPABASE_JWT_SECRET     # legacy HS256 projects only; ignored when SUPABASE_JWKS_URL is set
+        sync: false
+      # --- secrets ---
+      - key: TOKEN_ENC_KEY           # python -m app.security.crypto generate-key ; losing it orphans stored bot tokens
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      # --- public addresses ---
+      - key: PUBLIC_BASE_URL         # this service's public https URL; Telegram webhooks are registered under it
+        sync: false
+      - key: FRONTEND_ORIGIN         # the Vercel URL, exactly one origin, no trailing slash (CORS)
+        sync: false
+      # --- LLM ---
+      - key: LLM_MODEL_STRONG
+        sync: false
+      - key: LLM_MODEL_FAST
+        sync: false
+      - key: LOG_LLM_BODIES          # keep false in production: bodies contain owner chat text
+        value: "false"
+      # --- agent limits (defaults shown; lower AGENT_DAILY_RUN_CAP before a public demo) ---
+      - key: AGENT_DAILY_RUN_CAP
+        value: "30"
+      - key: AGENT_RUNS_PER_MINUTE
+        value: "5"
+      - key: AGENT_INPUT_TOKEN_BUDGET
+        value: "600000"
+      - key: AGENT_OUTPUT_TOKEN_BUDGET
+        value: "150000"
+      - key: AGENT_MAX_TOOL_CALLS
+        value: "15"
+      - key: AGENT_MAX_REPAIR_ROUNDS
+        value: "2"
+      - key: AGENT_MAX_QUESTIONS
+        value: "3"
+      - key: AGENT_MAX_CLARIFY_ROUNDS
+        value: "2"

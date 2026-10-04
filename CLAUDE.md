@@ -18,5 +18,7 @@
 - Without uv: `python -m venv .venv`, install `pydantic pytest pytest-asyncio ruff` and `-e .`,
   then `.venv/Scripts/python -m pytest -q`.
 
+Local run, dev database, smoke test and deployment steps: see `README.md`.
+
 Python 3.12, type hints throughout, async I/O, ruff clean. Automated tests never call the real
 LLM or the real Telegram API.
