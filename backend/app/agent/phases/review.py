@@ -6,7 +6,14 @@ from app.agent import events as ev
 from app.agent.checks import check_sample_record, fa
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
-from app.agent.phases import render_conversation, say, section, task_message
+from app.agent.phases import (
+    STEP_LIMIT_TEXT,
+    add_block_reason,
+    render_conversation,
+    say,
+    section,
+    task_message,
+)
 from app.agent.prompts import system_prompt
 from app.agent.repository import RepositoryError
 from app.botspec.models import StrictModel
@@ -86,6 +93,8 @@ async def run(ctx: RunContext) -> Next:
         state.approval_blocked_reason = state.approval_blocked_reason or "آزمون‌ها اجرا نشده‌اند."
     elif report.failed > 0 and not state.approval_blocked_reason:
         state.approval_blocked_reason = f"{fa(report.failed)} آزمون ناموفق است."
+    if state.step_limit_hit:
+        add_block_reason(state, STEP_LIMIT_TEXT)
 
     outline = spec_outline(state.draft_spec)
     state.sample_data = await generate_sample_data(ctx, outline.resources)

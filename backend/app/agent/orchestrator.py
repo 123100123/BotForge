@@ -31,13 +31,15 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 from app.agent import events as ev
 from app.agent.context import Limits, Next, RunContext
 from app.agent.events import Event, EventBus, default_bus
 from app.agent.llm import LLMClient
-from app.agent.modify import empty_requirements
+from app.agent.modify import empty_requirements, uncovered_requirements, uncovered_text
 from app.agent.phases import (
+    STEP_LIMIT_TEXT,
     build,
     build_change,
     deploy,
@@ -51,8 +53,10 @@ from app.agent.phases import (
     understand_change,
 )
 from app.agent.phases import run as run_phase
+from app.agent.phases.testgen import NO_ACCEPTANCE
 from app.agent.repository import ActivationRefused, AgentRepository, RunRecord
-from app.agent.state import ChatTurn, Phase, RunState
+from app.agent.state import TERMINAL_STATUSES, ChatTurn, Phase, RunState
+from app.security.redact import redact
 
 log = logging.getLogger(__name__)
 
@@ -86,6 +90,10 @@ STALE_BASE_TEXT = (
     "لطفاً درخواست تغییر را دوباره بفرستید."
 )
 UNPROVEN = "آزمون‌های این نسخه کامل اجرا نشده یا ناموفق است."
+TOKEN_NOTICE = (
+    "به نظر می‌رسد پیام شما توکن ربات تلگرام داشت؛ آن را حذف کردم و ذخیره یا ارسال نشد. "
+    "توکن را فقط در بخش «تنظیمات» وارد کنید."
+)
 NOT_WAITING = "این گفتگو الان منتظر پیام شما نیست."
 NOT_AWAITING_APPROVAL = "این گفتگو الان منتظر تأیید نیست."
 REJECTED_TEXT = "پیش‌نویس کنار گذاشته شد و ربات فعلی تغییری نکرد."
@@ -110,11 +118,19 @@ def approval_block(state: RunState) -> str | None:
     report = state.test_report
     if state.approval_blocked_reason:
         return state.approval_blocked_reason
+    if state.step_limit_hit:
+        return STEP_LIMIT_TEXT
     if report is None or report.failed > 0:
         return "آزمون‌های این نسخه ناموفق است."
     passed = {r.scenario_id for r in report.results if r.passed}
     if any(s.id not in passed for s in state.all_scenarios()):
         return UNPROVEN
+    if state.kind == "create" and not any(s.source == "acceptance" for s in state.scenarios):
+        return NO_ACCEPTANCE
+    if state.kind == "modify":
+        uncovered = uncovered_requirements(state.delta, state.scenarios, state.new_scenario_ids, passed)
+        if uncovered:
+            return uncovered_text(uncovered)
     return None
 
 
@@ -139,6 +155,34 @@ class Orchestrator:
         envelope = await self.repo.append_event(run_id, *event)
         self.bus.publish(envelope)
 
+    async def _save(self, run_id: str, state: RunState, status: str, **kwargs: Any) -> None:
+        """Persist the run, then announce the status (every transition emits ``run_status``)."""
+        await self.repo.save_run(run_id, state=state, status=status, **kwargs)
+        await self._emit(run_id, ev.run_status(status, state.phase))
+
+    async def ensure_status_event(self, run_id: str) -> None:
+        """A terminal run whose last ``run_status`` disagrees with its stored status (e.g. marked
+        ``interrupted`` at startup, outside the orchestrator) gets the missing event."""
+        record = await self.repo.load_run(run_id)
+        if record.status not in TERMINAL_STATUSES:
+            return
+        events = await self.repo.list_events(run_id)
+        last = next((e for e in reversed(events) if e.type == ev.RUN_STATUS), None)
+        if last is None or last.payload.get("status") != record.status:
+            await self._emit(run_id, ev.run_status(record.status, record.phase))
+
+    @staticmethod
+    def _intake(state: RunState, message: str) -> list[Event]:
+        """Owner text enters the run: token-shaped secrets are replaced BEFORE anything is stored,
+        emitted, or sent to a model. Returns the events to emit (owner message, maybe a notice)."""
+        clean = redact(message)
+        state.conversation.append(ChatTurn(role="owner", text=clean))
+        events: list[Event] = [ev.owner_message(clean)]
+        if clean != message:
+            state.conversation.append(ChatTurn(role="agent", text=TOKEN_NOTICE))
+            events.append(ev.agent_message(TOKEN_NOTICE))
+        return events
+
     def _ctx(self, record: RunRecord, active_revision_id: str | None) -> RunContext:
         async def emit(event: Event) -> None:
             await self._emit(record.id, event)
@@ -161,11 +205,12 @@ class Orchestrator:
         bot = await self.repo.load_bot(bot_id)
         if bot.active_revision_id is not None:
             raise OrchestratorError("modify_not_available", MODIFY_UNAVAILABLE)
-        state = RunState(
-            kind="create", phase="understand", conversation=[ChatTurn(role="owner", text=message)]
-        )
+        state = RunState(kind="create", phase="understand")
+        intake = self._intake(state, message)
         record = await self.repo.create_run(bot_id, kind="create", state=state)
-        await self._emit(record.id, ev.owner_message(message))
+        for event in intake:
+            await self._emit(record.id, event)
+        await self._emit(record.id, ev.run_status("running", state.phase))
         return record
 
     async def start_modify(self, bot_id: str, message: str) -> RunRecord:
@@ -180,7 +225,6 @@ class Orchestrator:
         state = RunState(
             kind="modify",
             phase="triage",
-            conversation=[ChatTurn(role="owner", text=message)],
             base_revision_id=base.id,
             base_spec=base.spec,
             base_requirements=base.requirements,
@@ -188,8 +232,11 @@ class Orchestrator:
             draft_spec=base.spec.model_copy(deep=True),
             base_sample_data=base.sample_data,
         )
+        intake = self._intake(state, message)
         record = await self.repo.create_run(bot_id, kind="modify", state=state, base_revision_id=base.id)
-        await self._emit(record.id, ev.owner_message(message))
+        for event in intake:
+            await self._emit(record.id, event)
+        await self._emit(record.id, ev.run_status("running", state.phase))
         return record
 
     async def start(self, bot_id: str, message: str) -> RunRecord:
@@ -207,7 +254,7 @@ class Orchestrator:
         if not await self.repo.claim_run(run_id, (record.status,), "running"):
             raise OrchestratorError("run_not_waiting", NOT_WAITING)
         state = record.state
-        state.conversation.append(ChatTurn(role="owner", text=message))
+        intake = self._intake(state, message)
         if record.status == "waiting_approval":
             # Re-enter understand with the conversation and the current draft as the starting point.
             state.repair_rounds = 0
@@ -216,7 +263,9 @@ class Orchestrator:
         state.pending_questions = []
         state.phase = "understand"
         await self.repo.save_run(run_id, state=state, status="running")
-        await self._emit(run_id, ev.owner_message(message))
+        for event in intake:
+            await self._emit(run_id, event)
+        await self._emit(run_id, ev.run_status("running", state.phase))
         return await self.repo.load_run(run_id)
 
     async def approve(self, run_id: str) -> RunRecord:
@@ -233,6 +282,7 @@ class Orchestrator:
         ctx = self._ctx(record, bot.active_revision_id)
         try:
             state.phase = "deploy"
+            await self._emit(run_id, ev.run_status("running", state.phase))
             await self._emit(run_id, ev.phase_started("deploy"))
             if state.kind == "modify" and bot.active_revision_id != state.base_revision_id:
                 await self._end_stale(run_id, state)  # raises
@@ -241,16 +291,18 @@ class Orchestrator:
             except ActivationRefused as exc:
                 if exc.code == "stale_base":
                     await self._end_stale(run_id, state)  # raises
+                # The run is not over: it waits for approval again. No `error` event (reserved for
+                # runs that end failed); the owner is told why and what to do.
+                text = f"فعال‌سازی انجام نشد: {exc.message}"
                 await self._emit(run_id, ev.phase_finished("deploy", False, exc.message))
-                await self._emit(run_id, ev.error(exc.message))
+                state.conversation.append(ChatTurn(role="agent", text=text))
+                await self._emit(run_id, ev.agent_message(text))
                 state.phase = "await_approval"
-                await self.repo.save_run(run_id, state=state, status="waiting_approval")
+                await self._save(run_id, state, "waiting_approval")
                 raise OrchestratorError(exc.code, exc.message) from None
             await self._emit(run_id, ev.phase_finished("deploy", True))
             state.phase = nxt.phase
-            await self.repo.save_run(
-                run_id, state=state, status=nxt.status, result_revision_id=state.revision_id
-            )
+            await self._save(run_id, state, nxt.status, result_revision_id=state.revision_id)
         except OrchestratorError:
             raise
         except Exception as exc:
@@ -272,7 +324,7 @@ class Orchestrator:
         await self._emit(run_id, ev.phase_finished("deploy", False, "stale_base"))
         await self._emit(run_id, ev.error(STALE_BASE_TEXT))
         await self._emit(run_id, ev.agent_message(STALE_BASE_TEXT))
-        await self.repo.save_run(run_id, state=state, status="failed")
+        await self._save(run_id, state, "failed")
         raise OrchestratorError("stale_base", STALE_BASE_TEXT)
 
     async def reject(self, run_id: str) -> RunRecord:
@@ -287,6 +339,7 @@ class Orchestrator:
         state.conversation.append(ChatTurn(role="agent", text=REJECTED_TEXT))
         await self.repo.save_run(run_id, state=state, status="rejected")
         await self._emit(run_id, ev.agent_message(REJECTED_TEXT))
+        await self._emit(run_id, ev.run_status("rejected", state.phase))
         return await self.repo.load_run(run_id)
 
     # ------------------------------------------------------------------ the phase loop
@@ -316,11 +369,14 @@ class Orchestrator:
                     await ctx.emit(ev.usage(state.usage))
                 state.phase = nxt.phase
                 status = nxt.status
-                await self.repo.save_run(run_id, state=state, status=status)
+                if status == "running":
+                    await self.repo.save_run(run_id, state=state, status=status)
+                else:
+                    await self._save(run_id, state, status)
         except asyncio.CancelledError:
             if state is not None:
                 try:
-                    await self.repo.save_run(run_id, state=state, status="interrupted")
+                    await self._save(run_id, state, "interrupted")
                 except Exception:
                     log.exception("could not mark run %s interrupted", run_id)
             raise
@@ -335,7 +391,7 @@ class Orchestrator:
             state.error = f"{type(exc).__name__}: {exc}"[:2000]
             state.phase = "failed"
             await self._emit(run_id, ev.error(UNEXPECTED_ERROR))
-            await self.repo.save_run(run_id, state=state, status="failed")
+            await self._save(run_id, state, "failed")
         except Exception:
             log.exception("could not record the failure of run %s", run_id)
 

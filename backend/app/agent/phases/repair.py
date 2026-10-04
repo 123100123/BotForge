@@ -7,7 +7,7 @@ carried, with ``supersedable`` for carried ones, so the model knows which side m
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
 from app.agent.modify import releasable_ids
-from app.agent.phases import section, task_message
+from app.agent.phases import note_loop_end, section, task_message
 from app.agent.phases.build_change import compat_issues
 from app.agent.prompts import system_prompt
 from app.agent.tools import MODIFY_REPAIR_TOOLS, REPAIR_TOOLS, AgentTools
@@ -78,4 +78,5 @@ async def run(ctx: RunContext) -> Next:
         on_usage=ctx.usage_hook,
     )
     state.usage.tool_calls += result.tool_calls
+    note_loop_end(state, "repair", result.stop_reason)
     return Next("run")  # the run phase re-tests and decides: review, another round, or blocked

@@ -21,7 +21,9 @@ requirements below (the live bot), even when a previous delta or a current draft
   answer changes what gets built and no sensible default exists; record important open points as
   assumed `added` items instead. Prefer zero questions.
 
-If a previous delta is given, the owner has replied or asked for more: return the complete delta
-against the base, including what still applies from the previous one.
+If a previous delta is given, the owner has replied or asked for more. Everything in the previous
+delta stays in effect unless you change or remove it: keep its ids, put a new statement for one of
+its requirements in `changed` with the same id, and list the id in `removed` only when the owner no
+longer wants it. Mark a requirement as changed only when its meaning changes.
 
 The message: one or two short, plain Persian sentences saying what will change.
