@@ -267,11 +267,8 @@ class AnthropicLLM:
         from app.config import get_settings
 
         settings = get_settings()
-        if client is None:
-            import anthropic
-
-            client = anthropic.AsyncAnthropic(api_key=settings.ANTHROPIC_API_KEY or None, max_retries=3)
-        self._client = client
+        self._client = client  # created lazily, so the app boots without an API key
+        self._api_key = settings.ANTHROPIC_API_KEY or None
         self.strong_model = strong_model or settings.LLM_MODEL_STRONG or DEFAULT_STRONG_MODEL
         self.fast_model = fast_model or settings.LLM_MODEL_FAST or DEFAULT_FAST_MODEL
         self.log_bodies = settings.LOG_LLM_BODIES if log_bodies is None else log_bodies
@@ -307,6 +304,8 @@ class AnthropicLLM:
 
         if self.log_bodies:
             log.info("llm request task=%s body=%s", task, json.dumps(params, ensure_ascii=False, default=str))
+        if self._client is None:
+            self._client = anthropic.AsyncAnthropic(api_key=self._api_key, max_retries=3)
         started = time.perf_counter()
         try:
             async with self._client.beta.messages.stream(**params) as stream:
