@@ -1,0 +1,9 @@
+# Store text with LF line endings so the repository works the same on Linux, macOS and Windows.
+* text=auto eol=lf
+
+*.woff2 binary
+*.woff binary
+*.ttf binary
+*.png binary
+*.jpg binary
+*.ico binary

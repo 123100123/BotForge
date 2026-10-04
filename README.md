@@ -21,12 +21,28 @@ this README only covers running and deploying the project.
 | `frontend/` | Next.js web app (Persian, RTL) |
 | `examples/` | Golden workshop BotSpec, scenarios and prompts |
 | `render.yaml` | Render Blueprint for the backend |
-| `conductor/` | Unrelated agent-tooling; ignore |
+| `conductor/` | Claude Code orchestration config used to build this project (not part of the product); install with `conductor/install/AGENT-INSTALL.md` |
 
-## Local setup (Windows, no Docker, no cloud)
+## Local setup (Linux, macOS or Windows; no Docker, no cloud)
 
 Prerequisites: [uv](https://docs.astral.sh/uv/) (it installs Python 3.12 itself) and, for the frontend,
-Node 20.9 or newer. Commands are PowerShell, run from `backend/` unless stated.
+Node 20.9 or newer. Commands run from `backend/` unless stated. The `uv run ...` commands are the same
+on every platform; the examples below are PowerShell, and the Linux/macOS differences are listed next.
+
+### On Linux or macOS
+
+```bash
+curl -LsSf https://astral.sh/uv/install.sh | sh       # installs uv
+cd backend && uv sync --group dbtest
+uv run pytest -q                                       # starts a temporary Postgres itself (pgserver)
+```
+
+- Set environment variables with `export NAME=value` instead of `$env:NAME = 'value'`,
+  e.g. `export TOKEN_ENC_KEY="$(uv run python -m app.security.crypto generate-key)"`.
+- Use `curl` instead of `curl.exe`, `cp .env.example .env.local` instead of `copy`, and
+  `.venv/bin/python` instead of `.venv/Scripts/python`.
+- A system Postgres works too: point `TEST_DATABASE_URL` (tests; the schema `app` is dropped and
+  rebuilt, so use a throwaway database) or `DATABASE_URL` (dev) at it instead of using `pgserver`.
 
 ```powershell
 cd backend
