@@ -1,5 +1,6 @@
 """The dispatch service: one function for webhook, simulator and admin. Needs a database."""
 
+import json
 from datetime import UTC, datetime
 from typing import Any
 
@@ -15,7 +16,7 @@ from app.runtime.contracts import Actor, RuntimeEvent
 from app.runtime.pg_store import PgStore
 from app.runtime.runtime import BotRuntime
 from app.services.dispatch import dispatch
-from tests.integration.helpers import SessionFactory
+from tests.integration.helpers import REPO, SessionFactory
 from tests.integration.tg_helpers import CAP, LiveBot, capacity_spec, make_live_bot
 
 NOW = datetime(2026, 10, 5, 12, 0, tzinfo=UTC)
@@ -208,6 +209,27 @@ async def test_event_for_another_bot_is_refused(
     )
     with pytest.raises(ValueError, match="bot"):
         await run(session_factory, bot, spec, ev, fake_tg)
+
+
+async def test_live_owner_rights_follow_the_owner_link_read_under_the_lock(
+    session_factory: SessionFactory, fake_tg: FakeTelegramClient, tg_env: None
+) -> None:
+    repair = json.loads((REPO / "examples" / "repair.botspec.json").read_text(encoding="utf-8"))
+    bot = await make_live_bot(session_factory, repair, owner_actor_id="900")
+    spec = BotSpec.model_validate(repair)
+    own = make_callback("repair", "own", "1.approve")  # an owner-only button press
+
+    # flagged as owner when the update was parsed, but 900 is the linked owner now: no rights
+    stale = await run(
+        session_factory, bot, spec, event(bot, "live", "601", "callback", data=own, is_owner=True), fake_tg
+    )
+    assert [(o.result, o.reason) for o in stale.outcomes] == [("rejected", "not_allowed")]
+
+    # and the linked owner is recognised even when the flag was computed before the link
+    linked = await run(
+        session_factory, bot, spec, event(bot, "live", "900", "callback", data=own, is_owner=False), fake_tg
+    )
+    assert all(o.reason != "not_allowed" for o in linked.outcomes)
 
 
 async def test_admin_event_does_not_echo_the_owner_reply_to_telegram(

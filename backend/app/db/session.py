@@ -24,7 +24,9 @@ def get_engine() -> AsyncEngine:
         url = get_settings().async_database_url
         if url is None:
             raise DatabaseNotConfigured("DATABASE_URL is not set")
-        _engine = create_async_engine(url, pool_pre_ping=True)
+        # SECURITY: hide_parameters keeps bound values (webhook secrets, encrypted tokens, owner link
+        # codes, customer data) out of exception text, which error handlers write to the log.
+        _engine = create_async_engine(url, pool_pre_ping=True, hide_parameters=True)
     return _engine
 
 

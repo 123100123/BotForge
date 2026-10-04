@@ -3,25 +3,29 @@
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_bot
 from app.db.models import Bot
 from app.db.session import get_session
 from app.revisions.service import RevisionError
+from app.runtime.callbacks import MAX_CALLBACK_BYTES
 from app.runtime.contracts import RuntimeResponse
 from app.simulator.service import EventKind, Persona, SimulatorError, reset_sandbox, simulate_event
 
 router = APIRouter(tags=["simulator"])
+
+# Telegram's own bounds, so the sandbox never receives input the live channel could not deliver.
+MAX_TEXT_CHARS = 4096  # a Telegram text message
 
 
 class SimulatorEventBody(BaseModel):
     revision_id: uuid.UUID | None = None  # null = the active revision
     persona: Persona
     kind: EventKind
-    text: str | None = None
-    data: str | None = None
+    text: str | None = Field(None, max_length=MAX_TEXT_CHARS)
+    data: str | None = Field(None, max_length=MAX_CALLBACK_BYTES)  # bytes are checked by the runtime
 
 
 class ResetBody(BaseModel):

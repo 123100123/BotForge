@@ -7,9 +7,9 @@ update id only (never the update content, which holds user messages) and the tra
 back.
 
 Processing: record ``(bot_id, update_id)`` in ``tg_updates`` and commit at once (a duplicate delivery
-stops here); owner deep link ``/start owner_<code>``; the fixed "not ready" reply when the bot has no
-active revision; otherwise ``dispatch``. Owner linking is handled before the active-revision check
-because linking needs no revision.
+stops here); owner deep link ``/start owner_<code>`` (single use); the fixed "not ready" reply when
+the bot has no active revision; otherwise ``dispatch``. Owner linking is handled before the
+active-revision check because linking needs no revision.
 """
 
 import json
@@ -140,14 +140,20 @@ async def _process(
 async def _link_owner(
     session: AsyncSession, bot: Bot, parsed: ParsedUpdate, telegram: TelegramProvider
 ) -> None:
-    """``/start owner_<code>``: record the sender as the bot owner and rotate the code (single use)."""
+    """``/start owner_<code>``: record the sender as the bot owner and consume the code.
+
+    Single use, and nothing is re-armed here: a rotated code would sit valid in the Settings page
+    (and in any screenshot or screen share of it), letting whoever copies it silently replace the
+    owner. A new link exists only after the authenticated owner reconnects the token (``connect``
+    issues a fresh code), so every change of owner follows an action in the web app.
+    """
     code = (parsed.start_payload or "")[len(OWNER_PAYLOAD_PREFIX) :]
     await advisory_lock(session, bot.id)
     fresh = await session.get(Bot, bot.id, populate_existing=True) or bot
     expected = fresh.owner_link_code
     if expected and secrets.compare_digest(code.encode(), expected.encode()):
         fresh.owner_actor_id = parsed.event.actor.id
-        fresh.owner_link_code = secrets.token_urlsafe(12)  # the link cannot be reused
+        fresh.owner_link_code = None  # consumed: the link cannot be reused
         await session.commit()
         text = texts.OWNER_LINKED
     else:

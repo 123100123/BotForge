@@ -29,8 +29,10 @@ from app.security.crypto import (
 
 log = logging.getLogger(__name__)
 
-# "<bot id>:<secret>" as BotFather issues it; checked before any network call.
-TOKEN_FORMAT = re.compile(r"^\d{5,}:[A-Za-z0-9_-]{20,}$")
+# "<bot id>:<secret>" as BotFather issues it; checked before any network call. ASCII only ("\d" would
+# admit other scripts' digits), and never shorter than what the log redaction (app.security.redact)
+# recognizes as a token, so every token held here is one the safety net can catch.
+TOKEN_FORMAT = re.compile(r"^[0-9]{6,}:[A-Za-z0-9_-]{30,}$")
 
 
 class OnboardingError(Exception):
@@ -127,8 +129,9 @@ async def connect(
     bot.tg_webhook_secret = generate_webhook_secret()
     bot.tg_last_error = None
     bot.status = _status_after_connect(bot)
-    if not bot.owner_link_code:  # bots created by scripts may lack one
-        bot.owner_link_code = secrets.token_urlsafe(12)
+    # A fresh single-use owner link on every connect: this is how the owner gets a new one after a
+    # link was consumed, and reconnecting revokes a link that leaked before it was used.
+    bot.owner_link_code = secrets.token_urlsafe(12)
     try:
         await session.flush()
     except IntegrityError:  # lost a race for the same Telegram bot id

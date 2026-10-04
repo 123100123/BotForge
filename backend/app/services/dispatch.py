@@ -5,7 +5,8 @@ locking, transactions and message delivery are identical for every caller.
 
 Order of operations, and why it matters:
 
-1. take the bot's advisory lock (events for one bot are processed one at a time);
+1. take the bot's advisory lock (events for one bot are processed one at a time) and re-read the
+   bot; a live Telegram event's ``actor.is_owner`` is set from the owner link read here;
 2. run ``BotRuntime.handle`` against ``PgStore`` in the caller's session;
 3. COMMIT;
 4. only then, for ``env="live"``, deliver messages through Telegram.
@@ -69,6 +70,8 @@ async def dispatch(
     fresh = await session.get(Bot, bot.id, populate_existing=True)  # owner link / token may have changed
     current = fresh or bot
     owner_actor_id = current.owner_actor_id if live else SANDBOX_OWNER
+    if live and event.kind != "admin":
+        event = _with_owner_flag(event, owner_actor_id)
     # Plain values: a rollback or commit may expire the ORM object, and async lazy loads fail.
     target = _Target(current.id, current.tg_token_enc, current.tg_last_error)
     store = PgStore(session, current.id, event.env, owner_actor_id=owner_actor_id)
@@ -84,6 +87,19 @@ async def dispatch(
     if live:
         await _deliver(session, target, response, event, origin, provider)
     return response
+
+
+def _with_owner_flag(event: RuntimeEvent, owner_actor_id: str | None) -> RuntimeEvent:
+    """A Telegram event whose ``actor.is_owner`` reflects the owner link read under the bot's lock.
+
+    The adapter computes the flag from the bot row it loaded before the lock, so a relink that
+    commits in between must neither leave the previous owner with owner rights nor deny them to the
+    new one. ``admin`` events keep their flag: their caller is the authenticated web owner.
+    """
+    is_owner = owner_actor_id is not None and event.actor.id == owner_actor_id
+    if is_owner == event.actor.is_owner:
+        return event
+    return event.model_copy(update={"actor": event.actor.model_copy(update={"is_owner": is_owner})})
 
 
 @dataclass

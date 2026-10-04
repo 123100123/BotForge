@@ -100,6 +100,15 @@ async def test_text_event_needs_text_and_callback_needs_data(
     assert ok.status_code == 200
 
 
+async def test_text_and_button_data_are_bounded_like_telegram(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot
+) -> None:
+    bot_id, _ = await make_bot("alice")
+    assert (await send(tg_client, bot_id, "ali", "text", text="س" * 4096)).status_code == 200
+    assert (await send(tg_client, bot_id, "ali", "text", text="س" * 4097)).status_code == 422
+    assert (await send(tg_client, bot_id, "ali", "callback", data="m" * 65)).status_code == 422
+
+
 async def test_unknown_persona_or_kind_is_a_validation_error(
     tg_client: httpx.AsyncClient, make_bot: MakeBot
 ) -> None:

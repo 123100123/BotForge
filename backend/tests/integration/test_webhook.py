@@ -288,7 +288,7 @@ async def test_concurrent_bookings_are_serialized_by_the_advisory_lock(
 # --- owner linking ----------------------------------------------------------------------------
 
 
-async def test_owner_link_stores_the_owner_and_rotates_the_code(
+async def test_owner_link_stores_the_owner_and_is_consumed(
     tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
 ) -> None:
     owner = Chat(tg_client, bot, fake_tg, 900)
@@ -296,7 +296,7 @@ async def test_owner_link_stores_the_owner_and_rotates_the_code(
     assert owner.last_text() == texts.OWNER_LINKED
     row = await load_bot(session_factory, bot.id)
     assert row.owner_actor_id == "900"
-    assert row.owner_link_code and row.owner_link_code != bot.owner_link_code
+    assert row.owner_link_code is None  # single use: no code stays armed after a link
 
     # the used link cannot be reused, not even by someone else
     intruder = Chat(tg_client, bot, fake_tg, 901)
@@ -308,6 +308,43 @@ async def test_owner_link_stores_the_owner_and_rotates_the_code(
     await intruder.say("/start owner_totallywrong")
     assert intruder.last_text() == texts.OWNER_LINK_INVALID
     assert (await load_bot(session_factory, bot.id)).owner_actor_id == "900"
+
+
+async def test_after_a_link_nothing_is_armed_until_the_owner_reconnects(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    await Chat(tg_client, bot, fake_tg, 900).say(f"/start owner_{bot.owner_link_code}")
+    status = (await tg_client.get(f"/bots/{bot.id}/telegram", headers=ALICE)).json()
+    # nothing on the Settings page (or a screenshot of it) could make someone else the owner
+    assert status["owner_linked"] is True and status["owner_link"] is None
+
+    # a new link exists only after an action of the authenticated owner: reconnecting the token
+    reconnected = await tg_client.post(
+        f"/bots/{bot.id}/telegram/connect", json={"token": bot.token}, headers=ALICE
+    )
+    assert reconnected.status_code == 200, reconnected.text
+    link = reconnected.json()["owner_link"]
+    assert link and "?start=owner_" in link
+    bot.secret = (await load_bot(session_factory, bot.id)).tg_webhook_secret  # re-registered webhook
+    successor = Chat(tg_client, bot, fake_tg, 901)
+    await successor.say(f"/start {link.split('?start=', 1)[1]}")
+    assert successor.last_text() == texts.OWNER_LINKED
+    assert (await load_bot(session_factory, bot.id)).owner_actor_id == "901"
+
+
+async def test_reconnecting_revokes_an_owner_link_that_was_never_used(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    leaked = bot.owner_link_code
+    reconnected = await tg_client.post(
+        f"/bots/{bot.id}/telegram/connect", json={"token": bot.token}, headers=ALICE
+    )
+    assert reconnected.status_code == 200 and leaked not in reconnected.json()["owner_link"]
+    bot.secret = (await load_bot(session_factory, bot.id)).tg_webhook_secret  # re-registered webhook
+    intruder = Chat(tg_client, bot, fake_tg, 901)
+    await intruder.say(f"/start owner_{leaked}")
+    assert intruder.last_text() == texts.OWNER_LINK_INVALID
+    assert (await load_bot(session_factory, bot.id)).owner_actor_id is None
 
 
 async def test_linked_owner_receives_alerts_and_may_use_owner_actions(

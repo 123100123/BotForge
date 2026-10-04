@@ -116,7 +116,16 @@ async def test_reconnecting_the_same_bot_is_allowed(tg_client: httpx.AsyncClient
     assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
 
 
-@pytest.mark.parametrize("token", ["not-a-token", "12345:short", "abc:" + "A" * 30])
+@pytest.mark.parametrize(
+    "token",
+    [
+        "not-a-token",
+        "12345:short",
+        "abc:" + "A" * 30,
+        "۱۲۳۴۵۶۷۸۹:" + "A" * 35,  # non-ASCII digits
+        "123456789:" + "A" * 29,  # shorter than any real token (and than the log redaction pattern)
+    ],
+)
 async def test_malformed_token_is_rejected_without_calling_telegram(
     tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient, token: str
 ) -> None:
