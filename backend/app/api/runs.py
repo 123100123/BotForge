@@ -1,9 +1,10 @@
-"""Agent runs: start a CREATE run, answer, approve, reject, and tail events over SSE.
+"""Agent runs: start a run, answer, approve, reject, and tail events over SSE.
 
 Runs execute as asyncio background tasks inside this process (``Orchestrator.spawn``); the request
-only creates or claims the run. A bot that already has an active revision gets a 409 until the
-modify flow exists. One active run per bot; a per-account daily cap and a per-user rate limit guard
-run creation.
+only creates or claims the run. A bot without an active revision gets a CREATE run; a bot with one
+gets a MODIFY run (triage first: questions, data requests and unsupported asks end without a
+revision). One active run per bot; a per-account daily cap and a per-user rate limit guard run
+creation.
 """
 
 import asyncio
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.context import Limits, get_agent_settings
 from app.agent.events import EventEnvelope
 from app.agent.llm import AnthropicLLM
-from app.agent.orchestrator import MODIFY_UNAVAILABLE, Orchestrator, OrchestratorError
+from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.repository import ActiveRunExists, RepositoryError, RunRecord, SqlAgentRepository
 from app.agent.state import TERMINAL_STATUSES
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot, get_owned_run
@@ -141,8 +142,7 @@ async def create_run(
     session: AsyncSession = Depends(get_session),
     orchestrator: Orchestrator = Depends(get_orchestrator),
 ) -> RunOut:
-    if bot.active_revision_id is not None:
-        raise _err(409, "modify_not_available", MODIFY_UNAVAILABLE)
+    modify = bot.active_revision_id is not None
     settings = get_agent_settings()
     since = datetime.now(UTC) - timedelta(days=1)
     today = (
@@ -159,7 +159,8 @@ async def create_run(
         raise _err(429, "rate_limited", RATE_LIMIT_MESSAGE)
     await session.commit()  # release the request's connection before the run starts
     try:
-        record = await orchestrator.start_create(str(bot.id), body.message)
+        start = orchestrator.start_modify if modify else orchestrator.start_create
+        record = await start(str(bot.id), body.message)
     except ActiveRunExists as exc:
         raise _err(409, exc.code, exc.message) from None
     except (OrchestratorError, RepositoryError) as exc:

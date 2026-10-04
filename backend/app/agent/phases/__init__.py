@@ -26,6 +26,9 @@ async def say(ctx: RunContext, text: str) -> None:
 async def fail(ctx: RunContext, message: str, detail: str | None = None) -> Next:
     """End the run as failed with a Persian explanation (error event + agent message)."""
     ctx.state.error = detail or message
+    if ctx.state.kind == "modify" and ctx.state.revision_id is not None:
+        # A draft from an earlier round of this run must not outlive the failed run.
+        await ctx.repo.reject_revision(ctx.state.revision_id)
     await ctx.emit(ev.error(message))
     await say(ctx, message)
     return Next("failed", "failed")

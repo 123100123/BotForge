@@ -29,4 +29,16 @@ def system_prompt() -> str:
     return "\n\n".join([load("system"), load("catalog"), _text_keys_section()]) + "\n"
 
 
-TASKS = ("understand", "build", "testgen", "repair", "sample_data")
+TASKS = (
+    "understand",
+    "build",
+    "testgen",
+    "repair",
+    "sample_data",
+    # modify (a change to a live bot)
+    "triage",
+    "understand_change",
+    "build_change",
+    "testgen_change",
+    "repair_change",
+)

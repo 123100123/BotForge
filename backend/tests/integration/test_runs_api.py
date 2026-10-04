@@ -3,6 +3,7 @@
 import json
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
@@ -18,15 +19,23 @@ from app.agent.repository import SqlAgentRepository
 from app.api import runs as runs_api
 from app.db.models import AgentEvent, AgentRun, Bot, RecordRow, Revision
 from app.main import create_app
+from app.revisions.service import activate, create_draft
 from tests.integration.conftest import MakeBot
 from tests.integration.helpers import SessionFactory, install_test_auth, make_client
 from tests.unit.agent.helpers import (
+    DEADLINE_HOURS,
     GOLDEN_PROMPT,
+    MOD_DEADLINE,
     blocking_question,
+    change_out,
+    deadline_requirement,
+    deadline_scenarios,
     finish,
     golden_spec,
     happy_scripts,
+    patch,
     set_spec,
+    triage_out,
     understand_out,
 )
 
@@ -145,8 +154,13 @@ async def test_create_run_to_activation_over_the_api(
 
     listed = await client.get(f"/bots/{bot_id}/runs", headers=ALICE)
     assert [r["id"] for r in listed.json()] == [run["id"]]
-    again = await client.post(f"/bots/{bot_id}/runs", json={"message": "تغییر"}, headers=ALICE)
-    assert again.status_code == 409 and again.json()["error"]["code"] == "modify_not_available"
+    # A bot with an active revision now gets a MODIFY run (triage answers this question).
+    api.llm.structured_scripts["triage"] = [triage_out("question", "ظرفیت هر کارگاه ۱۰ نفر است.")]
+    again = await client.post(f"/bots/{bot_id}/runs", json={"message": "ظرفیت چند نفر است؟"}, headers=ALICE)
+    assert again.status_code == 201 and again.json()["kind"] == "modify"
+    assert again.json()["base_revision_id"] == str(revision_id)
+    await api.orch.wait_idle()
+    assert (await api.run(again.json()["id"]))["status"] == "done"
 
 
 async def test_clarification_answer_one_active_run_and_reject(
@@ -266,3 +280,145 @@ async def test_daily_cap_and_rate_limit(
         assert count.scalar_one() == 0
         events = await session.execute(select(func.count()).select_from(AgentEvent))
         assert events.scalar_one() > 0
+
+
+# --------------------------------------------------------------------------- modify (WP7)
+
+
+def modify_scripts(rid: str = "R1") -> dict[str, Any]:
+    """Golden modification 2 on a bot whose active revision has no stored requirements (R1 is new)."""
+    return {
+        "structured": {
+            "triage": [triage_out()],
+            "understand": [change_out(added=[deadline_requirement("R5")])],
+            "testgen": [{"scenarios": deadline_scenarios(rid)}],
+        },
+        "loops": {"build": [[[patch({"op": "set", "path": DEADLINE_HOURS, "value": 2})], [finish()]]]},
+    }
+
+
+async def _add_live_bookings(session_factory: SessionFactory, bot_id: uuid.UUID) -> None:
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        item = RecordRow(
+            bot_id=bot_id,
+            env="live",
+            collection="workshop",
+            data={"title": "x"},
+            created_at=now,
+            updated_at=now,
+        )
+        session.add(item)
+        await session.flush()
+        for actor, status in (("a", "confirmed"), ("b", "confirmed"), ("c", "waitlisted")):
+            session.add(
+                RecordRow(
+                    bot_id=bot_id,
+                    env="live",
+                    collection="book_workshop",
+                    data={},
+                    status=status,
+                    actor_id=actor,
+                    item_id=item.id,
+                    created_at=now,
+                    updated_at=now,
+                )
+            )
+        session.add(  # sandbox records never count
+            RecordRow(
+                bot_id=bot_id, env="sandbox", collection="workshop", data={}, created_at=now, updated_at=now
+            )
+        )
+        await session.commit()
+
+
+async def test_modify_run_over_the_api_activates_on_the_same_bot(
+    app_client: tuple[Any, httpx.AsyncClient], make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    app, client = app_client
+    api = make_api(session_factory, client, app, **modify_scripts())
+    bot_id, base_id = await make_bot("alice", active=True)
+    await _add_live_bookings(session_factory, bot_id)
+    stats = await api.orch.repo.live_stats(str(bot_id))
+    assert stats.record_counts == {"workshop": 1, "book_workshop": 3}
+    assert stats.max_confirmed_per_item == {"book_workshop": 2}
+
+    created = await api.start(bot_id, MOD_DEADLINE)
+    assert created["kind"] == "modify" and created["base_revision_id"] == str(base_id)
+    assert set(created) == {
+        "id",
+        "bot_id",
+        "kind",
+        "phase",
+        "status",
+        "base_revision_id",
+        "result_revision_id",
+        "created_at",
+        "updated_at",
+    }
+    run = await api.run(created["id"])
+    assert run["status"] == "waiting_approval" and run["phase"] == "await_approval"
+    stored = [e.model_dump(mode="json") for e in await api.orch.repo.list_events(run["id"])]
+    (diff,) = [e["payload"] for e in stored if e["type"] == "diff"]
+    assert diff["changes"] == [
+        {"label_fa": "مهلت لغو ثبت‌نام: بدون محدودیت ← تا ۲ ساعت قبل از شروع", "kind": "changed"}
+    ]
+    approval = next(e["payload"] for e in stored if e["type"] == "approval_requested")
+    assert approval["can_approve"] is True
+    draft_id = uuid.UUID(approval["revision_id"])
+    async with session_factory() as session:
+        draft = await session.get(Revision, draft_id)
+        assert draft is not None and draft.status == "draft" and draft.parent_id == base_id
+        assert draft.patch == [{"op": "set", "path": DEADLINE_HOURS, "value": 2, "before": None}]
+        assert draft.superseded == [] and draft.change_request == f"Owner: {MOD_DEADLINE}"
+        assert [r["id"] for r in draft.requirements["items"]] == ["R1"]
+        bot = await session.get(Bot, bot_id)
+        assert bot is not None and bot.active_revision_id == base_id  # live untouched until approval
+
+    approved = await client.post(f"/runs/{run['id']}/approve", headers=ALICE)
+    assert approved.status_code == 200, approved.text
+    assert approved.json()["status"] == "done" and approved.json()["result_revision_id"] == str(draft_id)
+    bot_out = (await client.get(f"/bots/{bot_id}", headers=ALICE)).json()
+    assert bot_out["active_revision_id"] == str(draft_id) and bot_out["active_revision_number"] == 2
+    async with session_factory() as session:
+        assert (await session.get(Revision, base_id)).status == "superseded"
+        live = await session.execute(
+            select(func.count())
+            .select_from(RecordRow)
+            .where(RecordRow.bot_id == bot_id, RecordRow.env == "live")
+        )
+        assert live.scalar_one() == 4  # the agent never touches live records
+
+
+async def test_modify_stale_base_and_triage_over_the_api(
+    app_client: tuple[Any, httpx.AsyncClient], make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    app, client = app_client
+    api = make_api(session_factory, client, app, **modify_scripts())
+    bot_id, base_id = await make_bot("alice", active=True)
+    created = await api.start(bot_id, MOD_DEADLINE)
+    assert (await api.run(created["id"]))["status"] == "waiting_approval"
+    second = await client.post(f"/bots/{bot_id}/runs", json={"message": "دوباره"}, headers=ALICE)
+    assert second.status_code == 409 and second.json()["error"]["code"] == "run_in_progress"
+
+    # Another revision goes live meanwhile (e.g. a rollback elsewhere): the draft is stale.
+    async with session_factory() as session:
+        other = await create_draft(session, bot_id, spec=golden_spec(), parent_id=base_id)
+        await activate(session, other.id)
+        await session.commit()
+    refused = await client.post(f"/runs/{created['id']}/approve", headers=ALICE)
+    assert refused.status_code == 409 and refused.json()["error"]["code"] == "stale_base"
+    assert (await api.run(created["id"]))["status"] == "failed"
+    async with session_factory() as session:
+        assert (await session.get(Bot, bot_id)).active_revision_id == other.id
+
+    api.llm.structured_scripts["triage"] = [triage_out("data_request", "")]
+    data = await api.start(bot_id, "یک کارگاه جمعه اضافه کن")
+    assert (await api.run(data["id"]))["status"] == "done"
+    events = await api.events(data["id"])
+    assert "«داده‌ها»" in [e for e in events if e["type"] == "agent_message"][-1]["payload"]["text"]
+    async with session_factory() as session:
+        count = await session.execute(
+            select(func.count()).select_from(Revision).where(Revision.bot_id == bot_id)
+        )
+        assert count.scalar_one() == 3  # base, the stale draft, the other revision: triage adds none

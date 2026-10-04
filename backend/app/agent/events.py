@@ -143,6 +143,24 @@ def test_report(report: TestReport, scenarios: Iterable[Scenario]) -> Event:
 test_report.__test__ = False  # type: ignore[attr-defined]  # not a pytest test
 
 
+def diff(
+    changes: list[dict[str, str]],
+    affected_capabilities: list[str],
+    tests: dict[str, Any],
+    risk: str,
+    warnings: list[str],
+) -> Event:
+    """``{changes: [{label_fa, kind}], affected_capabilities, tests: {carried, new, superseded:
+    [{title, reason}]}, risk, warnings}`` (MODIFY review card)."""
+    return DIFF, {
+        "changes": changes,
+        "affected_capabilities": affected_capabilities,
+        "tests": tests,
+        "risk": risk,
+        "warnings": warnings,
+    }
+
+
 def approval_requested(
     revision_id: str | None, can_approve: bool, blocked_reason: str | None = None
 ) -> Event:

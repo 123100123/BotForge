@@ -26,8 +26,9 @@ class AgentSettings(BaseSettings):
     AGENT_MAX_REPAIR_ROUNDS: int = 2
     AGENT_MAX_QUESTIONS: int = 3
     AGENT_MAX_CLARIFY_ROUNDS: int = 2
-    AGENT_INPUT_TOKEN_BUDGET: int = 400_000
-    AGENT_OUTPUT_TOKEN_BUDGET: int = 40_000
+    # Per-run budgets. Thinking tokens count as output, so the output budget is generous.
+    AGENT_INPUT_TOKEN_BUDGET: int = 600_000
+    AGENT_OUTPUT_TOKEN_BUDGET: int = 150_000
     AGENT_DAILY_RUN_CAP: int = 30
     AGENT_RUNS_PER_MINUTE: int = 5
 
@@ -43,10 +44,11 @@ class Limits:
     max_repair_rounds: int = 2
     max_questions: int = 3
     max_clarify_rounds: int = 2
-    input_budget: int = 400_000  # uncached input + cache writes (Usage.billable_input)
-    output_budget: int = 40_000
+    input_budget: int = 600_000  # uncached input + cache writes (Usage.billable_input)
+    output_budget: int = 150_000  # thinking tokens included
     min_acceptance: int = 2
     max_acceptance: int = 6
+    max_change_acceptance: int = 4  # modify: new acceptance scenarios for the changed requirements
 
     @classmethod
     def from_settings(cls, s: AgentSettings | None = None) -> Limits:

@@ -14,9 +14,16 @@ Phases: understand -> [clarify pause] -> build -> testgen -> run -> [repair -> r
 [await_approval pause] -> deploy. State is saved after every phase. Any unexpected exception marks
 the run failed with an error event; a run is never left `running` by this code.
 
-A MODIFY flow plugs in later by adding ``start_modify`` (kind="modify", base_revision_id = the active
-revision, draft_spec = a copy of its spec) and per-kind phase implementations in ``PHASES_BY_KIND``;
-the loop, events, persistence, approval and deploy are shared.
+MODIFY (a change to a bot with an active revision; roadmap "Modification Workflow"):
+
+    run   = await orch.start_modify(bot_id, message)   # base = the active revision; then advance
+    run   = await orch.start(bot_id, message)          # create or modify, by the bot's state
+
+Phases: triage -> [done: question / data_request / unsupported] | understand (understand_change)
+-> [clarify pause] -> build (patch-only + compat) -> testgen (derived + carried + new) -> run ->
+[repair -> run]* -> review (diff card) -> [await_approval pause] -> deploy. The draft is a copy of
+the base revision's spec; the live bot is untouched until ``approve`` activates the draft, which is
+refused while any scenario fails and ends the run when the live revision changed meanwhile.
 """
 
 from __future__ import annotations
@@ -29,7 +36,20 @@ from app.agent import events as ev
 from app.agent.context import Limits, Next, RunContext
 from app.agent.events import Event, EventBus, default_bus
 from app.agent.llm import LLMClient
-from app.agent.phases import build, deploy, repair, review, testgen, understand
+from app.agent.modify import empty_requirements
+from app.agent.phases import (
+    build,
+    build_change,
+    deploy,
+    repair,
+    review,
+    review_change,
+    testgen,
+    testgen_change,
+    triage,
+    understand,
+    understand_change,
+)
 from app.agent.phases import run as run_phase
 from app.agent.repository import ActivationRefused, AgentRepository, RunRecord
 from app.agent.state import ChatTurn, Phase, RunState
@@ -46,11 +66,26 @@ CREATE_PHASES: dict[str, PhaseFn] = {
     "repair": repair.run,
     "review": review.run,
 }
-PHASES_BY_KIND: dict[str, dict[str, PhaseFn]] = {"create": CREATE_PHASES}
-LLM_PHASES = frozenset({"understand", "build", "testgen", "repair", "review"})
+MODIFY_PHASES: dict[str, PhaseFn] = {
+    "triage": triage.run,
+    "understand": understand_change.run,
+    "build": build_change.run,
+    "testgen": testgen_change.run,
+    "run": run_phase.run,
+    "repair": repair.run,
+    "review": review_change.run,
+}
+PHASES_BY_KIND: dict[str, dict[str, PhaseFn]] = {"create": CREATE_PHASES, "modify": MODIFY_PHASES}
+LLM_PHASES = frozenset({"triage", "understand", "build", "testgen", "repair", "review"})
 
 UNEXPECTED_ERROR = "خطای غیرمنتظره‌ای در ساخت ربات رخ داد. لطفاً دوباره تلاش کنید."
-MODIFY_UNAVAILABLE = "این ربات نسخهٔ فعال دارد و درخواست تغییر هنوز در دسترس نیست."
+MODIFY_UNAVAILABLE = "این ربات نسخهٔ فعال دارد؛ برای تغییر آن یک درخواست تغییر بفرستید."
+NO_ACTIVE_REVISION = "این ربات هنوز نسخهٔ فعالی ندارد؛ ابتدا ربات را بسازید و تأیید کنید."
+STALE_BASE_TEXT = (
+    "نسخهٔ فعال ربات از زمان شروع این تغییر عوض شده است، پس این پیش‌نویس قابل فعال‌سازی نیست. "
+    "لطفاً درخواست تغییر را دوباره بفرستید."
+)
+UNPROVEN = "آزمون‌های این نسخه کامل اجرا نشده یا ناموفق است."
 NOT_WAITING = "این گفتگو الان منتظر پیام شما نیست."
 NOT_AWAITING_APPROVAL = "این گفتگو الان منتظر تأیید نیست."
 REJECTED_TEXT = "پیش‌نویس کنار گذاشته شد و ربات فعلی تغییری نکرد."
@@ -64,6 +99,23 @@ class OrchestratorError(Exception):
         self.code = code
         self.message = message
         self.status = status
+
+
+def approval_block(state: RunState) -> str | None:
+    """Why the draft may not be approved, or None.
+
+    Approval needs a test report in which every scenario of the active set (derived + carried +
+    new) has a passing result, and no recorded blocking reason (budget, missing tests, compat).
+    """
+    report = state.test_report
+    if state.approval_blocked_reason:
+        return state.approval_blocked_reason
+    if report is None or report.failed > 0:
+        return "آزمون‌های این نسخه ناموفق است."
+    passed = {r.scenario_id for r in report.results if r.passed}
+    if any(s.id not in passed for s in state.all_scenarios()):
+        return UNPROVEN
+    return None
 
 
 class Orchestrator:
@@ -116,6 +168,37 @@ class Orchestrator:
         await self._emit(record.id, ev.owner_message(message))
         return record
 
+    async def start_modify(self, bot_id: str, message: str) -> RunRecord:
+        """Create a MODIFY run on the bot's active revision. Caller then schedules advance.
+
+        The draft starts as a deep copy of the base revision's spec; nothing live is touched.
+        """
+        bot = await self.repo.load_bot(bot_id)
+        if bot.active_revision_id is None:
+            raise OrchestratorError("no_active_revision", NO_ACTIVE_REVISION)
+        base = await self.repo.load_revision(bot.active_revision_id)
+        state = RunState(
+            kind="modify",
+            phase="triage",
+            conversation=[ChatTurn(role="owner", text=message)],
+            base_revision_id=base.id,
+            base_spec=base.spec,
+            base_requirements=base.requirements,
+            requirements=base.requirements or empty_requirements(),
+            draft_spec=base.spec.model_copy(deep=True),
+            base_sample_data=base.sample_data,
+        )
+        record = await self.repo.create_run(bot_id, kind="modify", state=state, base_revision_id=base.id)
+        await self._emit(record.id, ev.owner_message(message))
+        return record
+
+    async def start(self, bot_id: str, message: str) -> RunRecord:
+        """CREATE for a bot without an active revision, MODIFY otherwise."""
+        bot = await self.repo.load_bot(bot_id)
+        if bot.active_revision_id is None:
+            return await self.start_create(bot_id, message)
+        return await self.start_modify(bot_id, message)
+
     async def post_message(self, run_id: str, message: str) -> RunRecord:
         """An owner message on a paused run: answers (clarify) or a change request (await_approval)."""
         record = await self.repo.load_run(run_id)
@@ -141,9 +224,8 @@ class Orchestrator:
         if record.status != "waiting_approval":
             raise OrchestratorError("run_not_awaiting_approval", NOT_AWAITING_APPROVAL)
         state = record.state
-        report = state.test_report
-        if report is None or report.failed > 0 or state.approval_blocked_reason:
-            reason = state.approval_blocked_reason or "آزمون‌های این نسخه ناموفق است."
+        reason = approval_block(state)
+        if reason is not None:
             raise OrchestratorError("approval_blocked", f"تأیید ممکن نیست: {reason}")
         if not await self.repo.claim_run(run_id, ("waiting_approval",), "running"):
             raise OrchestratorError("run_not_awaiting_approval", NOT_AWAITING_APPROVAL)
@@ -152,9 +234,13 @@ class Orchestrator:
         try:
             state.phase = "deploy"
             await self._emit(run_id, ev.phase_started("deploy"))
+            if state.kind == "modify" and bot.active_revision_id != state.base_revision_id:
+                await self._end_stale(run_id, state)  # raises
             try:
                 nxt = await deploy.run(ctx)
             except ActivationRefused as exc:
+                if exc.code == "stale_base":
+                    await self._end_stale(run_id, state)  # raises
                 await self._emit(run_id, ev.phase_finished("deploy", False, exc.message))
                 await self._emit(run_id, ev.error(exc.message))
                 state.phase = "await_approval"
@@ -171,6 +257,23 @@ class Orchestrator:
             await self._mark_failed(run_id, state, exc)
             raise OrchestratorError("internal_error", UNEXPECTED_ERROR, 500) from None
         return await self.repo.load_run(run_id)
+
+    async def _end_stale(self, run_id: str, state: RunState) -> None:
+        """The live revision changed since the run started: the draft can never go live.
+
+        Ends the run (failed), rejects the draft, tells the owner to send the change again, and
+        raises ``OrchestratorError("stale_base")``. The live revision is untouched.
+        """
+        if state.revision_id is not None:
+            await self.repo.reject_revision(state.revision_id)
+        state.error = "stale_base"
+        state.phase = "failed"
+        state.conversation.append(ChatTurn(role="agent", text=STALE_BASE_TEXT))
+        await self._emit(run_id, ev.phase_finished("deploy", False, "stale_base"))
+        await self._emit(run_id, ev.error(STALE_BASE_TEXT))
+        await self._emit(run_id, ev.agent_message(STALE_BASE_TEXT))
+        await self.repo.save_run(run_id, state=state, status="failed")
+        raise OrchestratorError("stale_base", STALE_BASE_TEXT)
 
     async def reject(self, run_id: str) -> RunRecord:
         record = await self.repo.load_run(run_id)

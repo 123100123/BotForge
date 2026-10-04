@@ -8,6 +8,7 @@ correct itself. Each call emits ``tool_call`` / ``tool_result`` events with shor
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any, Literal
 
 from pydantic import ValidationError
@@ -16,7 +17,8 @@ from app.agent import events as ev
 from app.agent.checks import check_acceptance, fa, requirement_ids, validation_messages
 from app.agent.context import Emit
 from app.agent.llm import ToolDef, ToolOutcome
-from app.agent.state import RunState, ScenarioFix
+from app.agent.modify import supersede_refusal, target_ids
+from app.agent.state import RunState, ScenarioFix, SupersededScenario
 from app.botspec.models import BotSpec
 from app.botspec.outline import spec_outline
 from app.botspec.patch import ROOT, PatchError, PatchOp, apply_patch, child
@@ -150,9 +152,28 @@ TOOL_DEFS: dict[str, ToolDef] = {
         "reason; it is shown to the owner. Never use it to make a correct test pass a wrong spec.",
         _scenario_schema(),
     ),
+    "supersede_scenario": ToolDef(
+        "supersede_scenario",
+        "Retire a CARRIED-FORWARD acceptance scenario that checks a requirement this change "
+        "modifies or removes (its requirement_ids must intersect the changed or removed ids). It is "
+        "removed from the test set and listed on the owner's review card with your reason. Refused "
+        "for derived scenarios, for scenarios written in this run, and for scenarios whose "
+        "requirements did not change: those failures are regressions to fix in the spec.",
+        {
+            "type": "object",
+            "properties": {
+                "scenario_id": {"type": "string"},
+                "reason": {"type": "string", "description": "Persian, one sentence, shown to the owner"},
+            },
+            "required": ["scenario_id", "reason"],
+            "additionalProperties": False,
+        },
+        strict=True,
+    ),
     "finish": ToolDef(
         "finish",
-        "Declare this phase complete. Accepted only when the draft has no validation errors.",
+        "Declare this phase complete. Accepted only when the draft has no validation errors "
+        "(and, when changing a live bot, no data-compatibility errors).",
         {
             "type": "object",
             "properties": {"summary": {"type": "string", "description": "one short English sentence"}},
@@ -174,6 +195,18 @@ REPAIR_TOOLS = (
     "fix_scenario",
     "finish",
 )
+MODIFY_REPAIR_TOOLS = (
+    "apply_spec_patch",
+    "validate_spec",
+    "get_spec",
+    "run_tests",
+    "get_failure",
+    "fix_scenario",
+    "supersede_scenario",
+    "finish",
+)
+
+CompatCheck = Callable[[BotSpec], list[SpecIssue]]
 
 
 def _call_summary(name: str, args: dict[str, Any]) -> str:
@@ -193,6 +226,8 @@ def _call_summary(name: str, args: dict[str, Any]) -> str:
         return f"بررسی آزمون ناموفق «{args.get('scenario_id', '')}»"
     if name == "fix_scenario":
         return f"اصلاح آزمون «{args.get('scenario_id', '')}»"
+    if name == "supersede_scenario":
+        return f"کنار گذاشتن آزمون قبلی «{args.get('scenario_id', '')}»"
     if name == "finish":
         return "اعلام پایان مرحله"
     return name
@@ -201,13 +236,27 @@ def _call_summary(name: str, args: dict[str, Any]) -> str:
 class AgentTools:
     """Tool handler bound to one run's state and one loop."""
 
-    def __init__(self, state: RunState, *, loop: Loop, emit: Emit, names: tuple[str, ...]) -> None:
+    def __init__(
+        self,
+        state: RunState,
+        *,
+        loop: Loop,
+        emit: Emit,
+        names: tuple[str, ...],
+        compat: CompatCheck | None = None,
+    ) -> None:
         self.state = state
         self.loop = loop
         self.emit = emit
         self.names = names
+        self.compat = compat  # modify: data-compatibility check against the live spec
         self.finished_summary: str | None = None
         self.spec_changes = 0
+
+    def compat_errors(self) -> list[SpecIssue]:
+        if self.compat is None or self.state.draft_spec is None:
+            return []
+        return _errors(self.compat(self.state.draft_spec))
 
     def defs(self) -> list[ToolDef]:
         return [TOOL_DEFS[n] for n in self.names]
@@ -300,9 +349,15 @@ class AgentTools:
             self.state.patch_ops.extend(ops)
         await self._spec_changed()
         issues = validate_spec(new)
-        return ToolOutcome(
-            {"ok": True, "issues": compact_issues(issues), "changed_paths": ["/".join(o.path) for o in ops]}
-        ), f"{fa(len(ops))} تغییر اعمال شد"
+        content: dict[str, Any] = {
+            "ok": True,
+            "issues": compact_issues(issues),
+            "changed_paths": ["/".join(o.path) for o in ops],
+        }
+        compat = self.compat_errors()
+        if compat:
+            content["compat_errors"] = compact_issues(compat)
+        return ToolOutcome(content), f"{fa(len(ops))} تغییر اعمال شد"
 
     async def _t_validate_spec(self, args: dict[str, Any]) -> tuple[ToolOutcome, str]:
         if self.state.draft_spec is None:
@@ -434,12 +489,45 @@ class AgentTools:
         fixed, problems = check_acceptance(
             raw, req_ids=requirement_ids(self.state.requirements), spec=self.state.draft_spec
         )
+        if fixed is not None and self.state.kind == "modify":
+            targets = target_ids(self.state.delta)
+            if not set(fixed.requirement_ids) & targets:
+                fixed, problems = (
+                    None,
+                    [f"requirement_ids must include an added or changed requirement ({sorted(targets)})"],
+                )
         if fixed is None:
             return ToolOutcome({"ok": False, "issues": problems}), "آزمون اصلاح‌شده نامعتبر است"
         self.state.scenarios = [fixed if s.id == sid else s for s in self.state.scenarios]
         self.state.scenario_fixes.append(ScenarioFix(scenario_id=sid, reason=reason))  # type: ignore[arg-type]
         await self.emit(ev.agent_message(f"آزمون «{existing.title}» را اصلاح کردم: {reason}"))
         return ToolOutcome({"ok": True}), "آزمون اصلاح شد"
+
+    async def _t_supersede_scenario(self, args: dict[str, Any]) -> tuple[ToolOutcome, str]:
+        """The supersede guard (roadmap "Modification Workflow" item 6); see modify.supersede_refusal."""
+        sid = args.get("scenario_id")
+        reason = (args.get("reason") or "").strip()
+        state = self.state
+        if state.kind != "modify":
+            return ToolOutcome(
+                {"ok": False, "refused": True, "error": "superseding exists only when changing a live bot"}
+            ), "کنار گذاشتن آزمون مجاز نیست"
+        scenario = next((s for s in state.all_scenarios() if s.id == sid), None)
+        refusal = supersede_refusal(
+            scenario, carried_ids=state.carried_ids, new_ids=state.new_scenario_ids, delta=state.delta
+        )
+        if refusal is not None:
+            return ToolOutcome({"ok": False, "refused": True, "error": refusal}), "کنار گذاشتن آزمون رد شد"
+        if not reason:
+            return ToolOutcome({"ok": False, "error": "a Persian 'reason' is required"}), "دلیل لازم است"
+        assert scenario is not None
+        state.scenarios = [s for s in state.scenarios if s.id != sid]
+        state.carried_ids = [i for i in state.carried_ids if i != sid]
+        state.superseded.append(SupersededScenario(scenario=scenario, reason=reason))
+        await self.emit(ev.agent_message(f"آزمون قبلی «{scenario.title}» کنار گذاشته شد: {reason}"))
+        return ToolOutcome(
+            {"ok": True, "remaining_carried": len(state.carried_ids)}
+        ), "آزمون قبلی کنار گذاشته شد"
 
     async def _t_finish(self, args: dict[str, Any]) -> tuple[ToolOutcome, str]:
         if self.state.draft_spec is None:
@@ -456,5 +544,15 @@ class AgentTools:
                     "issues": compact_issues(errors),
                 }
             ), "هنوز خطا وجود دارد"
+        compat = self.compat_errors()
+        if compat:
+            return ToolOutcome(
+                {
+                    "ok": False,
+                    "error": "the draft is incompatible with the live bot's existing records; fix these "
+                    "data-compatibility errors first",
+                    "compat_errors": compact_issues(compat),
+                }
+            ), "ناسازگاری با داده‌های موجود"
         self.finished_summary = str(args.get("summary") or "")
         return ToolOutcome({"ok": True}, stop=True), "مرحله تمام شد"

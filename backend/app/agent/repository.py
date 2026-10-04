@@ -17,13 +17,14 @@ from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.agent.events import EventEnvelope
+from app.agent.requirements import Requirements
 from app.agent.state import ACTIVE_STATUSES, RunState
 from app.botspec.models import BotSpec, FieldType
 from app.botspec.records import validate_record
-from app.db.models import AgentEvent, AgentRun, Bot, Revision
+from app.db.models import AgentEvent, AgentRun, Bot, RecordRow, Revision
 from app.revisions import service as revisions
 from app.runtime.pg_store import advisory_lock
-from app.testing.scenario import SeedRecord, resolve_relative
+from app.testing.scenario import Scenario, SeedRecord, resolve_relative
 
 
 class RepositoryError(Exception):
@@ -92,6 +93,27 @@ class DraftRevision:
     number: int
 
 
+@dataclass
+class RevisionSnapshot:
+    """What a MODIFY run needs from its base revision."""
+
+    id: str
+    number: int
+    status: str
+    spec: BotSpec
+    requirements: Requirements | None
+    scenarios: list[Scenario]
+    sample_data: list[SeedRecord]
+
+
+@dataclass
+class LiveStats:
+    """Live data shape for the compatibility check: counts only, never record contents."""
+
+    record_counts: dict[str, int] = field(default_factory=dict)  # collection -> live records
+    max_confirmed_per_item: dict[str, int] = field(default_factory=dict)  # booking key -> max
+
+
 _UNSET: Any = object()
 
 
@@ -120,6 +142,14 @@ class AgentRepository(Protocol):
 
     async def load_revision_spec(self, revision_id: str) -> BotSpec: ...
 
+    async def load_revision(self, revision_id: str) -> RevisionSnapshot:
+        """Spec, requirements, scenarios and sample data of one revision (the MODIFY base)."""
+        ...
+
+    async def live_stats(self, bot_id: str) -> LiveStats:
+        """Live record counts per collection and the highest confirmed count per booking item."""
+        ...
+
     async def create_draft_revision(
         self,
         bot_id: str,
@@ -131,6 +161,8 @@ class AgentRepository(Protocol):
         sample_data: list[SeedRecord],
         change_request: str | None,
         parent_id: str | None,
+        patch: list[Any] | None = None,
+        superseded: list[Any] | None = None,
     ) -> DraftRevision: ...
 
     async def load_sample_data(self, revision_id: str) -> int:
@@ -158,6 +190,20 @@ def _dump(value: Any) -> Any:
     if isinstance(value, list):
         return [_dump(v) for v in value]
     return value
+
+
+def _snapshot(
+    rid: str, number: int, status: str, spec: Any, requirements: Any, scenarios: Any, sample_data: Any
+) -> RevisionSnapshot:
+    return RevisionSnapshot(
+        id=rid,
+        number=number,
+        status=status,
+        spec=spec.model_copy(deep=True) if isinstance(spec, BotSpec) else BotSpec.model_validate(spec),
+        requirements=Requirements.model_validate(_dump(requirements)) if requirements else None,
+        scenarios=[Scenario.model_validate(_dump(s)) for s in scenarios or []],
+        sample_data=[SeedRecord.model_validate(_dump(r)) for r in sample_data or []],
+    )
 
 
 # --------------------------------------------------------------------------- SQL
@@ -288,6 +334,36 @@ class SqlAgentRepository:
                 raise RepositoryError(code="revision_not_found", message="نسخه پیدا نشد.")
             return BotSpec.model_validate(revision.spec)
 
+    async def load_revision(self, revision_id: str) -> RevisionSnapshot:
+        async with self._sm() as session:
+            r = await session.get(Revision, _uuid(revision_id))
+            if r is None:
+                raise RepositoryError(code="revision_not_found", message="نسخه پیدا نشد.")
+            return _snapshot(
+                str(r.id), r.number, r.status, r.spec, r.requirements, r.scenarios, r.sample_data
+            )
+
+    async def live_stats(self, bot_id: str) -> LiveStats:
+        bid = _uuid(bot_id)
+        live = (RecordRow.bot_id == bid, RecordRow.env == "live")
+        async with self._sm() as session:
+            counts = await session.execute(
+                select(RecordRow.collection, func.count()).where(*live).group_by(RecordRow.collection)
+            )
+            per_item = (
+                select(RecordRow.collection, RecordRow.item_id, func.count().label("n"))
+                .where(*live, RecordRow.status == "confirmed", RecordRow.item_id.is_not(None))
+                .group_by(RecordRow.collection, RecordRow.item_id)
+                .subquery()
+            )
+            confirmed = await session.execute(
+                select(per_item.c.collection, func.max(per_item.c.n)).group_by(per_item.c.collection)
+            )
+            return LiveStats(
+                record_counts={str(c): int(n) for c, n in counts.all()},
+                max_confirmed_per_item={str(c): int(n) for c, n in confirmed.all()},
+            )
+
     async def create_draft_revision(
         self,
         bot_id: str,
@@ -299,6 +375,8 @@ class SqlAgentRepository:
         sample_data: list[SeedRecord],
         change_request: str | None,
         parent_id: str | None,
+        patch: list[Any] | None = None,
+        superseded: list[Any] | None = None,
     ) -> DraftRevision:
         async with self._sm() as session:
             try:
@@ -307,8 +385,10 @@ class SqlAgentRepository:
                     _uuid(bot_id),  # type: ignore[arg-type]
                     spec=spec,
                     requirements=requirements,
+                    patch=patch,
                     change_request=change_request,
                     scenarios=scenarios,
+                    superseded=superseded,
                     test_report=test_report,
                     sample_data=sample_data,
                     parent_id=_uuid(parent_id),
@@ -369,6 +449,8 @@ class MemRevision:
     test_report: Any
     sample_data: list[SeedRecord]
     change_request: str | None
+    patch: list[Any] | None = None
+    superseded: list[Any] | None = None
 
 
 class InMemoryAgentRepository:
@@ -380,6 +462,7 @@ class InMemoryAgentRepository:
         self.events: list[EventEnvelope] = []
         self.revisions: dict[str, MemRevision] = {}
         self.sandbox: dict[str, list[dict[str, Any]]] = {}  # bot_id -> loaded sample records
+        self.live: dict[str, LiveStats] = {}  # bot_id -> live data shape (tests set this)
         self.save_count = 0
         self._next_event = 1
 
@@ -389,6 +472,40 @@ class InMemoryAgentRepository:
         bot_id = str(uuid.uuid4())
         self.bots[bot_id] = BotInfo(bot_id, name, owner_id, active_revision_id)
         return bot_id
+
+    def add_revision(
+        self,
+        bot_id: str,
+        spec: BotSpec,
+        *,
+        requirements: Any = None,
+        scenarios: list[Any] | None = None,
+        sample_data: list[SeedRecord] | None = None,
+        activate: bool = True,
+    ) -> str:
+        """Seed a revision (active by default) without going through a run."""
+        bot = self.bots[bot_id]
+        number = 1 + max((r.number for r in self.revisions.values() if r.bot_id == bot_id), default=0)
+        rev = MemRevision(
+            id=str(uuid.uuid4()),
+            bot_id=bot_id,
+            number=number,
+            parent_id=bot.active_revision_id,
+            status="draft",
+            spec=spec.model_copy(deep=True),
+            requirements=_dump(requirements),
+            scenarios=_dump(list(scenarios or [])),
+            test_report=None,
+            sample_data=list(sample_data or []),
+            change_request=None,
+        )
+        self.revisions[rev.id] = rev
+        if activate:
+            if bot.active_revision_id is not None:
+                self.revisions[bot.active_revision_id].status = "superseded"
+            rev.status = "active"
+            bot.active_revision_id = rev.id
+        return rev.id
 
     def events_for(self, run_id: str) -> list[EventEnvelope]:
         return [e for e in self.events if e.run_id == run_id]
@@ -464,6 +581,16 @@ class InMemoryAgentRepository:
     async def load_revision_spec(self, revision_id: str) -> BotSpec:
         return self.revisions[revision_id].spec.model_copy(deep=True)
 
+    async def load_revision(self, revision_id: str) -> RevisionSnapshot:
+        r = self.revisions.get(revision_id)
+        if r is None:
+            raise RepositoryError(code="revision_not_found", message="نسخه پیدا نشد.")
+        return _snapshot(r.id, r.number, r.status, r.spec, r.requirements, r.scenarios, r.sample_data)
+
+    async def live_stats(self, bot_id: str) -> LiveStats:
+        stats = self.live.get(bot_id) or LiveStats()
+        return LiveStats(dict(stats.record_counts), dict(stats.max_confirmed_per_item))
+
     async def create_draft_revision(
         self,
         bot_id: str,
@@ -475,6 +602,8 @@ class InMemoryAgentRepository:
         sample_data: list[SeedRecord],
         change_request: str | None,
         parent_id: str | None,
+        patch: list[Any] | None = None,
+        superseded: list[Any] | None = None,
     ) -> DraftRevision:
         if bot_id not in self.bots:
             raise BotMissing()
@@ -491,6 +620,8 @@ class InMemoryAgentRepository:
             test_report=_dump(test_report),
             sample_data=list(sample_data),
             change_request=change_request,
+            patch=_dump(patch) if patch is not None else None,
+            superseded=_dump(superseded) if superseded is not None else None,
         )
         self.revisions[rev.id] = rev
         return DraftRevision(rev.id, number)
