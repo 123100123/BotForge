@@ -321,9 +321,11 @@ def test_capabilities_without_a_main_menu_item_are_skipped() -> None:
     assert not [s for s in derive_scenarios(spec) if s.id.startswith(f"derived:{CAP}:")]
 
 
-def test_request_capabilities_emit_nothing_yet() -> None:
+def test_request_capabilities_emit_request_templates() -> None:
     repair = load_example("repair.botspec.json")
-    assert [s.id for s in derive_scenarios(repair)] == ["derived:info:open"]
+    ids = [s.id for s in derive_scenarios(repair)]
+    assert ids[-1] == "derived:info:open"
+    assert "derived:repair:submit_and_track" in ids
 
 
 def test_template_registry_extension_point() -> None:

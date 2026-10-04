@@ -198,7 +198,7 @@ async def test_cancel_without_booking_and_owner_cancel_without_item() -> None:
     assert "item" in failure(r2)
 
 
-async def test_request_steps_are_not_supported_yet() -> None:
+async def test_request_step_without_required_form_values_fails() -> None:
     repair = load_example("repair.botspec.json")
     sc = Scenario(
         id="r",
@@ -208,7 +208,7 @@ async def test_request_steps_are_not_supported_yet() -> None:
     )
     result = await run_scenario(repair, sc)
     assert not result.passed
-    assert "not supported yet" in failure(result)
+    assert "form" in failure(result)  # the request driver is installed (WP8); the form answers are missing
 
 
 # --- inbox semantics -------------------------------------------------------------------------------
