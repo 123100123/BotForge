@@ -31,3 +31,6 @@ next-env.d.ts
 .idea/
 .DS_Store
 Thumbs.db
+
+# Claude Code agent worktrees
+.claude/worktrees/

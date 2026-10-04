@@ -35,5 +35,10 @@ def repair(repair_data: dict[str, Any]) -> BotSpec:
 
 
 @pytest.fixture
+def requirements_data() -> dict[str, Any]:
+    return copy.deepcopy(load_json("workshop.requirements.json"))
+
+
+@pytest.fixture
 def scenarios_data() -> list[dict[str, Any]]:
     return copy.deepcopy(load_json("workshop.scenarios.json"))

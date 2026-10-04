@@ -79,9 +79,8 @@ class Step(StrictModel):
     book             actor, capability, item          confirmed|waitlisted|rejected (optional)
     cancel           actor, capability, item          cancelled|rejected (optional)
     submit_request   actor, capability [item, form]   submitted|rejected (optional)
-    owner_action     capability, action, target_actor ok|rejected (optional); actor defaults to
-                                                      "owner" (another actor tests not_allowed);
-                                                      acts on target_actor's latest request
+    owner_action     capability, action, target_actor ok|rejected (optional); see below
+                     [item]
     expect_booking   actor, capability, item, expect  confirmed|waitlisted|cancelled|none
                                                       (the actor's latest booking on the item)
     expect_counts    capability, item, and confirmed and/or waitlisted
@@ -91,6 +90,18 @@ class Step(StrictModel):
                                                       opens that item's detail; contains is
                                                       checked against the reply texts
     advance_time     hours (> 0)                      moves the scenario clock forward
+
+    owner_action semantics: the acting actor defaults to "owner" (another actor tests
+    not_allowed). The driver sends an `admin` RuntimeEvent. For a booking capability, `action`
+    must be "cancel" and `item` is required: the owner cancels target_actor's active booking on
+    that item (same promotion rule, deadline ignored). For a request capability, `action` is an
+    owner action key applied to target_actor's latest request. The Step validator cannot see the
+    capability type, so it leaves `item` optional; the driver enforces it for booking and fails
+    the step if it is missing. expect "ok" matches an Outcome whose result is "ok" or "cancelled";
+    "rejected" matches result "rejected".
+
+    `contains` on `open` may only check values the scenario itself seeded (e.g. a seeded item
+    title), never engine wording. Notifications are matched with `event` on expect_notified.
 
     `reason` is allowed only with expect == "rejected" and then must match Outcome.reason.
     `form` (KV list) is allowed only on book and submit_request.

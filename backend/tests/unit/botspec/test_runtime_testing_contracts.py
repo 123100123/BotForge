@@ -120,8 +120,12 @@ def test_requirements_models() -> None:
 
 def test_golden_scenarios_load(scenarios_data: list[dict[str, Any]]) -> None:
     scenarios = [Scenario.model_validate(s) for s in scenarios_data]
-    assert 6 <= len(scenarios) <= 8
+    assert 6 <= len(scenarios) <= 9
     assert len({s.id for s in scenarios}) == len(scenarios)
+    owner_cancel = [st for s in scenarios for st in s.steps if st.do == "owner_action"]
+    assert [(st.action, st.item, st.target_actor, st.expect) for st in owner_cancel] == [
+        ("cancel", "w1", "ali", "ok")
+    ]
     real = [s for s in scenarios if s.capacity_override is None]
     assert len(real) == 1
     actors = [st.actor for st in real[0].steps if st.do == "book"]
@@ -130,6 +134,41 @@ def test_golden_scenarios_load(scenarios_data: list[dict[str, Any]]) -> None:
     events = [st.event for s in scenarios for st in s.steps if st.do == "expect_notified"]
     assert "promoted" in events
     assert all(st.contains is None for s in scenarios for st in s.steps if st.do == "expect_notified")
+
+
+def test_golden_scenarios_reference_golden_requirements(
+    scenarios_data: list[dict[str, Any]], requirements_data: dict[str, Any]
+) -> None:
+    reqs = Requirements.model_validate(requirements_data)
+    known = {r.id for r in reqs.items}
+    assert known == {f"R{i}" for i in range(1, 8)}
+    assert reqs.unsupported == [] and reqs.open_questions == []
+    capacity_req = "R2"
+    for s in (Scenario.model_validate(d) for d in scenarios_data):
+        assert s.requirement_ids, f"{s.id} has no requirement ids"
+        assert set(s.requirement_ids) <= known, s.id
+        if s.capacity_override is None:
+            assert s.requirement_ids == [capacity_req], s.id
+        else:
+            assert capacity_req not in s.requirement_ids, s.id
+
+
+def test_owner_action_step_item_optional() -> None:
+    Step.model_validate(
+        {
+            "do": "owner_action",
+            "capability": "b",
+            "action": "cancel",
+            "target_actor": "ali",
+            "item": "w1",
+            "expect": "ok",
+        }
+    )
+    Step.model_validate({"do": "owner_action", "capability": "r", "action": "approve", "target_actor": "ali"})
+    with pytest.raises(ValidationError):
+        Step.model_validate(
+            {"do": "owner_action", "capability": "b", "action": "cancel", "item": "w1", "expect": "cancelled"}
+        )
 
 
 VALID_STEPS: list[dict[str, Any]] = [

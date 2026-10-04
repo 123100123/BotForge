@@ -699,6 +699,28 @@ stateDiagram-v2
 
 **Events** (`agent_events.type`): `owner_message`, `agent_message`, `phase_started`, `phase_finished`, `requirements`, `questions`, `tool_call`, `tool_result`, `spec_updated`, `tests_generated`, `test_report`, `diff`, `approval_requested`, `deployed`, `usage`, `error`. Payloads are JSON and are what the activity timeline renders.
 
+Event envelope: `{id, run_id, ts, type, payload}`. Payload shapes (a contract between WP6/WP7 and the frontend):
+
+| Type | Payload |
+|---|---|
+| `owner_message`, `agent_message` | `{text}` |
+| `phase_started` | `{phase}` |
+| `phase_finished` | `{phase, ok, summary?}` |
+| `requirements` | `{requirements: Requirements}` |
+| `questions` | `{questions: Question[]}` |
+| `tool_call` | `{loop: "build" \| "repair", name, summary}` (a short Persian summary, never full arguments) |
+| `tool_result` | `{name, ok, summary}` |
+| `spec_updated` | `{outline: SpecOutline}` |
+| `tests_generated` | `{derived, acceptance}` (counts) |
+| `test_report` | `{total, passed, failed, failures: [{id, title, message}]}` |
+| `diff` | `{changes: [{label_fa, kind}], affected_capabilities: [key], tests: {carried, new, superseded: [{title, reason}]}, risk, warnings: [text]}` |
+| `approval_requested` | `{revision_id, can_approve, blocked_reason?}` |
+| `deployed` | `{revision_id, number}` |
+| `usage` | `{input_tokens, output_tokens, cached_tokens, tool_calls}` |
+| `error` | `{message}` |
+
+Acceptance scenarios must carry at least one `requirement_ids` entry that exists in the run's requirements; `testgen` rejects any that do not. Without ids the supersede guard could never release a scenario whose requirement changed.
+
 **Intent triage.** Each new owner message on a bot with an active revision is first classified: change request, question about the bot, data request (redirected to the Data tab), or unsupported. Only change requests start a MODIFY run.
 
 ---
