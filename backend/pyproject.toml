@@ -5,6 +5,7 @@ description = "BotForge backend: agent, BotSpec contracts, deterministic bot run
 requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2",
+    "tzdata>=2024.1",
 ]
 
 [dependency-groups]
