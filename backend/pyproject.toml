@@ -17,6 +17,9 @@ dependencies = [
 ]
 
 [dependency-groups]
+dbtest = [
+    "pgserver>=0.1.4",
+]
 dev = [
     "pytest",
     "pytest-asyncio",

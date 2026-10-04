@@ -37,6 +37,8 @@ class Bot(Base):
     tg_webhook_secret: Mapped[str | None] = mapped_column(String, nullable=True)
     owner_link_code: Mapped[str | None] = mapped_column(String, nullable=True)
     owner_actor_id: Mapped[str | None] = mapped_column(String, nullable=True)  # owner's Telegram user id
+    # Most recent Telegram delivery failure ("<method>: <description>"); never contains the token.
+    tg_last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

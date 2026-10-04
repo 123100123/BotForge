@@ -13,7 +13,8 @@
 
 - Install: `uv sync`
 - Tests: `uv run pytest -q` (contracts only: `uv run pytest tests/unit/botspec -q`)
-- Lint: `uv run ruff check app tests`
+- Database tests: `uv sync --group dbtest` once; then `uv run pytest -q` starts a temporary Postgres itself (or set `TEST_DATABASE_URL`); with neither, database tests skip.
+- Lint: `uv run ruff check app tests scripts alembic`
 - Without uv: `python -m venv .venv`, install `pydantic pytest pytest-asyncio ruff` and `-e .`,
   then `.venv/Scripts/python -m pytest -q`.
 

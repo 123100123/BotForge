@@ -1,41 +1,61 @@
 """Fixtures for integration tests.
 
-Database-backed tests need ``TEST_DATABASE_URL`` (a Postgres URL, e.g.
-``postgresql://postgres@127.0.0.1:55432/postgres``); without it they are skipped. The schema ``app``
-is dropped and rebuilt once per session by running the real Alembic migration.
+Database-backed tests need Postgres. Either set ``TEST_DATABASE_URL`` (e.g.
+``postgresql://postgres@127.0.0.1:55432/postgres``), or install the optional ``dbtest`` group
+(``uv sync --group dbtest``): when the variable is unset and ``pgserver`` is importable, a temporary
+Postgres is started for the test session and removed afterwards. With neither, database tests are
+skipped. The schema ``app`` is dropped and rebuilt once per session by running the real Alembic
+migrations.
 """
 
 import asyncio
 import json
 import os
+import shutil
 import subprocess
 import sys
+import tempfile
 import uuid
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
+from cryptography.fernet import Fernet
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
-from app.config import to_async_url
+from app.config import get_settings, to_async_url
 from app.db.models import Bot
+from app.integrations.telegram.client import FakeTelegramClient, get_telegram_provider
 from app.main import create_app
 from app.revisions.service import activate, create_draft
 from tests.integration.helpers import BACKEND, REPO, SessionFactory, install_test_auth, make_client
 
 
 @pytest.fixture(scope="session")
-def test_db_url() -> str:
+def test_db_url() -> Iterator[str]:
     url = os.environ.get("TEST_DATABASE_URL")
-    if not url:
-        pytest.skip("TEST_DATABASE_URL is not set; database-backed tests are skipped")
-    async_url = to_async_url(url)
-    assert async_url is not None
-    return async_url
+    if url:
+        async_url = to_async_url(url)
+        assert async_url is not None
+        yield async_url
+        return
+    try:
+        import pgserver
+    except ImportError:
+        pytest.skip("TEST_DATABASE_URL is not set and pgserver is not installed; database tests are skipped")
+    data_dir = tempfile.mkdtemp(prefix="botforge-pg-")
+    server = pgserver.get_server(data_dir)
+    try:
+        async_url = to_async_url(server.get_uri())
+        assert async_url is not None
+        yield async_url
+    finally:
+        server.cleanup()
+        shutil.rmtree(data_dir, ignore_errors=True)
 
 
 @pytest.fixture(scope="session")
@@ -109,5 +129,32 @@ async def nodb_client() -> AsyncIterator[httpx.AsyncClient]:
     """App with stand-in auth and no database session at all."""
     app = create_app()
     install_test_auth(app, None)
+    async with make_client(app) as c:
+        yield c
+
+
+@pytest.fixture
+def tg_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
+    """Settings the Telegram integration needs: an encryption key and an https public URL."""
+    monkeypatch.setenv("TOKEN_ENC_KEY", Fernet.generate_key().decode())
+    monkeypatch.setenv("PUBLIC_BASE_URL", "https://bots.example.test")
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+@pytest.fixture
+def fake_tg() -> FakeTelegramClient:
+    return FakeTelegramClient(bot_id=uuid.uuid4().int % 10**9 + 10**9, username="workshop_test_bot")
+
+
+@pytest_asyncio.fixture
+async def tg_client(
+    session_factory: SessionFactory, fake_tg: FakeTelegramClient, tg_env: None
+) -> AsyncIterator[httpx.AsyncClient]:
+    """Full app with stand-in auth and the fake Telegram client injected."""
+    app = create_app()
+    install_test_auth(app, session_factory)
+    app.dependency_overrides[get_telegram_provider] = lambda: fake_tg.provider
     async with make_client(app) as c:
         yield c
