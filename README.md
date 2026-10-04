@@ -97,8 +97,12 @@ uv run python scripts/smoke_local.py --local-defaults
 uv run python scripts/dev_db.py stop
 ```
 
-It needs no LLM, no Telegram and no Supabase: it mints its own tokens, drives the ASGI app in-process
-and prints PASS or FAIL per step (exit code 1 on any failure). It creates and deletes its own bot.
+It needs no LLM, no Telegram and no Supabase: it mints its own tokens, drives the real ASGI app
+in-process (no port is opened; Telegram is the in-memory fake client) and prints PASS or FAIL per
+step (exit code 1 on any failure). It creates and deletes its own bot, and refuses a non-local
+`DATABASE_URL` unless `--allow-remote` is given. If `DATABASE_URL` is unset it uses the running dev
+database. `--local-defaults` fills in unset `SUPABASE_JWT_SECRET`, `TOKEN_ENC_KEY`, `PUBLIC_BASE_URL`
+and `FRONTEND_ORIGIN`; `SUPABASE_JWKS_URL` must be unset.
 
 ### Frontend
 
