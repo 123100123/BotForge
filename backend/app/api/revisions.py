@@ -21,6 +21,7 @@ from app.botspec.models import BotSpec
 from app.db.models import Bot, Revision
 from app.db.session import get_session
 from app.revisions import service
+from app.testing.derive import derive_scenarios
 from app.testing.runner import run_scenarios
 from app.testing.scenario import Scenario, TestReport
 
@@ -135,8 +136,8 @@ async def read_revision(
         activated_at=revision.activated_at,
         spec=revision.spec,
         requirements=revision.requirements,
-        scenarios=revision.scenarios,
-        superseded=revision.superseded,
+        scenarios=revision.scenarios or [],
+        superseded=revision.superseded or [],
         test_report=revision.test_report,
         diff=await _diff_against_parent(session, revision),
     )
@@ -160,13 +161,16 @@ async def rollback_to_revision(
 async def run_tests(
     revision: Revision = Depends(get_owned_revision), session: AsyncSession = Depends(get_session)
 ) -> TestReport:
-    """Re-run the revision's stored scenarios on a fresh in-memory store and store the report."""
-    if not revision.scenarios:
-        raise HTTPException(
-            409, detail={"code": "no_scenarios", "message": "برای این نسخه سناریوی آزمون ذخیره نشده است."}
-        )
+    """Re-run the revision's stored scenarios on a fresh in-memory store and store the report.
+
+    A revision without stored scenarios (for example one loaded by ``scripts/load_spec.py``) gets
+    the scenarios derived from its spec; they are stored with the report."""
     spec = BotSpec.model_validate(revision.spec)
-    scenarios = [Scenario.model_validate(s) for s in revision.scenarios]
+    if revision.scenarios:
+        scenarios = [Scenario.model_validate(s) for s in revision.scenarios]
+    else:
+        scenarios = derive_scenarios(spec)
+        revision.scenarios = [s.model_dump(mode="json") for s in scenarios]
     report = await run_scenarios(spec, scenarios)
     revision.test_report = report.model_dump(mode="json")
     await session.commit()

@@ -253,14 +253,6 @@ async def test_tests_run_reports_failures_against_the_revisions_own_spec(
     ] > 0
 
 
-async def test_tests_run_without_stored_scenarios_is_409(
-    tg_client: httpx.AsyncClient, make_bot: MakeBot
-) -> None:
-    _, revision_id = await make_bot("alice")
-    response = await tg_client.post(f"/revisions/{revision_id}/tests/run", headers=ALICE)
-    assert response.status_code == 409 and response.json()["error"]["code"] == "no_scenarios"
-
-
 async def test_another_owners_revisions_are_404(
     tg_client: httpx.AsyncClient,
     make_bot: MakeBot,

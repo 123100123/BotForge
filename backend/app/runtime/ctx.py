@@ -43,6 +43,8 @@ class _ActingActor:
 
 ACTING = _ActingActor()
 
+MAX_RECORD_ID = 2**63 - 1  # records.id is a bigint
+
 
 def _cap_key(cap: AnyCapability | str) -> str:
     return cap if isinstance(cap, str) else cap.key
@@ -282,6 +284,9 @@ class Ctx:
 
 
 def parse_int(arg: str) -> int | None:
-    """Parse a callback arg as a non-negative int; None if it is not one."""
+    """Parse a callback arg as a non-negative int that fits the database (int64); else None."""
     s = formatting.to_ascii_digits(arg.strip())
-    return int(s) if s.isdigit() and s.isascii() else None
+    if not (s.isdigit() and s.isascii()):
+        return None
+    value = int(s)
+    return value if value <= MAX_RECORD_ID else None
