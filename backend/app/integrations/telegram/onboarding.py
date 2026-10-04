@@ -146,12 +146,12 @@ async def connect(
     await session.commit()
 
     if previous_token_enc and previous_tg_bot_id != tg_bot_id:
-        await _drop_webhook(previous_token_enc, provider)  # the owner switched to another Telegram bot
+        await drop_webhook(previous_token_enc, provider)  # the owner switched to another Telegram bot
 
 
 async def disconnect(session: AsyncSession, bot: Bot, provider: TelegramProvider) -> None:
     if bot.tg_token_enc:
-        await _drop_webhook(bot.tg_token_enc, provider)
+        await drop_webhook(bot.tg_token_enc, provider)
     bot.tg_token_enc = None
     bot.tg_webhook_secret = None
     bot.tg_username = None
@@ -162,7 +162,7 @@ async def disconnect(session: AsyncSession, bot: Bot, provider: TelegramProvider
     await session.commit()
 
 
-async def _drop_webhook(token_enc: str, provider: TelegramProvider) -> None:
+async def drop_webhook(token_enc: str, provider: TelegramProvider) -> None:
     """Best effort ``deleteWebhook``: a dead token or an unreachable Telegram must not block a disconnect."""
     try:
         await provider(decrypt_token(token_enc)).delete_webhook()

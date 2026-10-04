@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.api.data import RecordId
 from app.api.deps import get_owned_bot
 from app.botspec.models import BookingCapability, BotSpec, RequestCapability
 from app.db.models import Bot
@@ -55,8 +56,8 @@ def callback_for(spec: BotSpec, collection: str, record_id: int, action: str) ->
 @router.post("/bots/{bot_id}/data/{collection}/{record_id}/actions/{action}", response_model=ActionOut)
 async def run_action(
     collection: str,
-    record_id: int,
     action: str,
+    record_id: int = RecordId,
     bot: Bot = Depends(get_owned_bot),
     session: AsyncSession = Depends(get_session),
     telegram: TelegramProvider = Depends(get_telegram_provider),

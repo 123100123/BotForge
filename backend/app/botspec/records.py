@@ -138,6 +138,31 @@ def coerce_value(field: FieldDef, value: Any) -> Any:
     raise RecordValueError(f"«{label}» نوع ناشناخته دارد.")  # pragma: no cover
 
 
+def validate_record_detailed(
+    fields: list[FieldDef], data: dict[str, Any]
+) -> tuple[dict[str, Any], list[tuple[str | None, str]]]:
+    """Like ``validate_record`` but each error is ``(field_key, message)``.
+
+    ``field_key`` is the FieldDef key, or ``None`` for an error not tied to one field.
+    """
+    cleaned: dict[str, Any] = {}
+    errors: list[tuple[str | None, str]] = []
+    for field in fields:
+        raw = data.get(field.key)
+        if _is_empty(raw):
+            raw = field.default
+        if _is_empty(raw):
+            if field.required:
+                errors.append((field.key, f"«{field.label}» الزامی است."))
+            cleaned[field.key] = None
+            continue
+        try:
+            cleaned[field.key] = coerce_value(field, raw)
+        except RecordValueError as exc:
+            errors.append((field.key, str(exc)))
+    return cleaned, errors
+
+
 def validate_record(fields: list[FieldDef], data: dict[str, Any]) -> tuple[dict[str, Any], list[str]]:
     """Validate and coerce ``data`` against ``fields``.
 
@@ -146,19 +171,5 @@ def validate_record(fields: list[FieldDef], data: dict[str, Any]) -> tuple[dict[
     preserve hidden legacy keys (removed fields) merge them back themselves. A missing value falls
     back to ``FieldDef.default``. ``errors`` are Persian messages; the record is valid iff empty.
     """
-    cleaned: dict[str, Any] = {}
-    errors: list[str] = []
-    for field in fields:
-        raw = data.get(field.key)
-        if _is_empty(raw):
-            raw = field.default
-        if _is_empty(raw):
-            if field.required:
-                errors.append(f"«{field.label}» الزامی است.")
-            cleaned[field.key] = None
-            continue
-        try:
-            cleaned[field.key] = coerce_value(field, raw)
-        except RecordValueError as exc:
-            errors.append(str(exc))
-    return cleaned, errors
+    cleaned, detailed = validate_record_detailed(fields, data)
+    return cleaned, [message for _, message in detailed]

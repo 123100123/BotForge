@@ -13,6 +13,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot
 from app.db.models import Bot, Revision
 from app.db.session import get_session
+from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
+from app.integrations.telegram.onboarding import drop_webhook
 
 router = APIRouter(tags=["bots"])
 
@@ -123,8 +125,12 @@ async def rename_bot(
 
 @router.delete("/bots/{bot_id}", status_code=204)
 async def delete_bot(
-    bot: Bot = Depends(get_owned_bot), session: AsyncSession = Depends(get_session)
+    bot: Bot = Depends(get_owned_bot),
+    session: AsyncSession = Depends(get_session),
+    telegram: TelegramProvider = Depends(get_telegram_provider),
 ) -> Response:
+    if bot.tg_token_enc:  # best effort: Telegram stops calling a webhook that no longer exists
+        await drop_webhook(bot.tg_token_enc, telegram)
     # Rows in every child table go with the bot through ON DELETE CASCADE.
     await session.execute(delete(Bot).where(Bot.id == bot.id).execution_options(synchronize_session=False))
     session.expunge(bot)
