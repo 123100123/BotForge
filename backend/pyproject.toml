@@ -6,12 +6,19 @@ requires-python = ">=3.12"
 dependencies = [
     "pydantic>=2",
     "tzdata>=2024.1",
+    "fastapi",
+    "uvicorn[standard]",
+    "sqlalchemy[asyncio]>=2",
+    "asyncpg",
+    "alembic",
+    "pydantic-settings",
 ]
 
 [dependency-groups]
 dev = [
     "pytest",
     "pytest-asyncio",
+    "httpx",
     "ruff",
 ]
 
@@ -37,3 +44,6 @@ target-version = "py312"
 select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
 # Persian text is everywhere; the "ambiguous unicode" rules would flag every string.
 ignore = ["RUF001", "RUF002", "RUF003", "RUF012"]  # RUF012: pydantic field defaults are copied
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
