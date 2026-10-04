@@ -7,7 +7,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, StringConstraints
-from sqlalchemy import delete, select
+from sqlalchemy import and_, delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot
@@ -61,9 +61,8 @@ def _bot_out(bot: Bot, active_number: int | None) -> BotOut:
 async def _active_number(session: AsyncSession, bot: Bot) -> int | None:
     if bot.active_revision_id is None:
         return None
-    return (
-        await session.execute(select(Revision.number).where(Revision.id == bot.active_revision_id))
-    ).scalar_one_or_none()
+    stmt = select(Revision.number).where(Revision.id == bot.active_revision_id, Revision.bot_id == bot.id)
+    return (await session.execute(stmt)).scalar_one_or_none()
 
 
 @router.get("/me", response_model=MeOut)
@@ -78,7 +77,7 @@ async def list_bots(
 ) -> list[BotOut]:
     stmt = (
         select(Bot, Revision.number)
-        .outerjoin(Revision, Revision.id == Bot.active_revision_id)
+        .outerjoin(Revision, and_(Revision.id == Bot.active_revision_id, Revision.bot_id == Bot.id))
         .where(Bot.owner_id == user.id)
         .order_by(Bot.created_at.desc(), Bot.id)
     )

@@ -1,7 +1,9 @@
 """App skeleton: boots with no database, auto-includes routers, uniform error bodies."""
 
 import importlib
+import re
 import sys
+import uuid
 from pathlib import Path
 from typing import Any
 
@@ -146,13 +148,30 @@ async def test_error_body_when_database_is_not_configured() -> None:
     assert response.json()["error"]["code"] == "database_unavailable"
 
 
-async def test_security_dependencies_are_interface_only() -> None:
-    from app.api.deps import get_owned_bot
+# Routes reachable without a Supabase token. The Telegram webhook authenticates by its secret header.
+PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}"}
 
-    with pytest.raises(NotImplementedError):
-        await get_current_user()
-    with pytest.raises(NotImplementedError):
-        await get_owned_bot(None, None, None)  # type: ignore[arg-type]
+
+async def test_every_api_route_requires_authentication() -> None:
+    """Regression guard: a route added without ``get_current_user`` (directly or through an ownership
+    dependency) fails here, before any database access. Public routes belong in PUBLIC_ROUTES.
+
+    Routes are enumerated from the OpenAPI schema (included routers are not flattened into
+    ``app.routes`` in this FastAPI version), so ``include_in_schema=False`` routes are not covered.
+    """
+    app = create_app()
+    checked = 0
+    async with make_client(app) as client:
+        for template, operations in app.openapi()["paths"].items():
+            if template in PUBLIC_ROUTES:
+                continue
+            path = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), template)
+            for method in sorted(set(operations) & {"get", "post", "put", "patch", "delete"}):
+                response = await client.request(method.upper(), path)
+                assert response.status_code == 401, (method, template, response.status_code)
+                assert response.json()["error"]["code"] == "auth_required"
+                checked += 1
+    assert checked >= 11  # /me, the bot routes and the data routes
 
 
 async def test_cors_allows_only_the_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:
