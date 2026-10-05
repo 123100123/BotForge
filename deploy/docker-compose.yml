@@ -1,0 +1,140 @@
+# BotForge on one VPS: Postgres + backend + frontend behind Caddy (automatic HTTPS).
+# Run every command from this directory (deploy/). Settings come from deploy/.env (copy .env.example).
+#
+# Only Caddy publishes ports (80, 443). The database, backend and frontend are reachable only on the
+# internal network, so a wrong firewall rule cannot expose them.
+#
+# The backend stays ONE container with ONE uvicorn worker: agent runs, rate limits and the Telegram
+# webhook handler live in that process. Never add `deploy.replicas` or `--scale backend=2`.
+
+name: botforge
+
+# Build-time network settings shared by both image builds. Optional and empty by default: a proxy for
+# the downloads (http_proxy / https_proxy / no_proxy are predefined build args in Docker).
+x-build-proxy: &build_proxy
+  http_proxy: ${BUILD_PROXY:-}
+  https_proxy: ${BUILD_PROXY:-}
+  no_proxy: localhost,127.0.0.1
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?set POSTGRES_USER in deploy/.env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in deploy/.env}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB in deploy/.env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks: [internal]
+
+  backend:
+    build:
+      context: ../backend
+      args:
+        <<: *build_proxy
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        UV_EXTRA_GROUPS: ${UV_EXTRA_GROUPS:-}
+      extra_hosts:
+        - "host.docker.internal:host-gateway" # lets a proxy running on the host be reached
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
+      # The hostname is configured once (SITE_HOST); the browser talks to the site origin only.
+      FRONTEND_ORIGIN: https://${SITE_HOST:?set SITE_HOST in deploy/.env}
+      PUBLIC_BASE_URL: https://${SITE_HOST}
+      # Own login: email + password, server-side sessions in the HttpOnly bf_session cookie.
+      AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
+      AUTH_ALLOW_SIGNUP: ${AUTH_ALLOW_SIGNUP:-true}
+      AUTH_SESSION_TTL_HOURS: ${AUTH_SESSION_TTL_HOURS:-168}
+      # The rate limiter keys on the client IP. Uvicorn takes it from X-Forwarded-For only for
+      # connections from these addresses (read from this variable; the Dockerfile CMD passes no
+      # --forwarded-allow-ips). It is Caddy's fixed address on the network below, never "*": the
+      # backend port is unpublished, so nothing but Caddy can reach it, and Caddy overwrites the header.
+      FORWARDED_ALLOW_IPS: ${CADDY_IP:-10.250.77.10}
+      TOKEN_ENC_KEY: ${TOKEN_ENC_KEY:?set TOKEN_ENC_KEY in deploy/.env}
+      LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # The SDK reads this variable when no base_url is passed, and an empty value would break it,
+      # so the default is the SDK's own default. Set it only for an Anthropic-compatible mirror.
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
+      LLM_MODEL_STRONG: ${LLM_MODEL_STRONG:-}
+      LLM_MODEL_FAST: ${LLM_MODEL_FAST:-}
+      LOG_LLM_BODIES: ${LOG_LLM_BODIES:-false}
+      AGENT_DAILY_RUN_CAP: ${AGENT_DAILY_RUN_CAP:-30}
+      AGENT_RUNS_PER_MINUTE: ${AGENT_RUNS_PER_MINUTE:-5}
+      # Optional outbound proxy (Telegram, the LLM API). The internal names always bypass it.
+      HTTP_PROXY: ${OUTBOUND_HTTP_PROXY:-}
+      HTTPS_PROXY: ${OUTBOUND_HTTPS_PROXY:-}
+      NO_PROXY: db,backend,frontend,localhost,127.0.0.1${OUTBOUND_NO_PROXY:+,${OUTBOUND_NO_PROXY}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # The golden spec for scripts/load_spec.py (the image holds only app/, alembic/ and scripts/).
+      - ../examples:/examples:ro
+    networks: [internal]
+
+  frontend:
+    build:
+      context: ../frontend
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
+      args:
+        <<: *build_proxy
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
+        # Inlined into the JavaScript at build time: changing one needs `docker compose up -d --build`.
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
+        NEXT_PUBLIC_MOCK: ${NEXT_PUBLIC_MOCK:-}
+    restart: unless-stopped
+    networks: [internal]
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - backend
+      - frontend
+    environment:
+      SITE_HOST: ${SITE_HOST}
+      # Written into the Caddyfile only when ACME_EMAIL is set (see the global block there).
+      ACME_EMAIL_LINE: ${ACME_EMAIL:+email ${ACME_EMAIL}}
+      # Optional outbound proxy: Caddy may need it to reach Let's Encrypt / ZeroSSL (ACME).
+      HTTP_PROXY: ${OUTBOUND_HTTP_PROXY:-}
+      HTTPS_PROXY: ${OUTBOUND_HTTPS_PROXY:-}
+      NO_PROXY: db,backend,frontend,localhost,127.0.0.1${OUTBOUND_NO_PROXY:+,${OUTBOUND_NO_PROXY}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp" # HTTP/3
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data # certificates and the ACME account: keep this volume
+      - caddy_config:/config
+    networks:
+      internal:
+        ipv4_address: ${CADDY_IP:-10.250.77.10}
+
+# A fixed subnet, so Caddy has a fixed address that the backend can trust (FORWARDED_ALLOW_IPS).
+# If it collides with a network on your server, set CADDY_SUBNET and CADDY_IP in deploy/.env (an address
+# inside that subnet, not its first address).
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: ${CADDY_SUBNET:-10.250.77.0/24}
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

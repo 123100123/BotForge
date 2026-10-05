@@ -1,9 +1,16 @@
 # BotForge backend: one always-on container, one uvicorn worker.
-# Build context is backend/ (Render: rootDir backend). Not built locally (no Docker on the dev machine).
+# Build context is backend/ (Render: rootDir backend, or deploy/docker-compose.yml).
 FROM python:3.12-slim
 
-# uv is installed from its official image; nothing else is added to the system.
-COPY --from=ghcr.io/astral-sh/uv:0.8 /uv /usr/local/bin/uv
+# Optional build args, empty by default (plain behaviour):
+#   PIP_INDEX_URL   a PyPI mirror for pip and uv (networks where pypi.org is slow or blocked)
+#   UV_EXTRA_GROUPS one extra dependency group, e.g. "headless" for a local build that can run
+#                   LLM_PROVIDER=claude_cli. Never set it for production.
+ARG PIP_INDEX_URL=
+ARG UV_EXTRA_GROUPS=
+
+# uv comes from PyPI (ghcr.io is blocked in some regions). Pinned: the 0.8 series wrote uv.lock.
+RUN pip install --no-cache-dir ${PIP_INDEX_URL:+--index-url "$PIP_INDEX_URL"} uv==0.12.23
 
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
@@ -16,7 +23,8 @@ WORKDIR /app
 
 # Dependencies first (cached layer): runtime group only, exactly as locked. No dev, no dbtest.
 COPY pyproject.toml uv.lock ./
-RUN uv sync --frozen --no-dev --no-group dbtest --no-install-project
+RUN if [ -n "$PIP_INDEX_URL" ]; then export UV_DEFAULT_INDEX="$PIP_INDEX_URL"; fi; \
+    uv sync --frozen --no-dev --no-group dbtest ${UV_EXTRA_GROUPS:+--group "$UV_EXTRA_GROUPS"} --no-install-project
 
 # Application code, migrations and operator scripts (tests are excluded by .dockerignore).
 COPY alembic.ini ./

@@ -1,0 +1,50 @@
+# BotForge reverse proxy. SITE_HOST and ACME_EMAIL come from deploy/.env through docker-compose.yml.
+#
+# SITE_HOST can be a free sslip.io name such as 203-0-113-7.sslip.io (it resolves to 203.0.113.7).
+# Caddy gets a real, browser-trusted certificate for it from Let's Encrypt. sslip.io is a shared
+# domain, so Let's Encrypt can rate-limit it; Caddy then falls back to ZeroSSL automatically.
+# With SITE_HOST=localhost Caddy uses its own internal CA (a local test; browsers warn, curl needs -k).
+{
+	# Optional ACME account email (expiry notices). docker-compose.yml sets ACME_EMAIL_LINE to
+	# "email you@example.com" when ACME_EMAIL is set and to nothing otherwise; the environment is
+	# substituted as text before parsing, so an empty value leaves an empty (valid) line.
+	{$ACME_EMAIL_LINE:}
+}
+
+{$SITE_HOST} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		X-Frame-Options "DENY"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		-Server
+	}
+	# No Content-Security-Policy on purpose: Next.js emits inline scripts, and a CSP that blocks them
+	# would break the app. Add one only after testing it against the built frontend.
+
+	# Cookies (bf_session) and request headers (X-BotForge-CSRF) pass through untouched: nothing here
+	# strips or rewrites them, and the Strict-Transport-Security header above only affects responses.
+
+	# Backend API. The /api prefix is stripped: /api/healthz reaches the backend as /healthz.
+	# flush_interval -1 sends every chunk immediately, so the agent run's text/event-stream
+	# (GET /runs/{id}/events) is never buffered. There is no compression on this path for the same reason.
+	handle_path /api/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Telegram webhooks: POST /tg/{bot_id}, forwarded unchanged (no prefix stripping).
+	handle /tg/* {
+		reverse_proxy backend:8000 {
+			flush_interval -1
+		}
+	}
+
+	# Everything else is the Next.js frontend.
+	handle {
+		encode zstd gzip
+		reverse_proxy frontend:3000
+	}
+}

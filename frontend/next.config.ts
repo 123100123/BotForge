@@ -8,6 +8,8 @@ const nextConfig: NextConfig = {
     if (process.env.NODE_ENV !== "development") return [];
     return [{ source: "/api/:path*", destination: "http://localhost:8000/:path*" }];
   },
+  // Self-contained server (.next/standalone/server.js) for the Docker image in frontend/Dockerfile.
+  output: "standalone",
 };
 
 export default nextConfig;
