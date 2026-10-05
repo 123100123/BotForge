@@ -6,7 +6,7 @@
 import { ApiError, ERROR_CODES } from "@/lib/errors";
 import { countsOf, detailOf, hasNoStoredTests, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
 import { reportOf } from "@/lib/fixtures/scenarios";
-import { getDb, persist } from "@/lib/mock/engine";
+import { getDb, newId, persist } from "@/lib/mock/engine";
 import { resetSandbox, simulate } from "@/lib/mock/simulator";
 import type {
   BookingCapability,
@@ -412,18 +412,26 @@ export function runRecordAction(botId: string, collection: string, recordId: num
 }
 
 /* ------------------------------------------------------------------ telegram */
+// Mirrors backend/app/integrations/telegram/onboarding.py. Owner link: a code links an owner only
+// while none is linked (it never replaces one); every connect unlinks the owner and arms a fresh
+// single-use code; disconnect unlinks the owner and revokes the code. The status returns a link
+// exactly when opening it would link an owner.
+
+/** onboarding.TOKEN_FORMAT: "<bot id>:<secret>", ASCII only. */
+const TOKEN_FORMAT = /^([0-9]{6,}):[A-Za-z0-9_-]{30,}$/;
 
 function statusOf(botId: string): TelegramStatus {
   const d = getDb();
   const bot = d.bots.find((b) => b.id === botId);
   if (!bot) throw new ApiError("bot_not_found", "ربات پیدا نشد.", 404);
   const connected = bot.tg_username !== null;
+  const code = bot.owner_linked ? null : bot.owner_link_code; // onboarding.armed_owner_code
   return {
     connected,
     username: bot.tg_username,
     bot_link: connected ? `https://t.me/${bot.tg_username}` : null,
     owner_linked: bot.owner_linked,
-    owner_link: connected && !bot.owner_linked && bot.owner_link_code ? `https://t.me/${bot.tg_username}?start=owner_${bot.owner_link_code}` : null,
+    owner_link: connected && code ? `https://t.me/${bot.tg_username}?start=owner_${code}` : null,
     last_error: d.telegramErrors[botId] ?? null,
   };
 }
@@ -434,15 +442,15 @@ export function connectTelegram(botId: string, token: string): TelegramStatus {
   const d = getDb();
   const bot = d.bots.find((b) => b.id === botId);
   if (!bot) throw new ApiError("bot_not_found", "ربات پیدا نشد.", 404);
-  const match = /^(\d{5,})\:[\w-]{20,}$/.exec(token.trim());
-  if (!match) {
-    d.telegramErrors[botId] = "توکن از سمت تلگرام پذیرفته نشد.";
-    persist();
-    throw new ApiError("invalid_telegram_token", "توکن معتبر نیست. آن را دوباره از BotFather کپی کنید.", 400);
-  }
+  const match = TOKEN_FORMAT.exec(token.trim());
+  // A rejected token changes nothing, not even the last error.
+  if (!match) throw new ApiError("invalid_token", "توکن ربات نامعتبر است. توکن را دقیقاً از BotFather کپی کنید.", 400);
   delete d.telegramErrors[botId];
   bot.tg_username = `demo${match[1].slice(-4)}_bot`;
-  if (bot.active_revision_id) bot.status = "live";
+  bot.status = bot.status === "paused" ? "paused" : bot.active_revision_id ? "live" : "draft";
+  // Every connect starts a new owner link: the owner is unlinked and a fresh code is armed.
+  bot.owner_linked = false;
+  bot.owner_link_code = newId("code");
   persist();
   return statusOf(botId);
 }
@@ -452,8 +460,10 @@ export function disconnectTelegram(botId: string): TelegramStatus {
   const bot = d.bots.find((b) => b.id === botId);
   if (!bot) throw new ApiError("bot_not_found", "ربات پیدا نشد.", 404);
   bot.tg_username = null;
+  if (bot.status !== "paused") bot.status = "draft";
+  // The owner is unlinked and any code revoked; the next connect arms a fresh one.
   bot.owner_linked = false;
-  if (bot.status === "live") bot.status = "paused";
+  bot.owner_link_code = null;
   delete d.telegramErrors[botId];
   persist();
   return statusOf(botId);

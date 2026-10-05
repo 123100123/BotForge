@@ -68,15 +68,17 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
             پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
           </p>
         ) : status.owner_linked ? (
-          // The link is single-use: once an account is linked, the server no longer returns it.
+          // No link while an owner is linked: the code was used, and a code never replaces a linked
+          // owner. Disconnecting unlinks the owner; the next connect returns a fresh link (shown below).
           <div className="flex flex-col gap-3">
             <p role="status" className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm leading-7 text-success">
               <Check className="mt-1.5 size-4 shrink-0" />
               حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
             </p>
             <p className="text-sm leading-7 text-muted-foreground">
-              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای متصل کردن حساب تلگرام دیگری، ابتدا اتصال را قطع کنید و توکن ربات را
-              دوباره وارد کنید؛ با اتصال دوباره یک پیوند تازه ساخته می‌شود.
+              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای دریافت اعلان‌ها در حساب تلگرام دیگری، اتصال ربات را قطع کنید و توکن را
+              دوباره وارد کنید. با قطع اتصال، این حساب هم از مدیریت ربات جدا می‌شود و پس از اتصال دوباره، پیوند تازه‌ای همین‌جا نمایش داده
+              می‌شود که باید آن را با حساب جدید باز کنید.
             </p>
           </div>
         ) : !status.owner_link ? (
@@ -106,7 +108,8 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
             </div>
             {copied === "no" && <p role="status" className="text-sm text-destructive">کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.</p>}
             <p className="text-sm leading-7 text-muted-foreground">
-              پیوند را فقط خودتان باز کنید. هر کس آن را باز کند، اعلان‌های مدیر را دریافت می‌کند.
+              پیوند را فقط خودتان باز کنید: نخستین حسابی که آن را باز کند مدیر ربات می‌شود و اعلان‌ها را دریافت می‌کند. پیوند فقط یک بار
+              کار می‌کند.
             </p>
           </>
         )}

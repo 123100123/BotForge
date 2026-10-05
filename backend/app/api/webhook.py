@@ -7,9 +7,9 @@ update id only (never the update content, which holds user messages) and the tra
 back.
 
 Processing: record ``(bot_id, update_id)`` in ``tg_updates`` and commit at once (a duplicate delivery
-stops here); owner deep link ``/start owner_<code>`` (single use); the fixed "not ready" reply when
-the bot has no active revision; otherwise ``dispatch``. Owner linking is handled before the
-active-revision check because linking needs no revision.
+stops here); owner deep link ``/start owner_<code>`` (single use, and only while no owner is
+linked); the fixed "not ready" reply when the bot has no active revision; otherwise ``dispatch``.
+Owner linking is handled before the active-revision check because linking needs no revision.
 """
 
 import json
@@ -20,6 +20,7 @@ from datetime import UTC, datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from sqlalchemy import update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,6 +29,7 @@ from app.db.session import get_session
 from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import ParsedUpdate, parse_update
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
+from app.integrations.telegram.onboarding import armed_owner_code
 from app.runtime.pg_store import advisory_lock
 from app.security.crypto import verify_webhook_secret
 from app.services.dispatch import dispatch, reply_plain
@@ -144,19 +146,37 @@ async def _link_owner(
 
     Single use, and nothing is re-armed here: a rotated code would sit valid in the Settings page
     (and in any screenshot or screen share of it), letting whoever copies it silently replace the
-    owner. A new link exists only after the authenticated owner reconnects the token (``connect``
-    issues a fresh code), so every change of owner follows an action in the web app.
+    owner. A code is accepted only while no owner is linked (``armed_owner_code``), so it can
+    establish an owner but never replace one. A new code exists only after the authenticated owner
+    reconnects the token (``connect`` unlinks the owner and arms a fresh code), so every change of
+    owner follows an action in the web app.
+
+    The code is checked under the bot's lock against the row read under it, and the write is a
+    compare-and-set on that same code: ``connect`` and ``disconnect`` rewrite the owner columns
+    without the lock, and a code they revoked after the read must not link anyone.
     """
     code = (parsed.start_payload or "")[len(OWNER_PAYLOAD_PREFIX) :]
     await advisory_lock(session, bot.id)
     fresh = await session.get(Bot, bot.id, populate_existing=True) or bot
-    expected = fresh.owner_link_code
-    if expected and secrets.compare_digest(code.encode(), expected.encode()):
-        fresh.owner_actor_id = parsed.event.actor.id
-        fresh.owner_link_code = None  # consumed: the link cannot be reused
-        await session.commit()
-        text = texts.OWNER_LINKED
-    else:
-        await session.commit()  # release the lock
-        text = texts.OWNER_LINK_INVALID
+    expected = armed_owner_code(fresh)
+    linked = False
+    if expected is not None and _same_code(code, expected):
+        consumed = await session.execute(
+            update(Bot)
+            .where(Bot.id == fresh.id, Bot.owner_actor_id.is_(None), Bot.owner_link_code == expected)
+            .values(owner_actor_id=parsed.event.actor.id, owner_link_code=None)  # consumed: single use
+            .returning(Bot.id)
+            .execution_options(synchronize_session=False)
+        )
+        linked = consumed.first() is not None
+    await session.commit()  # also releases the lock
+    text = texts.OWNER_LINKED if linked else texts.OWNER_LINK_INVALID
     await reply_plain(session, fresh, parsed.origin.chat_id, text, telegram=telegram, origin=parsed.origin)
+
+
+def _same_code(given: str, expected: str) -> bool:
+    """Constant-time comparison. A payload that cannot be encoded (a lone surrogate) never matches."""
+    try:
+        return secrets.compare_digest(given.encode(), expected.encode())
+    except UnicodeError:
+        return False
