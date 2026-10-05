@@ -4,6 +4,7 @@ export const PERSONAS: { id: Persona; label: string }[] = [
   { id: "ali", label: "علی" },
   { id: "sara", label: "سارا" },
   { id: "reza", label: "رضا" },
+  { id: "staff", label: "همکار" },
   { id: "owner", label: "مدیر" },
 ];
 
@@ -19,8 +20,8 @@ export interface ChatItem {
 export type Chats = Record<Persona, ChatItem[]>;
 export type Unread = Record<Persona, number>;
 
-export const emptyChats = (): Chats => ({ ali: [], sara: [], reza: [], owner: [] });
-export const emptyUnread = (): Unread => ({ ali: 0, sara: 0, reza: 0, owner: 0 });
+export const emptyChats = (): Chats => ({ ali: [], sara: [], reza: [], staff: [], owner: [] });
+export const emptyUnread = (): Unread => ({ ali: 0, sara: 0, reza: 0, staff: 0, owner: 0 });
 
 /**
  * Applies a RuntimeResponse to the per-persona transcripts. A message with `edit: true` addressed
@@ -36,7 +37,7 @@ export function applyResponse(
   sourceId: number | null,
   nextId: () => number,
 ): { chats: Chats; unread: Unread } {
-  const nextChats: Chats = { ali: chats.ali, sara: chats.sara, reza: chats.reza, owner: chats.owner };
+  const nextChats: Chats = { ali: chats.ali, sara: chats.sara, reza: chats.reza, staff: chats.staff, owner: chats.owner };
   const nextUnread: Unread = { ...unread };
 
   for (const m of response.messages as OutMessage[]) {

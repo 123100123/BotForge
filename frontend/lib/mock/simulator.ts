@@ -20,7 +20,7 @@ import type {
   SimulatorEventBody,
 } from "@/lib/types";
 
-const NAMES: Record<string, string> = { ali: "علی", sara: "سارا", reza: "رضا", owner: "مدیر" };
+const NAMES: Record<string, string> = { ali: "علی", sara: "سارا", reza: "رضا", staff: "همکار", owner: "مدیر" };
 const HOUR = 3_600_000;
 
 interface SandboxWorkshop {
@@ -266,18 +266,18 @@ function requestEvent(spec: BotSpec, cap: RequestCapability, sb: Sandbox, e: Sim
   if (action === "o") {
     const request = sb.requests.find((r) => r.id === Number(arg));
     const act = cap.owner_actions.find((a) => a.key === key);
-    if (me !== "owner" || !request || !act) {
+    if ((me !== "owner" && me !== "staff") || !request || !act) {
       return respond([msg(me, "این کار برای شما مجاز نیست.", [], true)], [{ capability: cap.key, action: "owner_action", result: "rejected", reason: "not_allowed", record_id: null }]);
     }
     if (!act.from_statuses.includes(request.status)) {
-      return respond([msg("owner", `این اقدام برای وضعیت «${statusLabel(request.status)}» ممکن نیست.`, ownerButtons(request), true)], [
+      return respond([msg(me, `این اقدام برای وضعیت «${statusLabel(request.status)}» ممکن نیست.`, ownerButtons(request), true)], [
         { capability: cap.key, action: "owner_action", result: "rejected", reason: "not_allowed", record_id: request.id },
       ]);
     }
     request.status = act.to_status;
     return respond(
       [
-        msg("owner", `درخواست ${toFaDigits(request.id)} از ${who(request.who)}: ${statusLabel(request.status)}`, ownerButtons(request), true),
+        msg(me, `درخواست ${toFaDigits(request.id)} از ${who(request.who)}: ${statusLabel(request.status)}`, ownerButtons(request), true),
         msg(request.who, `وضعیت درخواست ${toFaDigits(request.id)} شما: ${statusLabel(request.status)}`, [], false, "status_changed"),
       ],
       [{ capability: cap.key, action: "owner_action", result: "ok", reason: null, record_id: request.id }],
@@ -290,7 +290,7 @@ function requestEvent(spec: BotSpec, cap: RequestCapability, sb: Sandbox, e: Sim
 /* ------------------------------------------------------------------ entry */
 
 export function simulate(botId: string, spec: BotSpec, body: SimulatorEventBody): RuntimeResponse {
-  const personas: Persona[] = ["ali", "sara", "reza", "owner"];
+  const personas: Persona[] = ["ali", "sara", "reza", "staff", "owner"];
   if (!personas.includes(body.persona)) throw new ApiError("invalid_persona", "کاربر آزمایشی نامعتبر است.", 422);
   const sb = sandboxOf(botId);
   const booking = spec.capabilities.find((c): c is BookingCapability => c.type === "booking");

@@ -424,7 +424,7 @@ export interface RuntimeResponse {
   effects: RuntimeEffect[];
 }
 
-export type Persona = "ali" | "sara" | "reza" | "owner";
+export type Persona = "ali" | "sara" | "reza" | "staff" | "owner";
 
 /** POST /bots/{bot_id}/simulator/events. `revision_id: null` means the active revision. */
 export interface SimulatorEventBody {

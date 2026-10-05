@@ -14,7 +14,7 @@ interface PersonaSwitcherProps {
 /** Who the owner is playing. A badge counts messages that arrived for a persona that is not selected. */
 export function PersonaSwitcher({ value, unread, onChange }: PersonaSwitcherProps) {
   return (
-    <div role="tablist" aria-label="کاربر آزمایشی" className="grid grid-cols-4 gap-1 rounded-lg bg-muted p-1">
+    <div role="tablist" aria-label="کاربر آزمایشی" className="grid grid-cols-5 gap-1 rounded-lg bg-muted p-1">
       {PERSONAS.map((p) => {
         const active = p.id === value;
         const count = unread[p.id];
