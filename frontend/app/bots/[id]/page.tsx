@@ -100,20 +100,20 @@ export default function BotWorkspacePage() {
         <WorkspaceSidebar />
         <div className="min-w-0 flex-1">
           <TabsContent value="overview">
-            <OverviewTab bot={bot} />
+            <OverviewTab bot={bot} onOpenTab={openTab} />
           </TabsContent>
           {/* The copilot hosts the agent flow, which stays mounted so its event stream and state survive switching sections. */}
           <TabsContent value="copilot" forceMount className="data-[state=inactive]:hidden">
             <CopilotTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="capabilities">
-            <CapabilitiesTab bot={bot} />
+            <CapabilitiesTab bot={bot} onOpenTab={openTab} onBotChanged={reload} />
           </TabsContent>
           <TabsContent value="data">
             <DataTab bot={bot} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="reports">
-            <ReportsSection bot={bot} />
+            <ReportsSection bot={bot} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="simulator">
             <SimulatorTab bot={bot} onOpenTab={openTab} />

@@ -13,9 +13,25 @@ import { formatDate } from "@/lib/format";
 import type { Bot, CapabilityOut, Period } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-/** The key a report is requested with: the first spec key, or the capability id for modules and presets. */
-function reportKey(c: CapabilityOut): string {
-  return c.spec_keys[0] ?? c.id;
+/** One report row: a capability and one of its spec keys (the key the report endpoint is called with). */
+interface ReportRow {
+  cap: CapabilityOut;
+  key: string;
+  /** The capability has more than one spec key, so the key is shown next to its name. */
+  multi: boolean;
+}
+
+function RowLabel({ row }: { row: ReportRow }) {
+  return (
+    <>
+      {row.cap.name}
+      {row.multi && (
+        <span dir="ltr" className="ms-1.5 text-xs text-muted-foreground">
+          {row.key}
+        </span>
+      )}
+    </>
+  );
 }
 
 function ReportBody({ botId, capKey, period }: { botId: string; capKey: string; period: Period }) {
@@ -47,7 +63,11 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
   if (error) return <ErrorNote>{error}</ErrorNote>;
   if (!data) return <LoadingBlock />;
 
-  const reportable = data.categories.flatMap((c) => c.capabilities).filter((c) => c.enabled && c.metrics.length > 0);
+  // One row per spec key. Module capabilities have no spec keys and no report endpoint of their own.
+  const reportable: ReportRow[] = data.categories
+    .flatMap((c) => c.capabilities)
+    .filter((c) => c.enabled && c.metrics.length > 0 && c.spec_keys.length > 0)
+    .flatMap((cap) => cap.spec_keys.map((key) => ({ cap, key, multi: cap.spec_keys.length > 1 })));
   if (reportable.length === 0) {
     return (
       <EmptyState
@@ -63,20 +83,20 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
     );
   }
 
-  const current = reportable.find((c) => selected?.botId === bot.id && reportKey(c) === selected.key) ?? reportable[0];
+  const current = reportable.find((r) => selected?.botId === bot.id && r.key === selected.key) ?? reportable[0];
 
   return (
     <div className="flex flex-col gap-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start md:gap-6">
       <nav aria-label="قابلیت‌های دارای گزارش">
         <ul className="flex flex-wrap gap-2 md:flex-col md:gap-1">
-          {reportable.map((c) => {
-            const active = c.id === current.id;
+          {reportable.map((r) => {
+            const active = r.key === current.key;
             return (
-              <li key={c.id}>
+              <li key={`${r.cap.id}:${r.key}`}>
                 <button
                   type="button"
                   aria-current={active ? "true" : undefined}
-                  onClick={() => setSelected({ botId: bot.id, key: reportKey(c) })}
+                  onClick={() => setSelected({ botId: bot.id, key: r.key })}
                   className={cn(
                     "w-full rounded-md border px-3 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
                     active
@@ -84,7 +104,7 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
                       : "bg-card text-muted-foreground hover:text-foreground",
                   )}
                 >
-                  {c.name}
+                  <RowLabel row={r} />
                 </button>
               </li>
             );
@@ -93,10 +113,12 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
       </nav>
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">{current.name}</h2>
+          <h2 className="text-base font-semibold">
+            <RowLabel row={current} />
+          </h2>
           <PeriodSelect value={period} onChange={setPeriod} />
         </div>
-        <ReportBody botId={bot.id} capKey={reportKey(current)} period={period} />
+        <ReportBody botId={bot.id} capKey={current.key} period={period} />
       </div>
     </div>
   );
