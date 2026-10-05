@@ -67,7 +67,7 @@ def test_reminder_text_is_jalali_in_bot_timezone_with_location() -> None:
 
 
 def test_generators_are_discovered() -> None:
-    assert [g.name for g in discover()] == ["announcements", "reminders"]
+    assert [g.name for g in discover()] == ["announcements", "reminders", "scheduled_reports"]
 
 
 class FakeClock:

@@ -7,6 +7,8 @@ Inputs are only the event (including ``event.now``), the spec and the store. Rou
   text, session              engine.on_text of the session's capability (gone -> drop session, menu)
   callback menu:home         main menu (clears any session)
   callback menu:open:<item>  engine.open(cap, item.view) (clears any session)
+  callback menu:open:_mgr    manager panel; menu:open:_rep.<all|cap key> a report (managers only,
+                             ``runtime/manager.py``; anyone else gets the stale reply)
   callback <cap>:own:<r.k>   staff/managers -> engine.owner_action(record_id, k)
   callback <cap>:<act>:<arg> engine.on_callback; a non-form action (not ans/skip/stop) first
                              clears the actor's session, so a form abandoned by navigating away
@@ -40,6 +42,7 @@ from typing import Literal
 
 from app.botspec.models import AnyCapability, BotSpec
 from app.roles import TEAM_ROLES, can_run_owner_actions
+from app.runtime import manager
 from app.runtime.callbacks import (
     ACT_CANCEL,
     ACT_HOME,
@@ -153,6 +156,9 @@ class BotRuntime:
         await ctx.clear_session()
         if action == ACT_HOME:
             ctx.show_menu()
+            return
+        if action == ACT_OPEN and manager.is_manager_item(arg):  # pseudo items; spec keys never start with _
+            await manager.open_item(ctx, arg)
             return
         item = next((m for m in ctx.spec.menu if m.key == arg), None) if action == ACT_OPEN else None
         cap = ctx.spec.capability(item.capability) if item is not None else None
