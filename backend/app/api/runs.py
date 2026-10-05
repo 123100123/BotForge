@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import Limits, get_agent_settings
 from app.agent.events import EventEnvelope
-from app.agent.llm import AnthropicLLM
+from app.agent.llm import make_llm
 from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.repository import ActiveRunExists, RepositoryError, RunRecord, SqlAgentRepository
 from app.agent.state import TERMINAL_STATUSES
@@ -98,7 +98,7 @@ def get_orchestrator() -> Orchestrator:
     global _orchestrator
     if _orchestrator is None:
         _orchestrator = Orchestrator(
-            SqlAgentRepository(get_sessionmaker()), AnthropicLLM(), limits=Limits.from_settings()
+            SqlAgentRepository(get_sessionmaker()), make_llm(), limits=Limits.from_settings()
         )
     return _orchestrator
 

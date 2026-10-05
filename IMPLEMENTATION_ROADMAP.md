@@ -1190,6 +1190,8 @@ class LLMClient(Protocol):
 
 A `FakeLLM` implementing this protocol with scripted responses is used in all automated tests.
 
+`ClaudeCodeLLM` (`backend/app/agent/llm_claude_code.py`, `LLM_PROVIDER=claude_cli`) implements the same protocol over headless Claude Code with the developer's login, for local development and live evals; `make_llm()` picks the provider. See the README section "Running the agent against headless Claude Code".
+
 | Task | Uses LLM | Tier |
 |---|---|---|
 | Intent triage of an owner message | yes | fast |
@@ -1571,6 +1573,7 @@ Not part of the hackathon build.
 | 2026-10-04 | A modification with no valid new acceptance scenario cannot be approved; compatibility errors are fed back into the build loop for at most three rounds sharing one tool-call budget | An untested change is unproven (WP7) | Active |
 | 2026-10-04 | Risk rule as implemented: high = any compatibility warning; medium = an element added to or removed from a keyed list (text overrides excepted) or a whole element replaced; low = everything else | Deterministic and explainable (WP7) | Active |
 | 2026-10-04 | `tests_generated` events carry an extra `notes` list (dropped or corrected scenarios) | Makes test-authoring problems visible to the owner (WP6) | Active |
+| 2026-10-05 | Second LLM provider for development: `ClaudeCodeLLM` (`LLM_PROVIDER=claude_cli`) runs the model through headless Claude Code (`claude-agent-sdk`, dependency group `headless`, not a runtime dependency) on the developer's Claude Code login; one isolated CLI session per call, both tiers on `CLAUDE_CLI_MODEL` (default `claude-opus-5-5`) at `CLAUDE_CLI_EFFORT` (default `medium`); costs reported are notional API costs. Production keeps `AnthropicLLM`; tests keep `FakeLLM` | Owner's decision: no paid API spend during development and live evals | Active |
 
 ---
 
@@ -1584,3 +1587,4 @@ Not part of the hackathon build.
 | 2026-10-04 | Security review of WP5 (Telegram integration): request bodies capped before authentication, SQL bound parameters hidden from error text, single-use owner link re-issued by connect, owner flag decided under the bot's lock, simulator text/data bounded by Telegram's limits, ASCII-only token format. |
 | 2026-10-04 | WP5, WP6, WP7, WP8, WP10 integrated on `feat/botforge-v1` (3dd61f7): 1023 backend tests pass with the database tests running; golden workshop spec 20 scenarios, repair spec 9. **Not yet proven:** nothing has run against the real LLM (Gates C and D need an API key) or real Telegram (Gate B needs a deployment). Remaining work: verification findings, frontend/backend contract gaps, WP11 deployment, live evaluation. |
 | 2026-10-05 | Batch-2 verification fixes (build agent, platform, frontend) and WP11 (Dockerfile, Render blueprint, dev database, demo seed, local smoke test, README) merged. Repository published to GitHub as `main`, made Linux-ready (`.gitattributes`, Linux setup notes), and given a "Current Status" handoff section at the top of this document. |
+| 2026-10-05 | Added `ClaudeCodeLLM` (headless Claude Code provider, `LLM_PROVIDER=claude_cli`, dependency group `headless`), `make_llm()`, and `--provider` on `scripts/eval_golden.py`, so live evals run on the Claude Code login instead of a paid API key. |

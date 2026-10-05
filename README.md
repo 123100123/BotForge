@@ -86,6 +86,22 @@ $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. With
 `SUPABASE_JWKS_URL` unset the backend verifies HS256 tokens signed with `SUPABASE_JWT_SECRET`.
 
+### Running the agent against headless Claude Code
+
+For local development and live evals the agent can run on your Claude Code login instead of a paid
+API key (production keeps the API provider):
+
+```bash
+uv sync --group headless          # claude-agent-sdk, with a bundled Claude Code CLI
+# be logged in to Claude Code (run `claude` once and sign in)
+export LLM_PROVIDER=claude_cli    # or put it in backend/.env; needs no ANTHROPIC_API_KEY
+uv run python scripts/eval_golden.py --create --provider claude_cli
+```
+
+Each model call is an isolated headless session (`CLAUDE_CLI_MODEL`, default `claude-opus-5-5`, at
+`CLAUDE_CLI_EFFORT`, default `medium`); `CLAUDE_CLI_PATH` points at another CLI binary if needed.
+Reported costs are the notional API cost of the same tokens.
+
 ### Run the API
 
 ```powershell

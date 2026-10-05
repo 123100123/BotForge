@@ -8,6 +8,9 @@ and semantically valid BotSpec came back, and the token counts and cost:
   tool         a non-strict set_spec tool; the spec is the tool input
   tool_strict  the same tool with strict: true (may be rejected for schema complexity)
 
+It tests API-specific features (output_config.format, strict tools) and is not run on the claude_cli
+provider: it always calls the API directly.
+
 Usage (from backend/, needs ANTHROPIC_API_KEY; costs real money, roughly a few cents per mode):
     uv run python scripts/spike_structured_output.py [--modes structured,tool,tool_strict] [--model ...]
 """
