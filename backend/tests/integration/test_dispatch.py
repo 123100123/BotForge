@@ -290,3 +290,13 @@ async def test_skipping_a_non_numeric_actor_does_not_clear_or_set_the_last_error
     async with session_factory() as session:
         row = await session.get(Bot, bot.id)
         assert row is not None and row.tg_last_error == "sendMessage: Forbidden: bot was blocked by the user"
+
+
+async def test_live_delivery_skips_persian_digit_ids(
+    session_factory: SessionFactory, bot: LiveBot, spec: BotSpec, fake_tg: FakeTelegramClient
+) -> None:
+    response = await run(session_factory, bot, spec, event(bot, "live", "۱۲۳", "start"), fake_tg)
+    assert response.messages and fake_tg.calls_to("sendMessage") == []
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error is None

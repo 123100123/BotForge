@@ -46,7 +46,7 @@ log = logging.getLogger(__name__)
 
 SANDBOX_OWNER = "owner"
 MAX_ERROR_CHARS = 500
-_CHAT_ID = re.compile(r"-?\d+")  # a Telegram chat id; groups and channels are negative
+_CHAT_ID = re.compile(r"-?[0-9]+")  # a Telegram chat id (ASCII digits: \d also matches Persian ones)
 
 
 async def dispatch(
