@@ -41,6 +41,13 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 - **Gate A:** passed earlier.
 - **Gate C passed on headless Claude:** `eval_golden.py --create --provider claude_cli --runs 3` passed 3/3. Each run produced 10 derived and 5 acceptance scenarios, all green, with 2 tool calls. Notional API cost was about $0.17 per run, and a run takes about 1 minute.
 - **Gate D, automated part, passed on headless Claude:** `--modify --runs 3` passed 3/3, with both golden modifications in each run. It averaged 7 tool calls and a notional $0.19 per run. The manual Telegram half of Gate D is still open.
+- **Self-hosting stack** (`deploy/`): Docker Compose with Caddy, frontend, backend and Postgres on one hostname; nightly `backup.sh` with a tested `restore.sh`; restricted-network support (outbound proxy, package mirrors, `ANTHROPIC_BASE_URL`); `reregister_webhooks.py` for hostname changes. The images build on this machine, and the stack ran end to end at `https://localhost`.
+- **Own authentication** replaced Supabase. A security verifier confirmed it, with 0 refuted items. It has:
+  - argon2id password hashing;
+  - server-side `auth_sessions` and the `bf_session` cookie, with a 30-day absolute session limit;
+  - the CSRF header and Origin check, and rate limits that use the real client IP behind Caddy;
+  - API docs off by default.
+- **Production bug fixed:** the backend image crashed on start because `httpx` was only a dev dependency.
 - **Telegram polling mode** (`TELEGRAM_MODE=polling`): updates fetched with `getUpdates` (outbound only) through the webhook's own `process_update`, offset in `bots.tg_poll_offset` (migration 0004). The local Docker override uses it, so the local rehearsal needs no tunnel. See Telegram Integration.
 - **Backend suite:** 1251 passed, 0 skipped, ruff clean (`uv sync --group dbtest --group headless && uv run pytest -q`).
 - **Frontend:** `npm ci`, lint and build (mock mode) pass on Linux.
@@ -49,12 +56,13 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 
 - **Anthropic API path:** the agent has never run against the real API. Headless runs do not prove `output_config.format` acceptance of the BotSpec schema (O5), prompt caching, `fallbacks`, or real cost. This is the pre-deploy API check (see Milestone Gates).
 - **The Iranian LLM mirror is unknown and untested;** it may not support structured output, adaptive thinking or effort, or the server-side fallback beta.
-- **No real Telegram and no deployment.** The webhook path and the poller are tested only with `FakeTelegramClient` (and the real client over a stub transport). Polling has not yet run against real Telegram through the proxy. The Docker image has never been built.
-- **The frontend has never talked to the real backend.**
+- **No real Telegram and no VPS deployment.** The webhook path and the poller are tested only with `FakeTelegramClient` (and the real client over a stub transport). Polling has not yet run against real Telegram through the proxy; the local rehearsal's Stage 3 is the first real test. The images build and run locally; the VPS path (Let's Encrypt from Iran, registry mirror) is untested.
+- **The frontend has not yet been driven in a browser against the real backend.** Through Caddy, the real login page and the auth API were checked with curl only. The rehearsal's Stage 2 covers it.
 - **Owner-link race safety** relies on Postgres READ COMMITTED re-checking a single `UPDATE ... WHERE` after a concurrent commit. Tests cover it; a human security review is still worthwhile.
 
 ### Open work, in order
 
+0. **Local rehearsal** ([deploy/LOCAL-REHEARSAL.md](deploy/LOCAL-REHEARSAL.md)): the stack is up at `https://localhost` with polling and headless Claude, and no account exists yet. The owner runs Stage 2 (golden path in the browser) and Stage 3 (real Telegram on two phones); then Stage 4 (backup and restore, restart during a run, down and up).
 1. **Push** `main` to GitHub, after the owner has looked at the changes.
 2. **Follow-ups found this session** (small; none blocks the demo):
    - **Stream race:** `Orchestrator._save` commits a terminal status before it appends the `run_status` event, so a stream can close just before that event. The frontend also polls `GET /runs/{id}`, so the UI still settles.
@@ -79,9 +87,9 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 
 ### Needs the owner
 
-- SSH access to the VPS and its public IP. Later, a domain name.
-- Two BotFather bot tokens.
-- An Anthropic API key with billing, needed only for the pre-deploy API check and the deployed app.
+- SSH access to the VPS, its public IP, OS and RAM. Later, a domain name.
+- Which Iranian LLM mirror the deployed app will use, and whether it offers an Anthropic-compatible API. If it is only OpenAI-compatible, a new provider is needed. Its key replaces a direct Anthropic API key.
+- Two BotFather bot tokens (the owner has them).
 - Answers from the organizers on O1 (deadline, video rules) and O2 (whether the "agent builders" rule restricts only build tooling).
 
 ### Setting up a new machine
@@ -93,7 +101,7 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 2. **Frontend:** Node 20.9 or newer, then `cd frontend && npm ci && npm run build`.
 3. **Headless LLM:** log in to Claude Code once. The `claude-agent-sdk` package (group `headless`) bundles the CLI, so `claude` does not need to be on PATH. Set `LLM_PROVIDER=claude_cli` for local runs and evals.
 4. **Agent orchestration:** in Claude Code, ask it to install conductor by following `conductor/install/AGENT-INSTALL.md`, then restart Claude Code. It installs globally under `~/.claude/`, and needs Python 3.9 or newer and Claude Code 2.1.284 or newer. On this machine the main model is `opus`; Fable 5.1 (`/model best`) is only for highly sensitive jobs.
-5. **Local stack:** follow the README "Local setup" section.
+5. **Local stack:** follow the README "Local setup" section for a native run. For the production-parity Docker stack, follow `deploy/LOCAL-REHEARSAL.md`. On a restricted network, Docker Hub images come through `docker.arvancloud.ir`, pulled and re-tagged or set as a daemon registry mirror. Containers reach the host proxy through `host.docker.internal:10808`.
 
 ---
 
