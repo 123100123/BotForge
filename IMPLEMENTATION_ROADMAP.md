@@ -77,7 +77,7 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
    - Then run `scripts/eval_golden.py --create --runs 3`, which is **Gate C**.
    - Then run `scripts/eval_golden.py --modify --runs 3`. Together with a manual check on real Telegram this is **Gate D**.
    - Fix the prompts until both pass.
-4. **Deploy** (needs the owner's VPS and Supabase project):
+4. **Deploy** (needs the owner's VPS):
    - Provision the VPS: install Docker, open only ports 22, 80 and 443 in the firewall, and use SSH keys.
    - Copy `deploy/.env.example` to `deploy/.env` and fill it in, then run `docker compose up -d --build`.
    - Register two BotFather bots.
@@ -90,7 +90,6 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
 
 - An Anthropic API key with billing.
 - SSH access to the VPS and its public IP.
-- A Supabase project for Auth.
 - Later, a domain name.
 - Two BotFather bot tokens.
 - Answers from the organizers on O1 (deadline, video rules) and O2 (whether the "agent builders" rule restricts only build tooling).
@@ -229,7 +228,7 @@ The video shows one scenario done well, then one short second scenario.
 | K11 | The agent may supersede an old test only if it covers a requirement the current change touches | The agent cannot delete tests to get a green run. |
 | K12 | Capacity is `fixed` (in spec) or `per_item` (resource field) | Makes "change capacity" a real behavior change when the owner states a uniform capacity. |
 | K13 | Web data admin plus owner alerts in Telegram | The owner must be able to add items; alerts with inline actions make approval flows feel alive for little cost. |
-| K14 | Supabase Auth; Postgres, backend and frontend self-hosted on one VPS with Docker Compose (see Decision Log 2026-10-05); one backend process | Least infrastructure that satisfies "usable online with login"; one always-on server the owner controls. |
+| K14 | Own authentication in the backend (Supabase removed, Decision Log 2026-10-05); Postgres, backend and frontend self-hosted on one VPS with Docker Compose (see Decision Log 2026-10-05); one backend process | Least infrastructure that satisfies "usable online with login"; one always-on server the owner controls. |
 | K15 | Direct Telegram Bot API through httpx; no bot framework | We need six API methods and multi-bot webhook routing; a framework adds surface without benefit. |
 | K16 | Anthropic API behind a thin `LLMClient` | Strong structured output and tool use; the interface keeps the provider swappable. |
 | K17 | Persian only, RTL only | One language done properly beats two done halfway. |
@@ -287,7 +286,7 @@ When the owner asks for one of these, the agent records it under `Requirements.u
 flowchart LR
     Owner([Business owner]) --> FE[Next.js web app<br>RTL, Persian]
     TGUser([Telegram user]) --> TG[Telegram]
-    FE -->|REST + SSE, Supabase JWT| API[FastAPI backend]
+    FE -->|REST + SSE, session cookie| API[FastAPI backend]
     TG -->|webhook /tg/bot_id| API
     subgraph Backend[One FastAPI process]
         API --> AG[Agent orchestrator]
@@ -306,7 +305,6 @@ flowchart LR
     LLM --> ANT[(Anthropic API)]
     PG --> DB[(Postgres on the VPS)]
     AG --> DB
-    FE --> AUTH[(Supabase Auth)]
     TGA --> TG
 ```
 
@@ -328,7 +326,7 @@ flowchart LR
 
 The hostname is a free sslip.io name derived from the server IP (for example `203-0-113-7.sslip.io`) until a real domain exists. A hostname change means: update `SITE_HOST` and `PUBLIC_BASE_URL`, restart, then run `backend/scripts/reregister_webhooks.py` once. That script re-points every connected bot's Telegram webhook at the new base URL and keeps each bot's secret and owner link.
 
-Login stays on Supabase Auth (the frontend auth pages and the backend JWKS check depend on it). The Supabase free tier pauses after inactivity, which would take login down, so open the project before the demo and before judging. The deployed LLM uses the Anthropic API (`LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`). Headless Claude stays a development and eval tool; serving other users from a personal subscription login is not its purpose.
+Authentication is the backend's own (see Security); no external auth service is involved. The deployed LLM uses the Anthropic API (`LLM_PROVIDER=anthropic`, `ANTHROPIC_API_KEY`). Headless Claude stays a development and eval tool; serving other users from a personal subscription login is not its purpose.
 
 Backups: a nightly `pg_dump` of the database to the server disk with retention; restore steps are documented in `deploy/`. Render (`render.yaml`) and Vercel remain a documented fallback, not the primary path.
 
@@ -1064,11 +1062,11 @@ Location: `backend/app/integrations/telegram/`.
 
 ## Frontend
 
-Location: `frontend/`. Next.js App Router, TypeScript, Tailwind, shadcn/ui. `<html lang="fa" dir="rtl">`, Vazirmatn font, Persian digits in displayed numbers. All data access goes through a typed client in `frontend/lib/api.ts` against the FastAPI backend; the frontend talks to Supabase only for auth.
+Location: `frontend/`. Next.js App Router, TypeScript, Tailwind, shadcn/ui. `<html lang="fa" dir="rtl">`, Vazirmatn font, Persian digits in displayed numbers. All data access goes through a typed client in `frontend/lib/api.ts` against the FastAPI backend; the frontend talks only to the backend, including for login, signup and logout; the Supabase JS client is removed. Mock mode is driven only by `NEXT_PUBLIC_MOCK=1`.
 
 | Route | Content |
 |---|---|
-| `/login`, `/signup` | Email and password through Supabase Auth |
+| `/login`, `/signup` | Email and password through the backend's `/auth/login` and `/auth/signup` |
 | `/bots` | List of the owner's bots with status; "new bot" dialog (name) |
 | `/bots/[id]` | Workspace: header (name, status chip, Telegram username, active revision number) and tabs |
 
@@ -1104,11 +1102,12 @@ Kept, and MUST HAVE: without it the owner cannot add items for the bot to show.
 
 ## Backend API
 
-All routes except the webhook and health check require `Authorization: Bearer <Supabase JWT>`. Every `/bots/{id}` route checks `bots.owner_id == user.id`.
+All routes except the webhook, the health check, `POST /auth/signup` and `POST /auth/login` require the `bf_session` cookie. Every state-changing request that uses cookie auth must carry the header `X-BotForge-CSRF: 1`, and a cross-origin `Origin` header is rejected. Every `/bots/{id}` route checks `bots.owner_id == user.id`.
 
 | Group | Endpoints |
 |---|---|
 | Health | `GET /healthz` |
+| Auth | `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout` |
 | Me | `GET /me` |
 | Bots | `GET /bots`, `POST /bots`, `GET /bots/{id}`, `PATCH /bots/{id}`, `DELETE /bots/{id}` |
 | Agent runs | `POST /bots/{id}/runs` `{message}` (triage decides create/modify/reply), `GET /bots/{id}/runs`, `GET /runs/{run_id}`, `POST /runs/{run_id}/messages` `{message}`, `POST /runs/{run_id}/approve`, `POST /runs/{run_id}/reject`, `GET /runs/{run_id}/events` (SSE, `Last-Event-ID` supported) |
@@ -1141,11 +1140,13 @@ Errors use `{"error": {"code", "message"}}` with Persian `message` for anything 
 
 ## Database Schema
 
-Postgres schema `app` (not exposed through Supabase's REST API). UUID primary keys unless noted. Migrations with Alembic.
+Postgres schema `app` (Postgres on the VPS is not published to the internet). UUID primary keys unless noted. Migrations with Alembic.
 
 | Table | Columns | Notes |
 |---|---|---|
-| `bots` | `id`, `owner_id` (Supabase user id), `name`, `status` (`draft`/`live`/`paused`), `active_revision_id` null, `tg_bot_id` null unique, `tg_username`, `tg_token_enc`, `tg_webhook_secret`, `owner_link_code`, `owner_actor_id` null (the owner's Telegram user id), `created_at` | Index `(owner_id)` |
+| `users` | `id`, `email` unique (lower-cased), `password_hash` (argon2id), `created_at` | Index on `email` |
+| `auth_sessions` | `id`, `user_id`, `token_hash` unique (only a hash of the token is stored), `created_at`, `expires_at` | Index `(user_id)`. Login sessions, not to be confused with the bot conversation `sessions` table below |
+| `bots` | `id`, `owner_id` (`users.id`), `name`, `status` (`draft`/`live`/`paused`), `active_revision_id` null, `tg_bot_id` null unique, `tg_username`, `tg_token_enc`, `tg_webhook_secret`, `owner_link_code`, `owner_actor_id` null (the owner's Telegram user id), `created_at` | Index `(owner_id)` |
 | `revisions` | `id`, `bot_id`, `number` (per bot), `parent_id` null, `status` (`draft`/`active`/`superseded`/`rejected`), `spec` jsonb, `requirements` jsonb, `patch` jsonb, `change_request` text, `scenarios` jsonb, `superseded` jsonb, `test_report` jsonb, `sample_data` jsonb, `created_at`, `activated_at` | Unique `(bot_id, number)` |
 | `records` | `id` bigserial, `bot_id`, `env` (`live`/`sandbox`), `collection`, `data` jsonb, `status`, `actor_id`, `item_id` bigint, `created_at`, `updated_at` | Indexes `(bot_id, env, collection)`, `(bot_id, env, collection, item_id, status)`, `(bot_id, env, collection, actor_id)` |
 | `sessions` | `bot_id`, `env`, `actor_id`, `state` jsonb, `updated_at` | PK `(bot_id, env, actor_id)` |
@@ -1156,7 +1157,7 @@ Postgres schema `app` (not exposed through Supabase's REST API). UUID primary ke
 
 Isolation: every runtime query is filtered by `bot_id` and `env` inside `PgStore`; nothing outside `PgStore` queries `records` or `sessions` except the data admin, which goes through the same class. Deleting a bot cascades.
 
-Users live in Supabase's `auth` schema; we store only the user id.
+Users and login sessions live in `users` and `auth_sessions`; there is no external auth service.
 
 ---
 
@@ -1174,7 +1175,8 @@ The backend runs as one process with one worker. Do not scale it horizontally in
 
 Appropriate for a public hackathon demo; not enterprise IAM. Security-sensitive pieces are implemented by the `security-executor` role.
 
-- **Auth:** Supabase JWT verified on every request (signature, expiry, audience). User id from `sub`.
+- **Auth:** the backend's own. Email and password accounts in `users`, passwords hashed with argon2id. Server-side sessions in `auth_sessions` store only a hash of each token; the browser carries the session in the cookie `bf_session` (HttpOnly, Secure, SameSite=Lax, Path=/), and logout deletes the session. Endpoints: `POST /auth/signup`, `POST /auth/login`, `POST /auth/logout`, `GET /me`. Settings: `AUTH_COOKIE_SECURE` (default true), `AUTH_ALLOW_SIGNUP` (default true), `AUTH_SESSION_TTL_HOURS` (default 168). Login is rate-limited and failures return a generic `invalid_credentials`. There is no email verification and no password reset by email; `backend/scripts/create_user.py` creates users and resets passwords from the command line.
+- **CSRF:** every state-changing request with cookie auth must carry the header `X-BotForge-CSRF: 1`, and a cross-origin `Origin` header is rejected. This works because the frontend and backend share one origin behind Caddy.
 - **Ownership:** a single dependency loads a bot and checks `owner_id`; run and revision routes resolve their bot and apply the same check.
 - **Bot isolation:** `PgStore` is constructed with a bot id and env and adds them to every query.
 - **Telegram tokens:** Fernet-encrypted at rest; decrypted only inside the Telegram client; never returned by the API (only the username), never logged, never placed in LLM input.
@@ -1182,7 +1184,7 @@ Appropriate for a public hackathon demo; not enterprise IAM. Security-sensitive 
 - **Spec safety:** the spec is data. Text overrides use literal placeholder replacement from a whitelist; no `format`, `eval`, or template engine. All bot text is HTML-escaped before sending.
 - **LLM boundary:** prompts contain owner chat, requirements, the spec, and synthetic test output. They never contain tokens, live records, or bot-user messages. LLM tools cannot reach the database, other bots, or the network.
 - **Abuse limits:** per-account daily run cap; per-run token budget; request body size limits; basic rate limit on run creation.
-- **Supabase exposure:** app tables live in schema `app`, which is not in the exposed schemas; the backend connects with the database password, and the service role key is not used by the frontend.
+- **Database exposure:** app tables live in schema `app`; Postgres is reachable only from the backend container. Supabase and its service role key are removed.
 - **Secrets:** environment variables only; `.env` git-ignored; `.env.example` lists names without values. Logs redact anything matching a Telegram token pattern.
 - **CORS:** not needed for the main site, which is served from one origin; the backend still allows only the configured frontend origin.
 - **Server:** only ports 22, 80 and 443 are open; Postgres is not published to the internet; SSH uses key login only.
@@ -1235,7 +1237,7 @@ A `FakeLLM` implementing this protocol with scripted responses is used in all au
 ## Cost Strategy
 
 - Runtime: zero LLM calls. A Telegram interaction costs a few database queries.
-- Infrastructure: one rented VPS running Docker Compose (reverse proxy, frontend, one backend instance, Postgres), plus Supabase Auth on its free tier. No queue, cache, vector store, or per-bot compute.
+- Infrastructure: one rented VPS running Docker Compose (reverse proxy, frontend, one backend instance, Postgres). No external services except the LLM provider and Telegram. No queue, cache, vector store, or per-bot compute.
 - Build time: one strong model, cached system prompt, bounded loops, compact tool results. Expected cost is tens of cents per create run and less per modify run; this is an estimate to be replaced by the Day 2 spike measurement.
 - Tests run in memory in milliseconds, so the repair loop's cost is tokens only.
 
@@ -1291,7 +1293,7 @@ backend/
 frontend/
   app/                         # (auth)/login (auth)/signup bots/ bots/[id]/
   components/                  # agent/ simulator/ tests/ data/ versions/ settings/ ui/
-  lib/                         # api.ts sse.ts supabase.ts format.ts types.ts
+  lib/                         # api.ts sse.ts format.ts types.ts
   Dockerfile                   # Next.js standalone build
 deploy/                        # docker-compose.yml Caddyfile .env.example backup script
 examples/
@@ -1392,12 +1394,12 @@ Roles are the conductor roles installed in `~/.claude/agents/`. Verification com
 | **WP1** | `BotRuntime` (routing for start, text, callback, admin), `Ctx`, `MemoryStore`, formatting, lazy engine registry, `info` and `catalog` engines with their default texts, menu routing, a reusable Store-protocol test suite (`tests/unit/runtime/store_contract.py`) | `senior-executor` | `backend/app/runtime/` (except frozen contract files and `pg_store.py`), `backend/tests/unit/runtime/` | WP0 | `/start` → menu; info and catalog navigable through events; `MemoryStore` passes the Store-protocol suite | `pytest tests/unit/runtime -q` |
 | **WP2** | `booking` engine with all semantics in [Capability Catalog](#capability-catalog), including the admin `cancel` action | `senior-executor` | `backend/app/runtime/engines/booking.py`, `backend/app/runtime/texts/booking.py`, `backend/tests/unit/runtime/test_booking*.py` | WP1 | Every booking rule covered by unit tests at the event level | `pytest tests/unit/runtime -q` |
 | **WP3** | Scenario runner, drivers, derived templates, report narratives | `executor` | `backend/app/testing/`, `backend/tests/unit/testing/`, `backend/tests/golden/` | WP0, WP1, WP2 | Golden scenarios pass on the golden spec; a deliberately wrong spec fails the right scenario | `pytest tests/unit/testing tests/golden -q` |
-| **WP4** | FastAPI app (auto-including routers), config, SQLAlchemy models, first migration, `PgStore`, JWT auth dependency, ownership dependency, bots endpoints, resource-record CRUD endpoints, revisions service (`create_draft`, `activate` with stale-base and failing-test checks), `scripts/load_spec.py` (load a spec file as an active revision) | `executor`; `security-executor` for `security/` and `api/deps.py` | `backend/app/{main,config}.py`, `backend/app/db/`, `backend/app/api/{deps,bots,data}.py`, `backend/app/security/`, `backend/app/runtime/pg_store.py`, `backend/app/revisions/`, `backend/alembic*`, `backend/scripts/load_spec.py`, `backend/tests/integration/` | WP0 | App boots; CRUD on bots and resource records with ownership enforced; `PgStore` implements the Store protocol and passes the Store-protocol suite once WP1's suite is merged and `TEST_DATABASE_URL` is set; activation rules covered by tests | `pytest tests/integration -q` |
+| **WP4** | FastAPI app (auto-including routers), config, SQLAlchemy models, first migration, `PgStore`, own authentication (`users` and `auth_sessions` tables, argon2id, `bf_session` cookie, CSRF header, `api/auth.py`, `scripts/create_user.py`), session auth dependency, ownership dependency, bots endpoints, resource-record CRUD endpoints, revisions service (`create_draft`, `activate` with stale-base and failing-test checks), `scripts/load_spec.py` (load a spec file as an active revision) | `executor`; `security-executor` for `security/` and `api/deps.py` | `backend/app/{main,config}.py`, `backend/app/db/`, `backend/app/api/{deps,auth,bots,data}.py`, `backend/app/security/`, `backend/scripts/create_user.py`, `backend/app/runtime/pg_store.py`, `backend/app/revisions/`, `backend/alembic*`, `backend/scripts/load_spec.py`, `backend/tests/integration/` | WP0 | App boots; CRUD on bots and resource records with ownership enforced; `PgStore` implements the Store protocol and passes the Store-protocol suite once WP1's suite is merged and `TEST_DATABASE_URL` is set; activation rules covered by tests | `pytest tests/integration -q` |
 | **WP5** | Telegram client, onboarding, webhook route, update conversion; dispatch service; simulator service and endpoints; data-admin action endpoint; golden two-store test | `executor`; `security-executor` for token crypto and webhook verification | `backend/app/integrations/telegram/`, `backend/app/services/`, `backend/app/simulator/`, `backend/app/api/{telegram,webhook,simulator,data_actions}.py`, tests | WP1, WP2, WP3, WP4 | Fake-client tests for the webhook flow; simulator endpoint drives the runtime; admin cancel promotes and notifies; golden scenarios pass on `PgStore` | `pytest tests/integration -q` |
 | **WP6** | `LLMClient` (Anthropic + Fake), orchestrator, events, phases for CREATE, tools, prompts and catalog, unsupported-request handling, sample-data generation, runs API and SSE with the daily run cap and rate limit, spike and eval scripts | `senior-executor` | `backend/app/agent/`, `backend/app/api/runs.py`, `backend/scripts/{spike_structured_output,eval_golden}.py`, `backend/tests/unit/agent/` | Gate A, WP4 | Scripted `FakeLLM` run goes from message to an activated revision; live eval script passes the golden prompt | `pytest tests/unit/agent -q`; `python scripts/eval_golden.py --create` |
 | **WP7** | Intent triage, MODIFY phases, modify tool set (no `set_spec`, `supersede_scenario` with guard, `fix_scenario` restriction), review card data, rollback, revisions API, `eval_golden.py --modify` | `senior-executor` | `backend/app/agent/`, `backend/app/revisions/`, `backend/app/api/revisions.py`, `backend/scripts/eval_golden.py`, tests | Gate C | Scripted modify runs for both golden changes; guard refuses an unrelated supersede; carried scenarios cannot be edited; stale base refused; rollback works | `pytest tests/unit/agent -q`; `python scripts/eval_golden.py --modify` |
 | **WP8** | `request` engine with inline owner actions, its default texts, its driver and derived templates, repair example verified | `executor` | `backend/app/runtime/engines/request.py`, `backend/app/runtime/texts/request.py`, request parts of `backend/app/testing/{drivers,derive}.py` (after WP3 is merged), tests | WP1, WP3 | Repair example passes derived scenarios; owner action from Telegram and admin share one path | `pytest tests/unit -q` |
-| **WP9** | Next.js scaffold, RTL layout, Supabase auth pages, API client, SSE reader, bots list, workspace shell, Agent tab | `executor` | `frontend/` | WP0 (types); mock data until WP6 | Login works; Agent tab renders a recorded event stream | `npm run build` and `npm run lint` in `frontend/` |
+| **WP9** | Next.js scaffold, RTL layout, login and signup pages against the backend's auth endpoints, API client, SSE reader, bots list, workspace shell, Agent tab | `executor` | `frontend/` | WP0 (types); mock data until WP6 | Login works; Agent tab renders a recorded event stream | `npm run build` and `npm run lint` in `frontend/` |
 | **WP10** | Simulator, Tests, Data, Versions, Settings tabs | `executor` | `frontend/` | WP9, backend endpoints | Each tab works against the deployed backend | `npm run build`; manual checklist in [Definition of Done](#definition-of-done) |
 | **WP11** | Dockerfiles, VPS deployment (Docker Compose, Caddy, env wiring, nightly backup), webhook re-registration script, demo seed script, end-to-end golden test, demo checklist; Render and Vercel config kept as the fallback | `executor`; `mech-executor` for docs | `backend/Dockerfile`, `deploy/`, `frontend/Dockerfile`, `backend/scripts/reregister_webhooks.py`, `render.yaml`, `frontend/vercel.json`, `backend/scripts/seed_demo.py`, `README.md` | Gate D | Public deployment on the VPS with HTTPS; seeded demo account; `docker compose up -d --build` brings up all four services; nightly backup and documented restore; hostname change handled by `reregister_webhooks.py` | Gate E checklist; `docker compose config` valid; `reregister_webhooks.py` tested with a fake Telegram client |
 
@@ -1412,7 +1414,7 @@ MUST items and their owners, for the ones that are easy to lose: unsupported-req
 | Day | Date | Work | Completion gate |
 |---|---|---|---|
 | 1 | Oct 3 | Passed (problem selection, planning brief) | — |
-| 2 | Oct 4 | This roadmap. WP0. Accounts and servers: Anthropic key, Supabase project, VPS, two BotFather bots. Spike: Persian prompt → `BotSpec` through structured output, measuring validity and cost. Begin WP1, WP4, WP9. | WP0 tests green. Spike produces a valid spec for the golden prompt (or O5 is decided the other way). |
+| 2 | Oct 4 | This roadmap. WP0. Accounts and servers: Anthropic key, VPS, two BotFather bots. Spike: Persian prompt → `BotSpec` through structured output, measuring validity and cost. Begin WP1, WP4, WP9. | WP0 tests green. Spike produces a valid spec for the golden prompt (or O5 is decided the other way). |
 | 3 | Oct 5 | WP1 → WP2 → WP3 (stream R). WP4 (stream P). WP9 shell (stream F). | **Gate A** |
 | 4 | Oct 6 | WP5 and first deployment. WP6 starts as soon as Gate A is green. | **Gate B**. WP6 scripted `FakeLLM` run green. |
 | 5 | Oct 7 | WP6 live runs. WP7 starts. WP10 starts (Data and Settings first). WP8 if a stream is free. | **Gate C** |
@@ -1480,6 +1482,7 @@ Automated tests never call the real LLM or the real Telegram API.
 | Deployment failure late | Medium | High | First deploy on Day 3; deploy after every gate | Render and Vercel (documented fallback), or the backend on a laptop behind a tunnel for the recording |
 | Solo review bottleneck | High | Medium | Large work packages with executable verification; verifier role; review at gates | Drop SHOULD items early rather than late |
 | Agent run interrupted by a restart | Low | Low | Mark `interrupted`; one-click restart | — |
+| Own authentication has a flaw (sessions, CSRF, password handling) | Low | High | Built and reviewed by `security-executor`; argon2id; token hashes only; CSRF header and Origin check; login rate limit; generic `invalid_credentials` | `AUTH_ALLOW_SIGNUP=false` and users created with `create_user.py` |
 | Rule interpretation (O2) goes against us | Low | High | Ask organizers on Day 2 | Reframe the pitch around "an agent that operates a business's Telegram presence"; the architecture does not change |
 
 ---
@@ -1524,7 +1527,7 @@ Never cut: create → tested bot → live Telegram → natural-language change �
 - [ ] Golden prompt and both modification prompts in `examples/prompts.fa.md`, copied exactly.
 - [ ] `eval_golden.py` passed three times in a row on the day of recording.
 - [ ] Deployment verified from a clean browser profile and a different network.
-- [ ] Supabase project opened (not paused) before the demo and before judging; VPS reachable over HTTPS and the latest nightly backup present.
+- [ ] VPS reachable over HTTPS and the latest nightly backup present.
 - [ ] Provider contingency: recording done early; a successful run's screen capture kept as backup.
 - [ ] Video script with timings; unscripted judge path tested (sign up, odd prompt, unsupported request).
 - [ ] Usage limits set so a judge cannot exhaust the API budget.
@@ -1554,7 +1557,7 @@ Not part of the hackathon build.
 | 2026-10-04 | Judging assumed to be video + live link; optimize one golden path | Owner's answer | Active |
 | 2026-10-04 | Persian only, RTL only | Owner's answer; one language done well | Active |
 | 2026-10-04 | Solo + Claude Code agents; large work packages, review at gates | Owner's answer | Active |
-| 2026-10-04 | International managed hosting (Supabase, Render, Vercel) | No regional constraints stated | Superseded 2026-10-05 (self-hosted VPS); Supabase kept for Auth |
+| 2026-10-04 | International managed hosting (Supabase, Render, Vercel) | No regional constraints stated | Superseded 2026-10-05 (self-hosted VPS; Supabase later removed, see own-authentication entry) |
 | 2026-10-04 | Bounded tool loop inside a fixed phase graph | Autonomy with capped cost | Active |
 | 2026-10-04 | Capability-level BotSpec with engines; no flow graph or compiler (K1) | Largest schedule risk removed | Active |
 | 2026-10-04 | Typed rule parameters; no predicate DSL (K2) | Golden path needs none | Active |
@@ -1578,7 +1581,7 @@ Not part of the hackathon build.
 | 2026-10-04 | Promotion fills every free seat, oldest first, while confirmed < capacity; raising capacity alone promotes nobody until the next cancellation | The engine has no hook on spec changes (WP2) | Active |
 | 2026-10-04 | With `auto_promote` off, a freed seat goes to the next person who books, not to the waitlist | Literal rule order; revisit only if an owner asks (WP2) | Active |
 | 2026-10-04 | Test drivers reach started items through the item's direct callback and cancel through "my reservations" | Scenarios must be able to observe `booking_closed` and `cancel_deadline_passed` (Gate A verification) | Active |
-| 2026-10-04 | Auth: JWKS keys take precedence when both JWT settings are present; anonymous Supabase sessions are rejected; unconfigured auth returns 503 and accepts nothing; 404 is identical for missing and foreign bots | Fail closed; do not leak existence (WP4b) | Active |
+| 2026-10-04 | Auth: JWKS keys take precedence when both JWT settings are present; anonymous Supabase sessions are rejected; unconfigured auth returns 503 and accepts nothing; 404 is identical for missing and foreign bots | Fail closed; do not leak existence (WP4b) | Superseded 2026-10-05 (own auth) |
 | 2026-10-04 | Bot status after activation is `live` only when a Telegram token is connected, otherwise `draft`; the active revision is shown separately | Status describes reachability, not build state (WP4a) | Active |
 | 2026-10-04 | Every API route except `/healthz` and `/tg/{bot_id}` must return 401 without a token; a test enforces the allowlist | New public routes need a deliberate allowlist entry (WP4b) | Active |
 | 2026-10-04 | Request bodies are capped at 1 MiB on every route before authentication (Starlette's `RequestBodyLimitMiddleware`); the webhook keeps its own 1 MiB limit, applied after its secret check | FastAPI parses a body before resolving dependencies, so an anonymous client could make the one process buffer any amount (WP5 security review) | Active |
@@ -1591,6 +1594,7 @@ Not part of the hackathon build.
 | 2026-10-04 | Risk rule as implemented: high = any compatibility warning; medium = an element added to or removed from a keyed list (text overrides excepted) or a whole element replaced; low = everything else | Deterministic and explainable (WP7) | Active |
 | 2026-10-04 | `tests_generated` events carry an extra `notes` list (dropped or corrected scenarios) | Makes test-authoring problems visible to the owner (WP6) | Active |
 | 2026-10-05 | Self-host on one VPS with Docker Compose (Caddy, frontend, backend, Postgres); one hostname with `/api` and `/tg` routed to the backend; sslip.io hostname until a domain exists; Render and Vercel become the fallback | Owner's choice: one always-on server they control, no sleeping free tiers, database on the same machine | Active |
+| 2026-10-05 | Own authentication in the backend (email and password, argon2id, server-side sessions in an HttpOnly cookie, CSRF header); Supabase removed | Owner's decision: no external auth service; everything runs on the one server | Active |
 
 ---
 
@@ -1605,3 +1609,4 @@ Not part of the hackathon build.
 | 2026-10-04 | WP5, WP6, WP7, WP8, WP10 integrated on `feat/botforge-v1` (3dd61f7): 1023 backend tests pass with the database tests running; golden workshop spec 20 scenarios, repair spec 9. **Not yet proven:** nothing has run against the real LLM (Gates C and D need an API key) or real Telegram (Gate B needs a deployment). Remaining work: verification findings, frontend/backend contract gaps, WP11 deployment, live evaluation. |
 | 2026-10-05 | Batch-2 verification fixes (build agent, platform, frontend) and WP11 (Dockerfile, Render blueprint, dev database, demo seed, local smoke test, README) merged. Repository published to GitHub as `main`, made Linux-ready (`.gitattributes`, Linux setup notes), and given a "Current Status" handoff section at the top of this document. |
 | 2026-10-05 | Deployment changed to a self-hosted VPS with Docker Compose (Caddy, frontend, backend, Postgres) with one hostname and nightly `pg_dump` backups; new `deploy/` directory, `frontend/Dockerfile` and `backend/scripts/reregister_webhooks.py`; Render and Vercel kept as a documented fallback; Supabase kept for Auth. Updated K14, O3, System Architecture, Security, Cost Strategy, Repository Structure, WP11, Risk Register, Fallback Plan, Demo Preparation Checklist and Current Status. |
+| 2026-10-05 | Own authentication replaces Supabase Auth: `users` and `auth_sessions` tables, `/auth/*` endpoints, `bf_session` cookie with CSRF header, `backend/scripts/create_user.py`; `scripts/dev_token.py` is replaced by sessions created through the API or `create_user.py`; the frontend's Supabase client is removed. Updated K14, System Architecture, Security, Database Schema, Backend API, Frontend, Cost Strategy, Repository Structure, WP4, WP9, Demo Preparation Checklist and Current Status. |
