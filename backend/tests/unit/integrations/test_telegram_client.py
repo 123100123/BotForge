@@ -73,6 +73,12 @@ async def test_set_webhook_payload() -> None:
     assert stub.requests[0].url.path.endswith("/setWebhook")
 
 
+async def test_set_webhook_can_keep_pending_updates() -> None:
+    stub = Stub(ok())
+    await stub.client().set_webhook("https://h.example/tg/1", "sec", drop_pending_updates=False)
+    assert json.loads(stub.requests[0].content)["drop_pending_updates"] is False
+
+
 async def test_send_message_uses_html_and_inline_keyboard() -> None:
     stub = Stub(ok({"message_id": 9}))
     markup = {"inline_keyboard": [[{"text": "a", "callback_data": "x:y:"}]]}

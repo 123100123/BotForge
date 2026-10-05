@@ -79,6 +79,7 @@ async def test_connect_stores_encrypted_token_and_registers_the_webhook(
     [hook] = fake_tg.calls_to("setWebhook")
     assert hook["url"] == f"https://bots.example.test/tg/{bot_id}"
     assert hook["secret_token"] == row.tg_webhook_secret
+    assert hook["drop_pending_updates"] is True  # a fresh connect must not replay old updates
 
     again = await tg_client.get(f"/bots/{bot_id}/telegram", headers=ALICE)
     assert again.json() == body

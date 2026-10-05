@@ -15,8 +15,9 @@ setWebhook with the new URL and the bot's EXISTING webhook secret. It never writ
 secret, the linked owner or the owner-link code.
 
 One line per bot: the bot id, the new webhook URL, then "ok" or the error. (The previous URL is not
-shown: the Telegram client has no getWebhookInfo.) setWebhook is sent exactly as ``connect`` sends
-it, so updates Telegram still holds for the old address are dropped.
+shown: the Telegram client has no getWebhookInfo.) Unlike ``connect``, setWebhook is sent with
+``drop_pending_updates=False``: updates Telegram queued while the old address was unreachable (customer
+messages sent during the move) are delivered to the new one.
 
 * Success: ``bots.tg_last_error`` is cleared and the status is set the way ``connect`` sets it (a
   paused bot stays paused; otherwise live with an active revision, draft without one).
@@ -251,9 +252,10 @@ async def _move(
 
 
 async def _set_webhook(provider: TelegramProvider, url: str, token: str, secret: str) -> Failure | None:
-    """``setWebhook`` with the bot's existing secret; ``None`` on success."""
+    """``setWebhook`` with the bot's existing secret; ``None`` on success. Pending updates are kept:
+    messages customers sent while the host moved are delivered to the new URL."""
     try:
-        await provider(token).set_webhook(url, secret)
+        await provider(token).set_webhook(url, secret, drop_pending_updates=False)
     except TelegramError as exc:
         error = redact(str(exc))  # "setWebhook: <Telegram's description>"; never holds the token
         if exc.network:

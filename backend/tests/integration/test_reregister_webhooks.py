@@ -172,8 +172,8 @@ class ScriptedFake(FakeTelegramClient):
         self.fail = dict(fail or {})
         self.meanwhile = dict(meanwhile or {})
 
-    async def set_webhook(self, url: str, secret_token: str) -> None:
-        await super().set_webhook(url, secret_token)
+    async def set_webhook(self, url: str, secret_token: str, *, drop_pending_updates: bool = True) -> None:
+        await super().set_webhook(url, secret_token, drop_pending_updates=drop_pending_updates)
         bot_id = uuid.UUID(url.rsplit("/", 1)[-1])
         action, error = self.meanwhile.pop(bot_id, None), self.fail.pop(bot_id, None)
         if action is not None:
@@ -219,8 +219,14 @@ async def test_connected_bots_move_to_the_new_host_with_their_existing_secrets(
 
     # Only the connected bots, each with its own token and its EXISTING secret; nothing else called.
     assert telegram.calls == [
-        ("setWebhook", {"url": f"{NEW_BASE}/tg/{live.id}", "secret_token": live.secret}),
-        ("setWebhook", {"url": f"{NEW_BASE}/tg/{fresh.id}", "secret_token": fresh.secret}),
+        (
+            "setWebhook",
+            {"url": f"{NEW_BASE}/tg/{live.id}", "secret_token": live.secret, "drop_pending_updates": False},
+        ),
+        (
+            "setWebhook",
+            {"url": f"{NEW_BASE}/tg/{fresh.id}", "secret_token": fresh.secret, "drop_pending_updates": False},
+        ),
     ]
     assert telegram.tokens == [live.token, fresh.token]
 
@@ -288,7 +294,14 @@ async def test_bot_id_limits_the_run_to_that_bot(
     telegram = fake()
     assert await rereg(db, telegram, bot_id=chosen.id) == 0
     assert telegram.calls == [
-        ("setWebhook", {"url": f"{NEW_BASE}/tg/{chosen.id}", "secret_token": chosen.secret})
+        (
+            "setWebhook",
+            {
+                "url": f"{NEW_BASE}/tg/{chosen.id}",
+                "secret_token": chosen.secret,
+                "drop_pending_updates": False,
+            },
+        )
     ]
 
     for missing in (gone.id, uuid.uuid4()):  # not connected; does not exist
@@ -350,7 +363,7 @@ async def test_an_unreadable_stored_token_is_reported_without_calling_telegram(
     assert await rereg(db, telegram) == 1
     assert telegram.tokens == [healthy.token]  # never a client for the unreadable bot
     assert telegram.calls_to("setWebhook") == [
-        {"url": f"{NEW_BASE}/tg/{healthy.id}", "secret_token": healthy.secret}
+        {"url": f"{NEW_BASE}/tg/{healthy.id}", "secret_token": healthy.secret, "drop_pending_updates": False}
     ]
     assert await snapshot(db, unreadable.id) == {**before, "tg_last_error": script.TOKEN_UNREADABLE}
     assert "cannot be decrypted" in capsys.readouterr().out
@@ -412,7 +425,9 @@ async def test_the_command_uses_the_configured_public_base_url(
 
     telegram = fake()
     assert await script.run(None, False, provider=telegram.provider) == 0
-    assert telegram.calls_to("setWebhook") == [{"url": f"{NEW_BASE}/tg/{bot.id}", "secret_token": bot.secret}]
+    assert telegram.calls_to("setWebhook") == [
+        {"url": f"{NEW_BASE}/tg/{bot.id}", "secret_token": bot.secret, "drop_pending_updates": False}
+    ]
 
 
 async def test_a_dry_run_from_the_command_line_builds_no_http_client(
@@ -571,7 +586,7 @@ async def test_the_real_client_sends_the_existing_secret_and_leaks_nothing(
         "url": f"{NEW_BASE}/tg/{ok.id}",
         "secret_token": ok.secret,
         "allowed_updates": ["message", "callback_query"],
-        "drop_pending_updates": True,
+        "drop_pending_updates": False,  # customer messages sent during a host move are kept
     }
     assert len(requests) == 4  # ok, revoked, and the unreachable one tried twice (one retry)
     assert (await snapshot(db, revoked.id))["tg_last_error"] == "setWebhook: Unauthorized"

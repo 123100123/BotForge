@@ -52,7 +52,9 @@ class TelegramApi(Protocol):
 
     async def get_me(self) -> dict[str, Any]: ...
 
-    async def set_webhook(self, url: str, secret_token: str) -> None: ...
+    async def set_webhook(
+        self, url: str, secret_token: str, *, drop_pending_updates: bool = True
+    ) -> None: ...
 
     async def delete_webhook(self) -> None: ...
 
@@ -124,14 +126,16 @@ class TelegramClient:
     async def get_me(self) -> dict[str, Any]:
         return await self._call("getMe")
 
-    async def set_webhook(self, url: str, secret_token: str) -> None:
+    async def set_webhook(self, url: str, secret_token: str, *, drop_pending_updates: bool = True) -> None:
+        """Connect keeps the default (a fresh connect must not replay old updates); moving a bot to a
+        new hostname passes False so updates queued meanwhile are delivered afterwards."""
         await self._call(
             "setWebhook",
             {
                 "url": url,
                 "secret_token": secret_token,
                 "allowed_updates": ["message", "callback_query"],
-                "drop_pending_updates": True,
+                "drop_pending_updates": drop_pending_updates,
             },
         )
 
@@ -222,8 +226,10 @@ class FakeTelegramClient:
             raise self.get_me_error
         return {"id": self.bot_id, "is_bot": True, "username": self.username, "first_name": "Fake"}
 
-    async def set_webhook(self, url: str, secret_token: str) -> None:
-        self._record("setWebhook", url=url, secret_token=secret_token)
+    async def set_webhook(self, url: str, secret_token: str, *, drop_pending_updates: bool = True) -> None:
+        self._record(
+            "setWebhook", url=url, secret_token=secret_token, drop_pending_updates=drop_pending_updates
+        )
 
     async def delete_webhook(self) -> None:
         self._record("deleteWebhook")

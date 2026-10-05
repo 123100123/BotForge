@@ -271,6 +271,10 @@ docker compose exec backend python scripts/reregister_webhooks.py   # once: Tele
 certificate for the new name. The Telegram webhooks of connected bots still point at the old host until
 `reregister_webhooks.py` has run.
 
+The script keeps updates that Telegram queued while the old address was unreachable (it sends
+`setWebhook` with `drop_pending_updates=False`), so customer messages sent during the move are delivered
+afterwards. `connect` still drops pending updates.
+
 ### Restricted networks (Iran)
 
 When Docker Hub, ghcr.io, PyPI, npm, Telegram or the Anthropic API are blocked or slow, use these
@@ -311,7 +315,8 @@ optional settings. Everything below is empty by default and then changes nothing
 in (`claude setup-token` gives the `CLAUDE_CODE_OAUTH_TOKEN`), then `./local.sh up`, `./local.sh logs`,
 `./local.sh psql`, `./local.sh backup`, `./local.sh down -v`. It uses `docker-compose.local.yml`, which
 assumes a proxy on the host at port 10808 and publishes Postgres on 127.0.0.1:55432. Never use it on the
-VPS.
+VPS. The step-by-step checklist, including real Telegram through a tunnel, is
+`deploy/LOCAL-REHEARSAL.md`.
 
 ### Client IPs and rate limits
 
