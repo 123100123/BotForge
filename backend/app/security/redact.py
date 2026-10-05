@@ -127,6 +127,10 @@ class RedactingFilter(logging.Filter):
                 record.exc_text = "<traceback unavailable>"
         if record.exc_text:
             record.exc_text = redact(record.exc_text)
+        # The redacted text replaces the exception itself. Standard formatters print exc_text as is;
+        # a formatter or handler that formats exc_info on its own (a JSON formatter, an error tracker
+        # that also reads frame locals) would otherwise see the raw message and, say, a client's URL.
+        record.exc_info = None
         if record.stack_info:
             record.stack_info = redact(record.stack_info)
         return True

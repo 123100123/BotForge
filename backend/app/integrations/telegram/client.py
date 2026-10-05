@@ -16,6 +16,7 @@ retry of its own, because the poller owns the backoff and ``retry_after`` handli
 import asyncio
 import contextlib
 import logging
+import math
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -129,9 +130,9 @@ class TelegramClient:
                 return body.get("result")
             description = str(body.get("description") or f"HTTP {response.status_code}")
             params = body.get("parameters") if isinstance(body.get("parameters"), dict) else {}
-            retry_after = params.get("retry_after")
+            retry_after = parse_retry_after(params.get("retry_after"))
             if response.status_code == 429 and attempt == 1:
-                wait = float(retry_after) if isinstance(retry_after, int | float) else 1.0
+                wait = retry_after if retry_after is not None else 1.0
                 if wait <= MAX_RETRY_AFTER:
                     log.warning("telegram %s rate limited; retrying after %.1fs", method, wait)
                     await asyncio.sleep(wait)
@@ -139,8 +140,8 @@ class TelegramClient:
             raise TelegramError(
                 method,
                 description,
-                error_code=int(body.get("error_code") or response.status_code),
-                retry_after=float(retry_after) if isinstance(retry_after, int | float) else None,
+                error_code=_error_code(body.get("error_code"), response.status_code),
+                retry_after=retry_after,
             )
         raise AssertionError("unreachable")  # pragma: no cover
 
@@ -200,6 +201,23 @@ class TelegramClient:
 
     async def answer_callback_query(self, callback_query_id: str) -> None:
         await self._call("answerCallbackQuery", {"callback_query_id": callback_query_id})
+
+
+def parse_retry_after(value: Any) -> float | None:
+    """Telegram's ``retry_after`` as a finite, non-negative number of seconds, else ``None``.
+
+    The body is untrusted JSON, and ``json.loads`` accepts ``Infinity`` and ``NaN``: ``sleep(nan)``
+    never returns, so anything that is not a plain finite number (a bool, a string, inf, nan, a
+    negative value) is treated as absent."""
+    if isinstance(value, bool) or not isinstance(value, int | float):
+        return None
+    seconds = float(value)
+    return seconds if math.isfinite(seconds) and seconds >= 0 else None
+
+
+def _error_code(value: Any, status: int) -> int:
+    """Telegram's ``error_code`` when it is a plain int, else the HTTP status."""
+    return value if isinstance(value, int) and not isinstance(value, bool) and value else status
 
 
 def _json(response: httpx.Response) -> dict[str, Any]:
@@ -288,8 +306,12 @@ class FakeTelegramClient:
         self._record("getUpdates", offset=offset, timeout=timeout, allowed_updates=allowed_updates)
         if self.get_updates_errors:
             raise self.get_updates_errors.pop(0)
-        if offset is not None:  # confirmed: Telegram forgets them
-            self.pending_updates = [u for u in self.pending_updates if u.get("update_id", 0) >= offset]
+        if offset is not None:  # confirmed: Telegram forgets them (a malformed id counts as earlier)
+            self.pending_updates = [
+                u
+                for u in self.pending_updates
+                if isinstance(u.get("update_id"), int) and u["update_id"] >= offset
+            ]
         if not self.pending_updates:
             self._pushed.clear()
             with contextlib.suppress(TimeoutError):

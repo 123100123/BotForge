@@ -25,7 +25,8 @@ duplicate (``tg_updates``, committed before any work). The inherited limit is th
 update whose processing dies half way (process killed) is recorded as seen and not retried.
 
 Errors: network errors, 5xx and other failures back off exponentially with jitter (1 s doubling to
-``BACKOFF_CAP``); 429 waits exactly ``retry_after``; 409 removes the webhook again and backs off; 401
+``BACKOFF_CAP``); 429 waits ``retry_after`` clamped to [1 s, 5 min] (a non-finite or invalid value is
+an ordinary backoff step); 409 removes the webhook again and backs off; 401
 and 404 (token revoked or invalid) are recorded in ``bots.tg_last_error`` like delivery errors and
 stop the bot's polling until its token changes.
 
@@ -58,6 +59,7 @@ from app.integrations.telegram.client import (
     TelegramClient,
     TelegramError,
     TelegramProvider,
+    parse_retry_after,
 )
 from app.security.crypto import TokenDecryptError, TokenKeyError, decrypt_token
 from app.security.redact import redact
@@ -71,6 +73,12 @@ BACKOFF_BASE = 1.0
 BACKOFF_CAP = 60.0
 STOP_GRACE = 15.0  # seconds a stopping task may take to finish the update it is handling
 REVOKED = (401, 404)  # Telegram's answers for an invalid or revoked token
+# A 429's retry_after is honoured within these bounds. The floor keeps a 0 from becoming a tight loop.
+# The cap bounds how long one bot stays deaf to its customers: Telegram's flood waits for a single
+# getUpdates consumer are seconds, a larger value is more likely a bad or hostile answer (it comes
+# through the proxy), and asking again after 5 minutes costs one request, which just gets a new 429.
+RETRY_AFTER_MIN = 1.0
+RETRY_AFTER_CAP = 300.0
 
 # Shown to the owner in Settings ("آخرین خطا: ..."), hence Persian.
 TOKEN_UNREADABLE = (
@@ -250,18 +258,32 @@ class TelegramPoller:
             else:
                 if batch is None:  # asked to stop during the long poll
                     return
-                backoff.reset()
+                if not batch:  # the long poll ended with nothing new: Telegram already waited
+                    backoff.reset()
+                    continue
+                before = offset
                 try:
                     for tg_update in batch:
                         if stop.is_set():
                             return  # not confirmed: Telegram returns the rest after a restart
+                        if _update_id(tg_update) is None:
+                            # Skipped unhandled; a later valid id in the batch confirms it.
+                            log.warning("bot %s: skipped a polled update without a valid update_id", bot_id)
+                            continue
                         offset = await self._handle(bot_id, token_enc, tg_update, offset)
-                    continue
                 except _Stale:
                     raise
                 except Exception:  # the database failed: fetch again from the last saved offset
                     log.exception("bot %s: could not handle a polled update", bot_id)
                     delay = backoff.next()
+                else:
+                    if offset != before:
+                        backoff.reset()
+                        continue
+                    # Nothing confirmed (no valid id, or only ids below the offset): the same batch
+                    # would come straight back, so never poll again without a wait.
+                    delay = backoff.next()
+                    log.warning("bot %s: a polled batch made no progress; retrying in %.1fs", bot_id, delay)
             if await self._wait(stop, delay):
                 return
 
@@ -317,15 +339,16 @@ class TelegramPoller:
     async def _handle(
         self, bot_id: uuid.UUID, token_enc: str, tg_update: dict[str, Any], offset: int | None
     ) -> int | None:
-        """Process one update through the webhook's path, then save the next offset. Returns it."""
-        update_id = tg_update.get("update_id")
+        """Process one update (with a valid update_id) through the webhook's path, then save the next
+        offset. Returns it."""
+        update_id = _update_id(tg_update)
+        if update_id is None:
+            return offset
         async with self._sessions() as session:
             bot = await session.get(Bot, bot_id)
             if bot is None or bot.tg_token_enc != token_enc:
                 raise _Stale
             await process_update(session, bot, tg_update, self._provider)  # commits; never raises
-            if not isinstance(update_id, int) or isinstance(update_id, bool):
-                return offset
             next_offset = max(offset or 0, update_id + 1)
             saved = await session.execute(
                 update(Bot)
@@ -352,10 +375,12 @@ class TelegramPoller:
             if not await self._remove_webhook(bot_id, token_enc, client):
                 return None
             return backoff.next()
-        if exc.error_code == 429 and exc.retry_after is not None:
-            log.warning("bot %s: getUpdates rate limited; waiting %.0fs", bot_id, exc.retry_after)
-            return max(exc.retry_after, 0.0)
-        delay = backoff.next()
+        retry_after = parse_retry_after(exc.retry_after) if exc.error_code == 429 else None
+        if retry_after is not None:
+            wait = min(max(retry_after, RETRY_AFTER_MIN), RETRY_AFTER_CAP)
+            log.warning("bot %s: getUpdates rate limited; waiting %.0fs", bot_id, wait)
+            return wait
+        delay = backoff.next()  # also a 429 without a usable retry_after
         log.warning("bot %s: getUpdates failed (%s); retrying in %.1fs", bot_id, exc.description, delay)
         return delay
 
@@ -394,6 +419,14 @@ class TelegramPoller:
                 task.cancel()
             await asyncio.gather(sleeper, waiter, return_exceptions=True)
         return stop.is_set()
+
+
+def _update_id(tg_update: dict[str, Any]) -> int | None:
+    """The update's ``update_id`` when it is a plain non-negative int (the offset is built from it)."""
+    value = tg_update.get("update_id")
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        return None
+    return value
 
 
 def start_polling(
