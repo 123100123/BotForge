@@ -4,35 +4,32 @@ import Link from "next/link";
 import { useParams } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import { ArrowRight } from "lucide-react";
-import { AgentTab, type WorkspaceTab } from "@/components/agent/agent-tab";
 import { BotStatusChip } from "@/components/app/bot-status-chip";
+import { CapabilitiesTab } from "@/components/capabilities/capabilities-tab";
+import { CopilotTab } from "@/components/copilot/copilot-tab";
 import { DataTab } from "@/components/data/data-tab";
+import { OverviewTab } from "@/components/overview/overview-tab";
+import { ReportsSection } from "@/components/app/reports-section";
+import { WorkspaceSidebar } from "@/components/app/sidebar";
+import { resolveTab, type SectionTab, type WorkspaceTab } from "@/components/app/workspace";
 import { SettingsTab } from "@/components/settings/settings-tab";
 import { SimulatorTab } from "@/components/simulator/simulator-tab";
-import { TestsTab } from "@/components/tests/tests-tab";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs, TabsContent } from "@/components/ui/tabs";
 import { VersionsTab } from "@/components/versions/versions-tab";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
 import type { Bot } from "@/lib/types";
 
-const TABS: { value: WorkspaceTab; label: string }[] = [
-  { value: "agent", label: "ایجنت" },
-  { value: "simulator", label: "شبیه‌ساز" },
-  { value: "tests", label: "تست‌ها" },
-  { value: "data", label: "داده‌ها" },
-  { value: "versions", label: "نسخه‌ها" },
-  { value: "settings", label: "تنظیمات" },
-];
-
 export default function BotWorkspacePage() {
   const params = useParams<{ id: string }>();
   const botId = params.id;
   const [bot, setBot] = useState<Bot | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [tab, setTab] = useState<WorkspaceTab>("agent");
+  const [tab, setTab] = useState<SectionTab | null>(null);
+  /** Cross-links from section components may use the legacy "agent" name. */
+  const openTab = useCallback((next: WorkspaceTab) => setTab(resolveTab(next)), []);
 
   const [reloadTick, setReloadTick] = useState(0);
   const reload = useCallback(() => setReloadTick((t) => t + 1), []);
@@ -44,6 +41,8 @@ export default function BotWorkspacePage() {
         if (cancelled) return;
         setBot(loaded);
         setError(null);
+        // First load only: a bot with no active version starts in the copilot, where it gets built.
+        setTab((current) => current ?? (loaded.active_revision_id ? "overview" : "copilot"));
       },
       (err) => {
         if (!cancelled) setError(errorMessage(err));
@@ -97,33 +96,35 @@ export default function BotWorkspacePage() {
         </div>
       </div>
 
-      <Tabs value={tab} onValueChange={(v) => setTab(v as WorkspaceTab)}>
-        <TabsList>
-          {TABS.map((t) => (
-            <TabsTrigger key={t.value} value={t.value}>
-              {t.label}
-            </TabsTrigger>
-          ))}
-        </TabsList>
-        {/* The agent tab stays mounted so its event stream and state survive switching tabs. */}
-        <TabsContent value="agent" forceMount className="data-[state=inactive]:hidden">
-          <AgentTab bot={bot} onBotChanged={reload} onOpenTab={setTab} />
-        </TabsContent>
-        <TabsContent value="simulator">
-          <SimulatorTab bot={bot} onOpenTab={setTab} />
-        </TabsContent>
-        <TabsContent value="tests">
-          <TestsTab bot={bot} onOpenTab={setTab} />
-        </TabsContent>
-        <TabsContent value="data">
-          <DataTab bot={bot} onOpenTab={setTab} />
-        </TabsContent>
-        <TabsContent value="versions">
-          <VersionsTab bot={bot} onBotChanged={reload} onOpenTab={setTab} />
-        </TabsContent>
-        <TabsContent value="settings">
-          <SettingsTab bot={bot} onBotChanged={reload} />
-        </TabsContent>
+      <Tabs value={tab ?? "overview"} onValueChange={(v) => setTab(v as SectionTab)} className="md:flex-row md:items-start md:gap-6">
+        <WorkspaceSidebar />
+        <div className="min-w-0 flex-1">
+          <TabsContent value="overview">
+            <OverviewTab bot={bot} />
+          </TabsContent>
+          {/* The copilot hosts the agent flow, which stays mounted so its event stream and state survive switching sections. */}
+          <TabsContent value="copilot" forceMount className="data-[state=inactive]:hidden">
+            <CopilotTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
+          </TabsContent>
+          <TabsContent value="capabilities">
+            <CapabilitiesTab bot={bot} />
+          </TabsContent>
+          <TabsContent value="data">
+            <DataTab bot={bot} onOpenTab={openTab} />
+          </TabsContent>
+          <TabsContent value="reports">
+            <ReportsSection bot={bot} />
+          </TabsContent>
+          <TabsContent value="simulator">
+            <SimulatorTab bot={bot} onOpenTab={openTab} />
+          </TabsContent>
+          <TabsContent value="versions">
+            <VersionsTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
+          </TabsContent>
+          <TabsContent value="settings">
+            <SettingsTab bot={bot} onBotChanged={reload} />
+          </TabsContent>
+        </div>
       </Tabs>
     </div>
   );

@@ -57,8 +57,13 @@ export interface InfoPage {
   body: string;
 }
 
+/** Who may use a capability in the Telegram bot (spec-level gate). */
+export type CapabilityAudience = "everyone" | "staff" | "managers";
+
 export interface InfoCapability {
   type: "info";
+  enabled: boolean;
+  audience: CapabilityAudience;
   key: string;
   title: string;
   pages: InfoPage[];
@@ -66,6 +71,8 @@ export interface InfoCapability {
 
 export interface CatalogCapability {
   type: "catalog";
+  enabled: boolean;
+  audience: CapabilityAudience;
   key: string;
   title: string;
   resource: string;
@@ -94,6 +101,8 @@ export interface Cancellation {
 
 export interface BookingCapability {
   type: "booking";
+  enabled: boolean;
+  audience: CapabilityAudience;
   key: string;
   title: string;
   resource: string;
@@ -109,6 +118,10 @@ export interface BookingCapability {
   notify_owner_on: ("booked" | "waitlisted" | "cancelled")[];
   notify_user_on: "promoted"[];
   texts: TextOverride[];
+  /** "events" is the booking engine with event wording (RSVP, categories, reminders). */
+  preset: "booking" | "events";
+  reminder_hours_before: number | null;
+  category_field: string | null;
 }
 
 export interface StatusDef {
@@ -125,6 +138,8 @@ export interface OwnerAction {
 
 export interface RequestCapability {
   type: "request";
+  enabled: boolean;
+  audience: CapabilityAudience;
   key: string;
   title: string;
   form_fields: FieldDef[];
@@ -137,11 +152,31 @@ export interface RequestCapability {
   texts: TextOverride[];
 }
 
+export interface OrdersCapability {
+  type: "orders";
+  enabled: boolean;
+  audience: CapabilityAudience;
+  key: string;
+  label: string;
+  resource: string;
+  price_field: string;
+  stock_field: string | null;
+  checkout_fields: FieldDef[];
+  statuses: StatusDef[];
+  initial_status: string;
+  owner_actions: OwnerAction[];
+  cancellable_statuses: string[];
+  notify_owner_on: string[];
+  notify_user_on: string[];
+  texts: TextOverride[];
+}
+
 export type Capability =
   | InfoCapability
   | CatalogCapability
   | BookingCapability
-  | RequestCapability;
+  | RequestCapability
+  | OrdersCapability;
 
 export type CapabilityType = Capability["type"];
 
@@ -536,7 +571,7 @@ export interface CollectionAction {
 /** backend/app/api/data.py CollectionOut */
 export interface DataCollection {
   key: string;
-  kind: "resource" | "booking" | "request";
+  kind: "resource" | "booking" | "request" | "orders";
   label: string;
   label_plural: string;
   writable: boolean;
@@ -721,4 +756,327 @@ export const TERMINAL_STATUSES: readonly RunStatus[] = ["done", "failed", "rejec
 
 export function isTerminal(status: RunStatus): boolean {
   return TERMINAL_STATUSES.includes(status);
+}
+
+/* ------------------------------------------------------------------ Business OS (backend/app/schemas/business.py) */
+
+/* Capability Center */
+
+export type CapabilityCategory = "commerce" | "operations" | "team" | "intelligence" | "customer";
+
+export interface CapabilityOut {
+  id: string;
+  name: string;
+  description: string;
+  category: CapabilityCategory;
+  kind: "spec" | "module";
+  enabled: boolean;
+  configurable: boolean;
+  requires: string[];
+  requires_any: string[];
+  conflicts: string[];
+  features: string[];
+  metrics: string[];
+  audience: string | null;
+  spec_keys: string[];
+  config: Record<string, unknown>;
+  needs_agent: boolean;
+  handoff_prompt: string | null;
+}
+
+export interface CapabilityCategoryOut {
+  id: string;
+  name: string;
+  capabilities: CapabilityOut[];
+}
+
+export interface CapabilityListOut {
+  categories: CapabilityCategoryOut[];
+}
+
+export interface CapabilityToggleIn {
+  dry_run?: boolean;
+}
+
+export interface CapabilityTogglePlan {
+  capability: string;
+  action: "enable" | "disable";
+  will_enable: string[];
+  will_disable: string[];
+  blocked_by: string[];
+  needs_agent: boolean;
+  handoff_prompt: string | null;
+  compat_warnings: string[];
+}
+
+export interface CapabilityToggleOut {
+  plan: CapabilityTogglePlan;
+  applied: boolean;
+  revision_id: string | null;
+  revision_number: number | null;
+  message: string;
+}
+
+export interface CapabilityConfigIn {
+  config: Record<string, unknown>;
+}
+
+/* Reports */
+
+export type Period = "today" | "yesterday" | "7d" | "30d" | "this_week" | "last_week" | "this_month" | "all";
+
+export interface SeriesPoint {
+  label: string;
+  value: number;
+}
+
+export interface MetricValue {
+  id: string;
+  label: string;
+  kind: "scalar" | "series" | "breakdown" | "table";
+  value: number | null;
+  unit: string | null;
+  series: SeriesPoint[] | null;
+  rows: Record<string, unknown>[] | null;
+  previous: number | null;
+}
+
+export interface CapabilityReportOut {
+  capability_key: string;
+  capability_id: string;
+  label: string;
+  period: Period;
+  since: string;
+  until: string;
+  metrics: MetricValue[];
+}
+
+export interface ActivityItem {
+  at: string;
+  text: string;
+  kind: string;
+}
+
+export interface OverviewOut {
+  period: Period;
+  kpis: MetricValue[];
+  activity: ActivityItem[];
+  enabled_capabilities: string[];
+}
+
+/* Spreadsheet intelligence (Data Analyst) */
+
+export type InferredColumnType = "text" | "integer" | "decimal" | "datetime" | "boolean" | "empty";
+
+export interface ColumnProfile {
+  name: string;
+  inferred_type: InferredColumnType;
+  non_null: number;
+  distinct: number;
+  sample: string[];
+  min: string | null;
+  max: string | null;
+  mean: number | null;
+}
+
+export interface SheetProfile {
+  name: string;
+  rows: number;
+  columns: ColumnProfile[];
+  sample_rows: string[][];
+}
+
+export interface WorkbookInspection {
+  sheets: SheetProfile[];
+  signature: string;
+  row_limit_hit: boolean;
+}
+
+export interface UploadOut {
+  id: string;
+  filename: string;
+  size: number;
+  content_type: string;
+  sha256: string;
+  created_at: string;
+  inspection: WorkbookInspection;
+}
+
+export interface AnalysisMetricSpec {
+  id: string;
+  label: string;
+  measure: "count" | "sum" | "avg" | "min" | "max";
+  field: string | null;
+  group_by: string | null;
+  group_kind: "field" | "day" | "week" | null;
+  top_n: number | null;
+}
+
+export interface AnalysisCheckSpec {
+  id: string;
+  label: string;
+  kind: "outlier_high" | "outlier_low" | "threshold_above" | "threshold_below" | "missing_values";
+  field: string;
+  group_by: string | null;
+  threshold: number | null;
+}
+
+export interface AnalysisProfileOut {
+  id: string;
+  name: string;
+  signature: string;
+  sheet: string;
+  expected_columns: string[];
+  metrics: AnalysisMetricSpec[];
+  checks: AnalysisCheckSpec[];
+  daily_report: boolean;
+  created_at: string;
+  runs_count: number;
+}
+
+export interface AnalysisProfileCreateIn {
+  upload_id: string;
+  name?: string;
+  daily_report?: boolean;
+}
+
+export interface AnalysisProfileUpdateIn {
+  name?: string;
+  daily_report?: boolean;
+  metrics?: AnalysisMetricSpec[];
+  checks?: AnalysisCheckSpec[];
+}
+
+export interface AnalysisRunIn {
+  upload_id: string;
+  narrative?: boolean;
+}
+
+export interface SchemaDiff {
+  missing: string[];
+  new: string[];
+}
+
+export interface AnalysisAnomaly {
+  check_id: string;
+  label: string;
+  field: string;
+  group: string | null;
+  value: number | null;
+  expected: number | null;
+  severity: "info" | "warning" | "critical";
+}
+
+export interface AnalysisRunOut {
+  id: string;
+  profile_id: string;
+  upload_id: string | null;
+  filename: string | null;
+  status: "ok" | "schema_changed" | "failed";
+  submitted_by: string | null;
+  created_at: string;
+  metrics: MetricValue[];
+  anomalies: AnalysisAnomaly[];
+  narrative: string | null;
+  schema_diff: SchemaDiff | null;
+  error: string | null;
+}
+
+/* Copilot */
+
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
+export interface CopilotMessageIn {
+  messages: ChatTurn[];
+}
+
+export interface ToolCallOut {
+  name: string;
+  arguments: Record<string, unknown>;
+  summary: string;
+}
+
+export interface CopilotMessageOut {
+  reply: string;
+  tool_calls: ToolCallOut[];
+  usage: Record<string, unknown>;
+}
+
+/* Team, groups, announcements, schedules */
+
+export type TeamRole = "customer" | "staff" | "manager";
+
+export interface TeamMemberOut {
+  actor_id: string;
+  display_name: string | null;
+  role: TeamRole;
+  first_seen: string;
+}
+
+export interface TeamOut {
+  staff_link: string | null;
+  staff_link_code: string | null;
+  members: TeamMemberOut[];
+  counts: Record<string, number>;
+}
+
+export interface StaffLinkOut {
+  staff_link: string | null;
+  staff_link_code: string | null;
+}
+
+export interface MemberRoleIn {
+  role: TeamRole;
+}
+
+export interface GroupOut {
+  chat_id: number;
+  title: string;
+  kind: "group" | "supergroup" | "channel";
+  added_at: string;
+  active: boolean;
+}
+
+export interface PublishIn {
+  collection: string;
+  record_id: number;
+}
+
+export interface PublishOut {
+  queued: boolean;
+  message: string;
+}
+
+export type Audience = "everyone" | "customers" | "staff" | "managers" | "subscribers";
+
+export interface AnnouncementIn {
+  text: string;
+  audience: Audience;
+  category?: string | null;
+  group_chat_ids?: number[];
+}
+
+export interface AnnouncementOut {
+  id: string;
+  text: string;
+  audience: Audience;
+  recipients: number;
+  created_at: string;
+  status: string;
+}
+
+export interface ScheduleOut {
+  id: string;
+  kind: "daily_summary" | "weekly_summary";
+  time: string;
+  weekday: number | null;
+  enabled: boolean;
+  metrics: string[];
+}
+
+export interface SchedulesIn {
+  schedules: ScheduleOut[];
 }

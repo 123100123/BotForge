@@ -42,6 +42,7 @@ export const CAPABILITY_TYPE_LABELS: Record<CapabilityType, string> = {
   catalog: "فهرست",
   booking: "رزرو",
   request: "درخواست",
+  orders: "سفارش‌ها",
 };
 
 export const RISK_LABELS: Record<RiskLevel, string> = {
