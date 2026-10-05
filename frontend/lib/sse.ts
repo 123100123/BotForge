@@ -1,5 +1,5 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
-import { authHeaders, parseErrorResponse } from "@/lib/api";
+import { parseErrorResponse } from "@/lib/api";
 import * as engine from "@/lib/mock/engine";
 import type { RawAgentEvent } from "@/lib/types";
 
@@ -22,7 +22,7 @@ export interface StreamOptions {
 
 /**
  * Streams the events of one agent run until `signal` is aborted. Uses fetch (not EventSource) so the
- * Authorization header can be sent, and reconnects with `Last-Event-ID` after a dropped connection.
+ * request can be aborted and `Last-Event-ID` sent; it authenticates by the session cookie. Reconnects with `Last-Event-ID` after a dropped connection.
  * Mock mode replays the fixture run with its recorded delays.
  */
 export function streamRunEvents(runId: string, opts: StreamOptions): Promise<void> {
@@ -141,8 +141,8 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
   while (!signal.aborted) {
     try {
       const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
+        credentials: "same-origin",
         headers: {
-          ...(await authHeaders()),
           Accept: "text/event-stream",
           ...(last > 0 ? { "Last-Event-ID": String(last) } : {}),
         },

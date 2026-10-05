@@ -7,9 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { useAuth } from "@/lib/auth";
+import { authErrorMessage, useAuth } from "@/lib/auth";
 import { IS_MOCK } from "@/lib/config";
-import { errorMessage } from "@/lib/errors";
 
 type Mode = "login" | "signup";
 
@@ -19,7 +18,7 @@ interface FieldErrors {
 }
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const MIN_PASSWORD = 8;
+const MIN_PASSWORD = 10;
 
 function validate(mode: Mode, email: string, password: string): FieldErrors {
   const errors: FieldErrors = {};
@@ -27,7 +26,7 @@ function validate(mode: Mode, email: string, password: string): FieldErrors {
   else if (!EMAIL_RE.test(email.trim())) errors.email = "ایمیل واردشده معتبر نیست.";
   if (!password) errors.password = "گذرواژه را وارد کنید.";
   else if (mode === "signup" && password.length < MIN_PASSWORD) {
-    errors.password = "گذرواژه باید دست‌کم ۸ نویسه باشد.";
+    errors.password = "گذرواژه باید دست‌کم ۱۰ نویسه باشد.";
   }
   return errors;
 }
@@ -39,7 +38,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
-  const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   const isLogin = mode === "login";
@@ -47,7 +45,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
-    setNotice(null);
     const found = validate(mode, email, password);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -58,15 +55,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
         await signIn(email.trim(), password);
         router.replace("/bots");
       } else {
-        const { needsConfirmation } = await signUp(email.trim(), password);
-        if (needsConfirmation) {
-          setNotice("ثبت‌نام انجام شد. برای ادامه، پیوند تأییدی که به ایمیل شما فرستادیم را باز کنید.");
-        } else {
-          router.replace("/bots");
-        }
+        await signUp(email.trim(), password);
+        router.replace("/bots");
       }
     } catch (err) {
-      setFormError(errorMessage(err));
+      setFormError(authErrorMessage(err));
     } finally {
       setPending(false);
     }
@@ -124,11 +117,6 @@ export function AuthForm({ mode }: { mode: Mode }) {
           {formError && (
             <p role="alert" className="rounded-md bg-destructive/10 p-2.5 text-sm text-destructive">
               {formError}
-            </p>
-          )}
-          {notice && (
-            <p role="status" className="rounded-md bg-success/10 p-2.5 text-sm text-success">
-              {notice}
             </p>
           )}
 

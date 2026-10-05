@@ -1,6 +1,5 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
 import { ApiError, parseFieldErrors } from "@/lib/errors";
-import { getAccessToken } from "@/lib/supabase";
 import { mockApi } from "@/lib/mock/api";
 import type {
   AgentRun,
@@ -24,8 +23,12 @@ export type { SimulatorEventBody } from "@/lib/types";
 
 /** Typed client for the roadmap's "Backend API" table. The mock implements the same interface. */
 export interface Api {
-  // Me
+  // Auth: the session is an HttpOnly cookie set by the backend; the frontend never sees a token.
+  /** The signed-in user. Rejects with an ApiError of status 401 when there is no session. */
   me(): Promise<Me>;
+  login(email: string, password: string): Promise<Me>;
+  signup(email: string, password: string): Promise<Me>;
+  logout(): Promise<void>;
   // Bots
   listBots(): Promise<Bot[]>;
   createBot(name: string): Promise<Bot>;
@@ -81,11 +84,14 @@ const STATUS_MESSAGES: Record<number, string> = {
   429: "درخواست‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.",
 };
 
-/** Auth headers shared by JSON requests and the SSE reader. */
-export async function authHeaders(): Promise<Record<string, string>> {
-  const token = await getAccessToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
-}
+/**
+ * Window event fired when a request outside /auth gets a 401 (the session expired or was revoked).
+ * The AuthProvider listens and drops to the signed-out state, which sends the user to /login.
+ */
+export const UNAUTHORIZED_EVENT = "botforge:unauthorized";
+
+/** CSRF header the backend requires on every non-GET/HEAD request, including login and signup. */
+const CSRF_HEADERS = { "X-BotForge-CSRF": "1" } as const;
 
 /** Parses the backend's `{"error": {"code", "message"}}` envelope into an ApiError. */
 export async function parseErrorResponse(res: Response): Promise<ApiError> {
@@ -113,10 +119,12 @@ export async function parseErrorResponse(res: Response): Promise<ApiError> {
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   let res: Response;
   try {
+    const safe = method === "GET" || method === "HEAD";
     res = await fetch(`${API_BASE_URL}${path}`, {
       method,
+      credentials: "same-origin",
       headers: {
-        ...(await authHeaders()),
+        ...(safe ? {} : CSRF_HEADERS),
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -124,7 +132,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
   }
-  if (!res.ok) throw await parseErrorResponse(res);
+  if (!res.ok) {
+    if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined") {
+      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+    }
+    throw await parseErrorResponse(res);
+  }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
@@ -133,6 +146,9 @@ const enc = encodeURIComponent;
 
 export const realApi: Api = {
   me: () => request("GET", "/me"),
+  login: async (email, password) => (await request<{ user: Me }>("POST", "/auth/login", { email, password })).user,
+  signup: async (email, password) => (await request<{ user: Me }>("POST", "/auth/signup", { email, password })).user,
+  logout: () => request("POST", "/auth/logout"),
 
   listBots: () => request("GET", "/bots"),
   createBot: (name) => request("POST", "/bots", { name }),

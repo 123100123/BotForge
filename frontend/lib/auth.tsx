@@ -2,127 +2,110 @@
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
-import { getSupabase } from "@/lib/supabase";
+import { api, UNAUTHORIZED_EVENT } from "@/lib/api";
+import { ApiError } from "@/lib/errors";
+import type { Me } from "@/lib/types";
 
-export interface AppUser {
-  id: string;
-  email: string;
-}
+/**
+ * Auth against the backend's own cookie sessions. The session is an HttpOnly cookie set by the backend;
+ * this module never sees a token. It only asks `GET /me` who is signed in.
+ */
+export type AppUser = Me;
+
+/** `error`: /me failed for a reason other than "not signed in" (network, 5xx); the session is unknown. */
+export type AuthStatus = "loading" | "authenticated" | "anonymous" | "error";
 
 interface AuthContextValue {
   user: AppUser | null;
-  /** True until the stored session has been read. */
-  loading: boolean;
+  status: AuthStatus;
   signIn: (email: string, password: string) => Promise<void>;
-  /** Resolves with `needsConfirmation: true` when the account exists but must confirm its email first. */
-  signUp: (email: string, password: string) => Promise<{ needsConfirmation: boolean }>;
+  signUp: (email: string, password: string) => Promise<void>;
   signOut: () => Promise<void>;
+  /** Asks /me again (used by the retry button after status "error"). */
+  refresh: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const MOCK_USER_KEY = "botforge.mock.user";
+const GENERIC_AUTH_ERROR = "ورود یا ثبت‌نام انجام نشد. دوباره امتحان کنید.";
 
-function readMockUser(): AppUser | null {
-  try {
-    const raw = window.localStorage.getItem(MOCK_USER_KEY);
-    return raw ? (JSON.parse(raw) as AppUser) : null;
-  } catch {
-    return null;
+/** Persian message for a failed login or signup, chosen by the backend's error code. */
+export function authErrorMessage(err: unknown): string {
+  if (!(err instanceof ApiError)) return GENERIC_AUTH_ERROR;
+  switch (err.code) {
+    case "email_taken":
+      return "با این ایمیل قبلاً ثبت‌نام شده است.";
+    case "weak_password":
+      return "گذرواژه باید دست‌کم ۱۰ نویسه باشد.";
+    case "invalid_email":
+      return "ایمیل واردشده معتبر نیست.";
+    case "invalid_credentials":
+      return "ایمیل یا گذرواژه درست نیست.";
+    case "rate_limited":
+      return "تعداد تلاش‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.";
+    case "signup_disabled":
+      return "ثبت‌نام در حال حاضر غیرفعال است.";
+    case "network_error":
+      return err.message;
+    default:
+      return GENERIC_AUTH_ERROR;
   }
-}
-
-function writeMockUser(user: AppUser | null) {
-  try {
-    if (user) window.localStorage.setItem(MOCK_USER_KEY, JSON.stringify(user));
-    else window.localStorage.removeItem(MOCK_USER_KEY);
-  } catch {
-    /* storage unavailable: the session just will not survive a reload */
-  }
-}
-
-/** Persian message for a Supabase auth error. */
-export function authErrorMessage(message: string | undefined): string {
-  const m = (message ?? "").toLowerCase();
-  if (m.includes("invalid login")) return "ایمیل یا گذرواژه درست نیست.";
-  if (m.includes("already registered") || m.includes("already been registered"))
-    return "با این ایمیل قبلاً ثبت‌نام شده است.";
-  if (m.includes("email not confirmed")) return "ایمیل شما هنوز تأیید نشده است.";
-  if (m.includes("password") && m.includes("least")) return "گذرواژه باید دست‌کم ۶ نویسه باشد.";
-  if (m.includes("rate limit") || m.includes("too many")) return "تعداد تلاش‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.";
-  if (m.includes("fetch") || m.includes("network")) return "اتصال به سرور برقرار نشد.";
-  return "ورود یا ثبت‌نام انجام نشد. دوباره امتحان کنید.";
 }
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<AppUser | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [status, setStatus] = useState<AuthStatus>("loading");
+
+  const refresh = useCallback(async () => {
+    try {
+      const me = await api.me();
+      setUser(me);
+      setStatus("authenticated");
+    } catch (err) {
+      setUser(null);
+      setStatus(err instanceof ApiError && err.status === 401 ? "anonymous" : "error");
+    }
+  }, []);
 
   useEffect(() => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      Promise.resolve(readMockUser()).then((u) => {
-        setUser(u);
-        setLoading(false);
-      });
-      return;
-    }
-    let active = true;
-    supabase.auth.getSession().then(({ data }) => {
-      if (!active) return;
-      const u = data.session?.user;
-      setUser(u ? { id: u.id, email: u.email ?? "" } : null);
-      setLoading(false);
-    });
-    const { data } = supabase.auth.onAuthStateChange((_event, session) => {
-      const u = session?.user;
-      setUser(u ? { id: u.id, email: u.email ?? "" } : null);
-      setLoading(false);
-    });
-    return () => {
-      active = false;
-      data.subscription.unsubscribe();
+    // Initial session load; setState happens after the awaited request, not synchronously in the effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    void refresh();
+  }, [refresh]);
+
+  // Any API call that later gets a 401 means the session is gone: drop to signed-out (guard redirects).
+  useEffect(() => {
+    const onUnauthorized = () => {
+      setUser(null);
+      setStatus("anonymous");
     };
+    window.addEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
+    return () => window.removeEventListener(UNAUTHORIZED_EVENT, onUnauthorized);
   }, []);
 
   const signIn = useCallback(async (email: string, password: string) => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      const u = { id: "mock-user", email };
-      writeMockUser(u);
-      setUser(u);
-      return;
-    }
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) throw new Error(authErrorMessage(error.message));
+    setUser(await api.login(email, password));
+    setStatus("authenticated");
   }, []);
 
   const signUp = useCallback(async (email: string, password: string) => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      const u = { id: "mock-user", email };
-      writeMockUser(u);
-      setUser(u);
-      return { needsConfirmation: false };
-    }
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) throw new Error(authErrorMessage(error.message));
-    return { needsConfirmation: !data.session };
+    setUser(await api.signup(email, password));
+    setStatus("authenticated");
   }, []);
 
   const signOut = useCallback(async () => {
-    const supabase = getSupabase();
-    if (!supabase) {
-      writeMockUser(null);
+    try {
+      await api.logout();
       setUser(null);
-      return;
+      setStatus("anonymous");
+    } catch {
+      await refresh(); // logout failed: find out what the session really is
     }
-    await supabase.auth.signOut();
-  }, []);
+  }, [refresh]);
 
   const value = useMemo(
-    () => ({ user, loading, signIn, signUp, signOut }),
-    [user, loading, signIn, signUp, signOut],
+    () => ({ user, status, signIn, signUp, signOut, refresh }),
+    [user, status, signIn, signUp, signOut, refresh],
   );
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
 }
@@ -138,12 +121,12 @@ export function useUser(): AppUser | null {
   return useAuth().user;
 }
 
-/** Redirects to /login when there is no session. Returns the user once known, otherwise null. */
-export function useRequireUser(): AppUser | null {
-  const { user, loading } = useAuth();
+/** Redirects to /login once /me says there is no session. Returns the auth state for the caller to render. */
+export function useRequireUser(): AuthContextValue {
+  const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (!loading && !user) router.replace("/login");
-  }, [loading, user, router]);
-  return user;
+    if (auth.status === "anonymous") router.replace("/login");
+  }, [auth.status, router]);
+  return auth;
 }

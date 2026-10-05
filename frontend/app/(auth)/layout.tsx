@@ -4,14 +4,14 @@ import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
 
-/** Centered shell for the auth pages; signed-in users are sent to the bots list. */
+/** Centered shell for the auth pages; users with a session are sent to the bots list. */
 export default function AuthLayout({ children }: { children: ReactNode }) {
-  const { user, loading } = useAuth();
+  const { status } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) router.replace("/bots");
-  }, [loading, user, router]);
+    if (status === "authenticated") router.replace("/bots");
+  }, [status, router]);
 
   return (
     <main className="flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
