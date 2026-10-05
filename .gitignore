@@ -37,3 +37,7 @@ Thumbs.db
 
 # Local development database (scripts/dev_db.py)
 backend/.devdb/
+
+# Self-hosting (deploy/): real secrets and database dumps never get committed
+deploy/.env
+deploy/backups/

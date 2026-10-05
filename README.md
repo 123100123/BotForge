@@ -149,7 +149,131 @@ With `NEXT_PUBLIC_MOCK=1` (the default, also used whenever the Supabase variable
 app runs entirely on fixtures: fake sign-in and a scripted agent stream, no backend needed. Real mode
 (`NEXT_PUBLIC_MOCK=0`) needs a Supabase project, because sign-in goes through Supabase Auth.
 
-## Deployment checklist
+## Self-hosting on a VPS (Docker Compose)
+
+One server runs everything: Postgres, the backend (one container, one worker), the frontend and Caddy,
+which terminates HTTPS on port 443 (Telegram webhooks need valid HTTPS there) and routes by path:
+`/api/*` goes to the backend with the prefix stripped, `/tg/*` goes to the backend unchanged, everything
+else goes to the frontend. Login is BotForge's own (email and password, a server-side session in the
+HttpOnly `bf_session` cookie); no outside auth service is involved. Files: `deploy/docker-compose.yml`,
+`deploy/Caddyfile`, `deploy/.env.example`, `deploy/backup.sh`, `deploy/restore.sh`, `backend/Dockerfile`,
+`frontend/Dockerfile`.
+
+### 1. Prepare the server
+
+- Install Docker Engine with the compose plugin (<https://docs.docker.com/engine/install/>), then check
+  `docker compose version`. Clone this repository on the server.
+- Log in with an SSH key and turn password login off (`PasswordAuthentication no` in
+  `/etc/ssh/sshd_config`, then `sudo systemctl reload ssh`).
+- Open only SSH, HTTP and HTTPS:
+
+  ```sh
+  sudo ufw default deny incoming
+  sudo ufw allow 22/tcp
+  sudo ufw allow 80/tcp
+  sudo ufw allow 443/tcp
+  sudo ufw allow 443/udp   # HTTP/3, optional
+  sudo ufw enable
+  ```
+
+  Only Caddy publishes ports (80 and 443). Postgres, the backend and the frontend have no published
+  ports and are reachable only on the internal Docker network. This matters because Docker writes its own
+  firewall rules that bypass ufw for published ports, so never add a `ports:` entry to those services.
+  Port 80 must stay open: Caddy uses it to obtain and renew the certificate.
+- Memory: building Next.js wants about 2 GB of RAM. On a smaller server add swap
+  (`sudo fallocate -l 2G /swapfile && sudo chmod 600 /swapfile && sudo mkswap /swapfile && sudo swapon /swapfile`),
+  or build the images on another machine and move them:
+  `docker compose build` there, then
+  `docker save botforge-backend botforge-frontend | ssh user@server docker load`, and on the server run
+  `docker compose up -d --no-build`.
+
+### 2. Pick the hostname
+
+Until you have a domain, use a free sslip.io name made from the server's IP: replace the dots with dashes
+and add `.sslip.io`. IP `203.0.113.7` becomes `203-0-113-7.sslip.io`. It resolves to that IP and Caddy
+gets a real certificate for it. sslip.io is shared by many people, so Let's Encrypt may rate-limit it;
+Caddy then falls back to ZeroSSL on its own. Do not reinstall the stack repeatedly: certificates live in
+the `caddy_data` volume, and re-issuing them is what trips the limits.
+
+### 3. Configure and start
+
+```sh
+cd deploy
+cp .env.example .env && chmod 600 .env
+# generate the two secrets and paste them into .env
+openssl rand -hex 24                    # POSTGRES_PASSWORD
+TOKEN_ENC_KEY=x docker compose run --rm --no-deps backend python -m app.security.crypto generate-key   # TOKEN_ENC_KEY
+$EDITOR .env                            # SITE_HOST, ANTHROPIC_API_KEY and the rest; every variable is commented
+docker compose up -d --build
+```
+
+Back up `TOKEN_ENC_KEY` separately: without it every stored Telegram bot token becomes unreadable. The
+backend runs `alembic upgrade head` on every start, so the database schema is migrated automatically.
+`NEXT_PUBLIC_*` values are inlined into the frontend at build time, so after changing one run
+`docker compose up -d --build` again.
+
+Check it (all from `deploy/`):
+
+```sh
+docker compose ps                                  # db, backend and frontend healthy, caddy running
+curl https://$SITE_HOST/api/healthz                # {"status":"ok"} (replace $SITE_HOST with your name)
+docker compose logs -f caddy                       # certificate issuance, if the site does not come up
+```
+
+### 4. Create the first user and (optionally) load the sample bot
+
+Create your account from the command line (the script prompts for a password, see its `--help`):
+
+```sh
+docker compose exec backend python scripts/create_user.py --email you@example.com
+```
+
+Then set `AUTH_ALLOW_SIGNUP=false` in `deploy/.env` and run `docker compose up -d` if you do not want
+strangers registering. To load the golden workshop spec with its sample data as a bot of that user
+(`examples/` is mounted read-only into the backend container at `/examples`):
+
+```sh
+docker compose exec backend python scripts/load_spec.py --spec /examples/workshop.botspec.json \
+    --owner-id <user id> --sample-data scripts/workshop.sample_data.json
+```
+
+### 5. Backups
+
+`deploy/backup.sh` writes a gzipped custom-format `pg_dump` to `deploy/backups/` and keeps the newest 14;
+it exits non-zero on failure. Nightly at 03:15 (`crontab -e`, adjust the path):
+
+```
+15 3 * * * /home/deploy/BotForge/deploy/backup.sh >> /home/deploy/botforge-backup.log 2>&1
+```
+
+Copy `deploy/backups/` off the server too (a dump on the same disk does not survive losing the server).
+Restore with `docker compose stop backend`, then
+`./restore.sh backups/<file>.dump.gz --yes-overwrite`, then `docker compose start backend`. Add
+`--database scratch` to restore into a separate database instead and leave the live one untouched.
+
+### 6. Changing the hostname later
+
+Update `SITE_HOST` in `deploy/.env` (and point the new name's DNS A record at the server), then:
+
+```sh
+docker compose up -d
+docker compose exec backend python scripts/reregister_webhooks.py   # once: Telegram webhooks contain the old host
+```
+
+`up -d` recreates the backend with the new `PUBLIC_BASE_URL` and `FRONTEND_ORIGIN` and makes Caddy request a
+certificate for the new name. The Telegram webhooks of connected bots still point at the old host until
+`reregister_webhooks.py` has run.
+
+### Updating
+
+`git pull`, then `docker compose up -d --build` from `deploy/`. Keep `docker compose` runs on the one
+backend container; do not scale it.
+
+### Fallback
+
+The Render and Vercel checklist below is now the fallback deployment. It is unchanged.
+
+## Deployment checklist (fallback: Render and Vercel)
 
 Architecture: the frontend (Vercel) calls the backend (one always-on Render container) with a Supabase
 access token; the backend talks to Supabase Postgres, the Anthropic API and Telegram. The backend must
