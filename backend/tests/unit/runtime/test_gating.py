@@ -152,15 +152,17 @@ async def test_orders_stub_and_events_preset_run() -> None:
     h = Harness(spec, MemoryStore())
     start = await h.start("ali")
     assert "menu:open:shop_menu" in menu_data(start)
+    # The real orders engine (W1-ORD) answers every entry point; nothing exists yet, so it writes nothing.
+    shop = await h.tap("ali", "menu:open:shop_menu")
+    assert shop.messages[0].text == orders_texts.TEXTS["empty"].replace("{title}", "فروشگاه")
+    assert (await h.tap("ali", "menu:open:my_orders")).messages[0].text == orders_texts.TEXTS["mine_empty"]
     for resp in (
-        await h.tap("ali", "menu:open:shop_menu"),
-        await h.tap("ali", "menu:open:my_orders"),
         await h.tap("ali", "shop:add:1"),
         await h.tap("ali", "shop:chk:"),
         await h.admin("shop:own:1.send"),
     ):
-        assert [m.text for m in resp.messages] == [orders_texts.NOT_READY]
-        assert resp.outcomes == [] and resp.effects == []
+        assert [o.result for o in resp.outcomes] == ["rejected"]
+        assert resp.effects == []
     events = await h.tap("ali", "menu:open:events_menu")
     assert events.messages and not is_stale(events)
     assert is_stale(await h.tap("ali", "info:add:1"))  # orders-only action on another type

@@ -1,4 +1,4 @@
-"""Default Persian texts for the ``orders`` capability (Business OS: commerce).
+"""Default Persian texts for the ``orders`` capability (Business OS: commerce, W1-ORD).
 
 ``TEXTS`` holds exactly ``TEXT_KEYS["orders"]`` (overridable per capability via ``cap.texts``).
 The engine pre-renders ``{price}``/``{total}`` (formatted amounts), ``{lines}`` (cart or order item
@@ -34,13 +34,30 @@ TEXTS: dict[str, str] = {
 
 # --- fixed strings (no text key) -------------------------------------------------------------
 
-NOT_READY = "بخش سفارش‌ها هنوز در دسترس نیست. لطفاً بعداً دوباره امتحان کنید."
 CART_BUTTON = "سبد خرید"
 CHECKOUT_BUTTON = "ثبت سفارش"
 ADD_BUTTON = "افزودن به سبد"
 DEC_BUTTON = "کم کردن"
 MINE_BUTTON = "سفارش‌های من"
 CANCEL_BUTTON = "لغو سفارش"
+CONTINUE_BUTTON = "ادامه خرید"
 CART_LINE = "• {title} × {qty} — {total}"
 MINE_LINE = "• سفارش {id} — {status} — {total} ({when})"
 STOCK_LINE = "موجودی: {stock}"
+
+PRICE = "{amount} تومان"
+OUT_OF_STOCK_MARK = "ناموجود"
+MARKED_LINE = "{line} ({mark})"
+DEC_LINE_BUTTON = "− {title}"
+ORDER_BUTTON = "سفارش {id}"
+CANCEL_ORDER_BUTTON = "لغو سفارش {id}"
+STATUS_LINE = "وضعیت: {status}"
+ORDER_DETAIL = "سفارش {id}\n{lines}\nجمع کل: {total}\nوضعیت: {status}"
+GROUP_PRIVATE = "برای خرید و ثبت سفارش، لطفاً در گفتگوی خصوصی با ربات ادامه دهید."
+ITEM_UNAVAILABLE = "این کالا دیگر در دسترس نیست."
+CART_ITEMS_REMOVED = (
+    "برخی از کالاهای سبد شما دیگر در دسترس نیستند و از سبد حذف شدند. لطفاً سبد را دوباره بررسی کنید."
+)
+CART_LIMIT = "سقف تعداد این کالا یا تعداد اقلام سبد خرید پر شده است."
+ORDER_NOT_FOUND = "این سفارش پیدا نشد."
+NOT_ALLOWED_FROM = "این اقدام برای سفارشی که در وضعیت «{status}» است مجاز نیست."
