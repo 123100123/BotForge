@@ -122,7 +122,16 @@ def include_api_routers(app: FastAPI) -> list[str]:
 def create_app() -> FastAPI:
     settings = get_settings()
     install_log_redaction()  # SECURITY (WP4b): redact tokens and credentials from every log record
-    app = FastAPI(title="BotForge", lifespan=lifespan)
+    # SECURITY: the interactive docs and the OpenAPI schema need no login and map every route, so they
+    # exist only when API_DOCS_ENABLED is set (local development). ``app.openapi()`` works either way.
+    docs = settings.API_DOCS_ENABLED
+    app = FastAPI(
+        title="BotForge",
+        lifespan=lifespan,
+        docs_url="/docs" if docs else None,
+        redoc_url="/redoc" if docs else None,
+        openapi_url="/openapi.json" if docs else None,
+    )
     app.state.auth_rate_limits = AuthRateLimits()  # login and signup limits, per app instance
     # Re-sends the session cookie after a sliding renewal (app/security/sessions.py). Innermost, so
     # it sees every response the routes produce, including those returned as Response objects.

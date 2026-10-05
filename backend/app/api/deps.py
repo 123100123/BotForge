@@ -83,8 +83,8 @@ async def get_current_user(
         await session.commit()  # a renewal or the purge of an expired session, whatever comes next
     if user is None:
         raise http_error(401, INVALID_SESSION)
-    if resolved.renewed:
-        request_refresh(request, token)
+    if resolved.refresh_max_age is not None:  # renewed: re-send the cookie for what is left of it
+        request_refresh(request, token, resolved.refresh_max_age)
     return user
 
 
