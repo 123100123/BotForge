@@ -8,6 +8,7 @@ const KIND_TITLES: Record<DataCollection["kind"], string> = {
   resource: "اطلاعات",
   booking: "ثبت‌نام‌ها و رزروها",
   request: "درخواست‌ها",
+  orders: "سفارش‌ها",
 };
 
 interface CollectionNavProps {
@@ -19,7 +20,7 @@ interface CollectionNavProps {
 
 /** Resources first, then bookings, then requests (the backend already orders resources first). */
 export function CollectionNav({ collections, selected, counts, onSelect }: CollectionNavProps) {
-  const order: DataCollection["kind"][] = ["resource", "booking", "request"];
+  const order: DataCollection["kind"][] = ["resource", "booking", "request", "orders"];
   const groups = order
     .map((kind) => ({ kind, items: collections.filter((c) => c.kind === kind) }))
     .filter((g) => g.items.length > 0);

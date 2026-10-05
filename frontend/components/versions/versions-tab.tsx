@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from "react";
 import { History, Undo2 } from "lucide-react";
-import type { WorkspaceTab } from "@/components/agent/agent-tab";
+import type { WorkspaceTab } from "@/components/app/workspace";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { REVISION_STATUS_LABELS, REVISION_STATUS_VARIANTS } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
+import { Segmented } from "@/components/app/segmented";
 import { useRevisions } from "@/components/app/use-revisions";
+import { TestsTab } from "@/components/tests/tests-tab";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +19,41 @@ import type { Bot, RevisionDetail } from "@/lib/types";
 import { RevisionList } from "./revision-list";
 import { SpecDiff } from "./spec-diff";
 
+type VersionsView = "history" | "tests";
+
+/** Versions section: the revision history, with the scenario tests as a sub-section. */
 export function VersionsTab({
+  bot,
+  onBotChanged,
+  onOpenTab,
+}: {
+  bot: Bot;
+  onBotChanged: () => void;
+  onOpenTab: (tab: WorkspaceTab) => void;
+}) {
+  const [view, setView] = useState<VersionsView>("history");
+
+  return (
+    <div className="flex flex-col gap-4">
+      <Segmented<VersionsView>
+        label="بخش نسخه‌ها"
+        value={view}
+        onChange={setView}
+        options={[
+          { value: "history", label: "تاریخچه" },
+          { value: "tests", label: "آزمون‌ها" },
+        ]}
+      />
+      {view === "history" ? (
+        <RevisionHistory bot={bot} onBotChanged={onBotChanged} onOpenTab={onOpenTab} />
+      ) : (
+        <TestsTab bot={bot} onOpenTab={onOpenTab} />
+      )}
+    </div>
+  );
+}
+
+function RevisionHistory({
   bot,
   onBotChanged,
   onOpenTab,

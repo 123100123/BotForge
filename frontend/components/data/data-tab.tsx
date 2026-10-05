@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { Plus } from "lucide-react";
-import type { WorkspaceTab } from "@/components/agent/agent-tab";
+import type { WorkspaceTab } from "@/components/app/workspace";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";

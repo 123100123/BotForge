@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { Play, RotateCcw } from "lucide-react";
-import type { WorkspaceTab } from "@/components/agent/agent-tab";
+import type { WorkspaceTab } from "@/components/app/workspace";
 import { defaultRevision, revisionOptionLabel } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";

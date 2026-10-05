@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { IS_MOCK } from "@/lib/config";
 import { GOLDEN_CREATE_PROMPT, GOLDEN_MODIFY_PROMPT } from "@/lib/fixtures/common";
 import { latestReport, type FeedItem, type RunView } from "@/lib/agent-state";
+import type { WorkspaceTab } from "@/components/app/workspace";
 import type { Bot, RunKind, RunStatus } from "@/lib/types";
 import { ActivityTimeline } from "./activity-timeline";
 import { ChatMessage, ChatThread, type ChatItem } from "./chat-thread";
@@ -15,8 +16,6 @@ import { RequirementsCard } from "./requirements-card";
 import { ReviewCard, type ReviewDecision } from "./review-card";
 import { TestSummary } from "./test-summary";
 import { useAgentRun } from "./use-agent-run";
-
-export type WorkspaceTab = "agent" | "simulator" | "tests" | "data" | "versions" | "settings";
 
 interface AgentTabProps {
   bot: Bot;

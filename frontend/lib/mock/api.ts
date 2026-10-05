@@ -1,7 +1,12 @@
 import type { Api } from "@/lib/api";
 import { mockLogin, mockLogout, mockMe, mockSignup } from "@/lib/mock/auth";
+import * as analyst from "@/lib/mock/analyst";
+import * as capabilities from "@/lib/mock/capabilities";
+import * as copilot from "@/lib/mock/copilot";
 import * as engine from "@/lib/mock/engine";
+import * as reports from "@/lib/mock/reports";
 import * as tabs from "@/lib/mock/tabs";
+import * as team from "@/lib/mock/team";
 
 /** Small latency so loading states are real. */
 const LATENCY_MS = 120;
@@ -51,4 +56,33 @@ export const mockApi: Api = {
   getTelegram: (botId) => call(() => tabs.getTelegram(botId)),
   connectTelegram: (botId, token) => call(() => tabs.connectTelegram(botId, token)),
   disconnectTelegram: (botId) => call(() => tabs.disconnectTelegram(botId)),
+
+  listCapabilities: () => call(() => capabilities.listCapabilities()),
+  enableCapability: (_botId, capId, body) => call(() => capabilities.enableCapability(capId, body)),
+  disableCapability: (_botId, capId, body) => call(() => capabilities.disableCapability(capId, body)),
+  updateCapabilityConfig: (_botId, capId, body) => call(() => capabilities.updateCapabilityConfig(capId, body)),
+
+  getOverview: (_botId, period) => call(() => reports.getOverview(period)),
+  getCapabilityReport: (_botId, capKey, period) => call(() => reports.getCapabilityReport(capKey, period)),
+
+  uploadWorkbook: (_botId, file) => call(() => analyst.uploadWorkbook(file)),
+  listUploads: () => call(() => analyst.listUploads()),
+  listAnalysisProfiles: () => call(() => analyst.listAnalysisProfiles()),
+  createAnalysisProfile: (_botId, body) => call(() => analyst.createAnalysisProfile(body)),
+  updateAnalysisProfile: (_botId, profileId, body) => call(() => analyst.updateAnalysisProfile(profileId, body)),
+  runAnalysis: (_botId, profileId, body) => call(() => analyst.runAnalysis(profileId, body)),
+  listAnalysisRuns: (_botId, profileId) => call(() => analyst.listAnalysisRuns(profileId)),
+
+  copilotMessage: (_botId, body) => call(() => copilot.copilotMessage(body)),
+
+  getTeam: () => call(() => team.getTeam()),
+  rotateStaffLink: () => call(() => team.rotateStaffLink()),
+  revokeStaffLink: () => call(() => team.revokeStaffLink()),
+  setMemberRole: (_botId, actorId, body) => call(() => team.setMemberRole(actorId, body)),
+  listGroups: () => call(() => team.listGroups()),
+  publishToGroup: () => call(() => team.publishToGroup()),
+  createAnnouncement: (_botId, body) => call(() => team.createAnnouncement(body)),
+  listAnnouncements: () => call(() => team.listAnnouncements()),
+  getSchedules: () => call(() => team.getSchedules()),
+  putSchedules: (_botId, body) => call(() => team.putSchedules(body)),
 };

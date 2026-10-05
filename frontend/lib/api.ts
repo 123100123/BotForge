@@ -3,19 +3,46 @@ import { ApiError, parseFieldErrors } from "@/lib/errors";
 import { mockApi } from "@/lib/mock/api";
 import type {
   AgentRun,
+  AnalysisProfileCreateIn,
+  AnalysisProfileOut,
+  AnalysisProfileUpdateIn,
+  AnalysisRunIn,
+  AnalysisRunOut,
+  AnnouncementIn,
+  AnnouncementOut,
   Bot,
+  CapabilityConfigIn,
+  CapabilityListOut,
+  CapabilityOut,
+  CapabilityReportOut,
+  CapabilityToggleIn,
+  CapabilityToggleOut,
+  CopilotMessageIn,
+  CopilotMessageOut,
   DataActionResult,
   DataOverview,
   DataRecord,
+  GroupOut,
   Me,
+  MemberRoleIn,
+  OverviewOut,
+  Period,
+  PublishIn,
+  PublishOut,
   RecordsPage,
   RevisionDetail,
   RevisionSummary,
   RuntimeResponse,
+  ScheduleOut,
+  SchedulesIn,
   SimulatorEventBody,
   SimulatorResetResult,
+  StaffLinkOut,
+  TeamMemberOut,
+  TeamOut,
   TelegramStatus,
   TestReport,
+  UploadOut,
 } from "@/lib/types";
 
 export { ApiError } from "@/lib/errors";
@@ -73,6 +100,36 @@ export interface Api {
   getTelegram(botId: string): Promise<TelegramStatus>;
   connectTelegram(botId: string, token: string): Promise<TelegramStatus>;
   disconnectTelegram(botId: string): Promise<TelegramStatus>;
+  // Capability Center
+  listCapabilities(botId: string): Promise<CapabilityListOut>;
+  /** `dry_run: true` returns the plan without creating a revision. */
+  enableCapability(botId: string, capId: string, body: CapabilityToggleIn): Promise<CapabilityToggleOut>;
+  disableCapability(botId: string, capId: string, body: CapabilityToggleIn): Promise<CapabilityToggleOut>;
+  updateCapabilityConfig(botId: string, capId: string, body: CapabilityConfigIn): Promise<CapabilityOut>;
+  // Reports
+  getOverview(botId: string, period: Period): Promise<OverviewOut>;
+  getCapabilityReport(botId: string, capKey: string, period: Period): Promise<CapabilityReportOut>;
+  // Spreadsheet intelligence (Data Analyst)
+  uploadWorkbook(botId: string, file: File): Promise<UploadOut>;
+  listUploads(botId: string): Promise<UploadOut[]>;
+  listAnalysisProfiles(botId: string): Promise<AnalysisProfileOut[]>;
+  createAnalysisProfile(botId: string, body: AnalysisProfileCreateIn): Promise<AnalysisProfileOut>;
+  updateAnalysisProfile(botId: string, profileId: string, body: AnalysisProfileUpdateIn): Promise<AnalysisProfileOut>;
+  runAnalysis(botId: string, profileId: string, body: AnalysisRunIn): Promise<AnalysisRunOut>;
+  listAnalysisRuns(botId: string, profileId?: string): Promise<AnalysisRunOut[]>;
+  // Copilot (ask mode)
+  copilotMessage(botId: string, body: CopilotMessageIn): Promise<CopilotMessageOut>;
+  // Team, groups, announcements, schedules
+  getTeam(botId: string): Promise<TeamOut>;
+  rotateStaffLink(botId: string): Promise<StaffLinkOut>;
+  revokeStaffLink(botId: string): Promise<StaffLinkOut>;
+  setMemberRole(botId: string, actorId: string, body: MemberRoleIn): Promise<TeamMemberOut>;
+  listGroups(botId: string): Promise<GroupOut[]>;
+  publishToGroup(botId: string, chatId: number, body: PublishIn): Promise<PublishOut>;
+  createAnnouncement(botId: string, body: AnnouncementIn): Promise<AnnouncementOut>;
+  listAnnouncements(botId: string): Promise<AnnouncementOut[]>;
+  getSchedules(botId: string): Promise<ScheduleOut[]>;
+  putSchedules(botId: string, body: SchedulesIn): Promise<ScheduleOut[]>;
 }
 
 const STATUS_MESSAGES: Record<number, string> = {
@@ -142,6 +199,31 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   return (await res.json()) as T;
 }
 
+/**
+ * Raw-body upload (no multipart): the file is the request body and its name travels in the query string.
+ * Auth is the same Bearer header as every other call (a header, not a cookie, so no CSRF token is needed).
+ */
+async function uploadFile(botId: string, file: File): Promise<UploadOut> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `${API_BASE_URL}/uploads/bots/${encodeURIComponent(botId)}?filename=${encodeURIComponent(file.name)}`,
+      {
+        method: "PUT",
+        headers: {
+          ...(await authHeaders()),
+          "Content-Type": file.type || "application/octet-stream",
+        },
+        body: file,
+      },
+    );
+  } catch {
+    throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
+  }
+  if (!res.ok) throw await parseErrorResponse(res);
+  return (await res.json()) as UploadOut;
+}
+
 const enc = encodeURIComponent;
 
 export const realApi: Api = {
@@ -194,6 +276,48 @@ export const realApi: Api = {
   disconnectTelegram: async (botId) =>
     (await request<TelegramStatus | undefined>("DELETE", `/bots/${enc(botId)}/telegram`)) ??
     (await request<TelegramStatus>("GET", `/bots/${enc(botId)}/telegram`)),
+
+  listCapabilities: (botId) => request("GET", `/bots/${enc(botId)}/capabilities`),
+  enableCapability: (botId, capId, body) =>
+    request("POST", `/bots/${enc(botId)}/capabilities/${enc(capId)}/enable`, body),
+  disableCapability: (botId, capId, body) =>
+    request("POST", `/bots/${enc(botId)}/capabilities/${enc(capId)}/disable`, body),
+  updateCapabilityConfig: (botId, capId, body) =>
+    request("PATCH", `/bots/${enc(botId)}/capabilities/${enc(capId)}/config`, body),
+
+  getOverview: (botId, period) => request("GET", `/bots/${enc(botId)}/reports/overview?period=${enc(period)}`),
+  getCapabilityReport: (botId, capKey, period) =>
+    request("GET", `/bots/${enc(botId)}/reports/${enc(capKey)}?period=${enc(period)}`),
+
+  uploadWorkbook: (botId, file) => uploadFile(botId, file),
+  listUploads: (botId) => request("GET", `/bots/${enc(botId)}/uploads`),
+  listAnalysisProfiles: (botId) => request("GET", `/bots/${enc(botId)}/analysis/profiles`),
+  createAnalysisProfile: (botId, body) => request("POST", `/bots/${enc(botId)}/analysis/profiles`, body),
+  updateAnalysisProfile: (botId, profileId, body) =>
+    request("PATCH", `/bots/${enc(botId)}/analysis/profiles/${enc(profileId)}`, body),
+  runAnalysis: (botId, profileId, body) =>
+    request("POST", `/bots/${enc(botId)}/analysis/profiles/${enc(profileId)}/run`, body),
+  listAnalysisRuns: (botId, profileId) =>
+    request("GET", `/bots/${enc(botId)}/analysis/runs${profileId ? `?profile_id=${enc(profileId)}` : ""}`),
+
+  copilotMessage: (botId, body) => request("POST", `/bots/${enc(botId)}/copilot/messages`, body),
+
+  getTeam: (botId) => request("GET", `/bots/${enc(botId)}/team`),
+  rotateStaffLink: (botId) => request("POST", `/bots/${enc(botId)}/team/staff-link`),
+  revokeStaffLink: async (botId) =>
+    (await request<StaffLinkOut | undefined>("DELETE", `/bots/${enc(botId)}/team/staff-link`)) ?? {
+      staff_link: null,
+      staff_link_code: null,
+    },
+  setMemberRole: (botId, actorId, body) =>
+    request("PATCH", `/bots/${enc(botId)}/team/members/${enc(actorId)}`, body),
+
+  listGroups: (botId) => request("GET", `/bots/${enc(botId)}/groups`),
+  publishToGroup: (botId, chatId, body) => request("POST", `/bots/${enc(botId)}/groups/${chatId}/publish`, body),
+  createAnnouncement: (botId, body) => request("POST", `/bots/${enc(botId)}/announcements`, body),
+  listAnnouncements: (botId) => request("GET", `/bots/${enc(botId)}/announcements`),
+  getSchedules: (botId) => request("GET", `/bots/${enc(botId)}/schedules`),
+  putSchedules: (botId, body) => request("PUT", `/bots/${enc(botId)}/schedules`, body),
 };
 
 /** The client the app uses: fixtures in mock mode, the real backend otherwise. */

@@ -47,6 +47,8 @@ export function workshopSpec(opts: WorkshopSpecOptions): BotSpec {
     capabilities: [
       {
         type: "info",
+        enabled: true,
+        audience: "everyone",
         key: "info",
         title: "دربارهٔ ما",
         pages: [
@@ -56,6 +58,8 @@ export function workshopSpec(opts: WorkshopSpecOptions): BotSpec {
       },
       {
         type: "booking",
+        enabled: true,
+        audience: "everyone",
         key: "book_workshop",
         title: "ثبت‌نام در کارگاه",
         resource: "workshop",
@@ -71,6 +75,9 @@ export function workshopSpec(opts: WorkshopSpecOptions): BotSpec {
         notify_owner_on: ["booked", "cancelled"],
         notify_user_on: ["promoted"],
         texts: [],
+        preset: "booking",
+        reminder_hours_before: null,
+        category_field: null,
       },
     ],
     menu: [
@@ -102,6 +109,8 @@ export function repairSpec(withAssign: boolean): BotSpec {
     capabilities: [
       {
         type: "request",
+        enabled: true,
+        audience: "everyone",
         key: "repair",
         title: "درخواست تعمیر",
         form_fields: [
@@ -132,6 +141,8 @@ export function repairSpec(withAssign: boolean): BotSpec {
       },
       {
         type: "info",
+        enabled: true,
+        audience: "everyone",
         key: "info",
         title: "دربارهٔ ما",
         pages: [{ key: "hours", title: "ساعات کاری", body: "شنبه تا پنجشنبه، ساعت ۸ تا ۲۰" }],
