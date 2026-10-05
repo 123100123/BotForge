@@ -100,7 +100,7 @@ Load the golden spec into a bot for that user and seed the demo data:
 
 ```powershell
 curl.exe -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{\"name\":\"Demo\"}' http://localhost:8000/bots
-uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --owner-id <user id> --bot-id <bot id>
+uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --owner-id <user id> --bot-id <bot id> --sample-data scripts/workshop.sample_data.json
 uv run python scripts/seed_demo.py --bot-id <bot id>            # --reset removes it again
 ```
 
@@ -164,8 +164,10 @@ run as a single instance with a single worker (agent runs and rate limits are in
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Deploy.
 5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
    webhooks are registered under it, so it must be the public https address) and
-   `FRONTEND_ORIGIN=https://<your-app>.vercel.app` (exactly one origin, no trailing slash; CORS allows
-   only this). Redeploy the backend. Preview deployments on other Vercel URLs will be rejected by CORS.
+   `FRONTEND_ORIGIN=https://<your-app>.vercel.app` (no trailing slash; CORS allows only the listed origins).
+   `FRONTEND_ORIGIN` accepts several origins separated by commas, for example
+   `https://<your-app>.vercel.app,https://<your-app>-git-<branch>-<team>.vercel.app`; add a preview
+   deployment's URL there to let it call the backend. Redeploy the backend. Origins not listed are rejected by CORS.
 6. **Seed the demo** (after a bot with the workshop spec is active; see Gate B):
    point `DATABASE_URL` at Supabase in your shell, then
    `uv run python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes the seeded data.
@@ -176,7 +178,7 @@ Gate definitions are in `IMPLEMENTATION_ROADMAP.md`, Milestone Gates. Both need 
 
 **Gate B: the golden spec serves a real Telegram bot.**
 1. Sign up in the deployed web app and create a bot. Note your user id (`sub`) and the bot id (the URL).
-2. `uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --owner-id <user id> --bot-id <bot id>` with `DATABASE_URL` pointing at Supabase.
+2. `uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --owner-id <user id> --bot-id <bot id> --sample-data scripts/workshop.sample_data.json` with `DATABASE_URL` pointing at Supabase.
 3. Create a bot in BotFather, paste its token in the bot's Settings tab; the bot goes live.
 4. Add two workshops in the Data tab (or run `seed_demo.py`).
 5. With two Telegram accounts: browse, book, fill the capacity, join the waitlist, cancel one booking

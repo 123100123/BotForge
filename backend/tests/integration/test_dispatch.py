@@ -255,3 +255,38 @@ async def test_admin_event_does_not_echo_the_owner_reply_to_telegram(
     assert any(m.to_actor_id == "900" for m in response.messages)  # in the response for the web admin
     assert fake_tg.sent_to(900) == []  # but not pushed to the owner's Telegram chat
     assert len(fake_tg.sent_to(602)) == 1  # the promoted customer is notified
+
+
+async def test_live_delivery_skips_actors_that_are_not_telegram_chat_ids(
+    session_factory: SessionFactory,
+    bot: LiveBot,
+    spec: BotSpec,
+    fake_tg: FakeTelegramClient,
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    caplog.set_level("INFO", logger="app.services.dispatch")
+    response = await run(session_factory, bot, spec, event(bot, "live", "demo-01", "start"), fake_tg)
+    assert response.messages and response.messages[0].to_actor_id == "demo-01"  # still in the response
+    assert fake_tg.calls_to("sendMessage") == [] and fake_tg.calls_to("editMessageText") == []
+    assert "demo-01" in caplog.text
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error is None
+
+    # a numeric id and a negative (group) id are still delivered
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)
+    assert len(fake_tg.sent_to(601)) == 1
+    await run(session_factory, bot, spec, event(bot, "live", "-100123", "start"), fake_tg)
+    assert len(fake_tg.sent_to(-100123)) == 1
+
+
+async def test_skipping_a_non_numeric_actor_does_not_clear_or_set_the_last_error(
+    session_factory: SessionFactory, bot: LiveBot, spec: BotSpec, fake_tg: FakeTelegramClient
+) -> None:
+    fake_tg.fail_methods["sendMessage"] = "Forbidden: bot was blocked by the user"
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)
+    fake_tg.fail_methods.clear()
+    await run(session_factory, bot, spec, event(bot, "live", "demo-02", "start"), fake_tg)  # sends nothing
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error == "sendMessage: Forbidden: bot was blocked by the user"
