@@ -5,7 +5,8 @@
 # internal network, so a wrong firewall rule cannot expose them.
 #
 # The backend stays ONE container with ONE uvicorn worker: agent runs, rate limits and the Telegram
-# webhook handler live in that process. Never add `deploy.replicas` or `--scale backend=2`.
+# webhook handler (or, with TELEGRAM_MODE=polling, the Telegram poller) live in that process. Never add
+# `deploy.replicas` or `--scale backend=2`: two pollers for one bot make Telegram refuse both (409).
 
 name: botforge
 
@@ -52,6 +53,9 @@ services:
       # The hostname is configured once (SITE_HOST); the browser talks to the site origin only.
       FRONTEND_ORIGIN: https://${SITE_HOST:?set SITE_HOST in deploy/.env}
       PUBLIC_BASE_URL: https://${SITE_HOST}
+      # "webhook": Telegram posts updates to https://SITE_HOST/tg/<bot id> (it must reach this server).
+      # "polling": the backend fetches them with getUpdates, outbound only (see deploy/.env.example).
+      TELEGRAM_MODE: ${TELEGRAM_MODE:-webhook}
       # Own login: email + password, server-side sessions in the HttpOnly bf_session cookie.
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_ALLOW_SIGNUP: ${AUTH_ALLOW_SIGNUP:-true}

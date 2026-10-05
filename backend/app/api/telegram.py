@@ -57,9 +57,15 @@ async def telegram_connect(
     session: AsyncSession = Depends(get_session),
     telegram: TelegramProvider = Depends(get_telegram_provider),
 ) -> TelegramStatusOut:
+    settings = get_settings()
     try:
         await onboarding.connect(
-            session, bot, body.token, telegram, public_base_url=get_settings().PUBLIC_BASE_URL
+            session,
+            bot,
+            body.token,
+            telegram,
+            public_base_url=settings.PUBLIC_BASE_URL,
+            mode=settings.TELEGRAM_MODE,
         )
     except onboarding.OnboardingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None

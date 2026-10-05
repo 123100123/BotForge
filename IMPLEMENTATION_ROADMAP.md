@@ -41,14 +41,15 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 - **Gate A:** passed earlier.
 - **Gate C passed on headless Claude:** `eval_golden.py --create --provider claude_cli --runs 3` passed 3/3. Each run produced 10 derived and 5 acceptance scenarios, all green, with 2 tool calls. Notional API cost was about $0.17 per run, and a run takes about 1 minute.
 - **Gate D, automated part, passed on headless Claude:** `--modify --runs 3` passed 3/3, with both golden modifications in each run. It averaged 7 tool calls and a notional $0.19 per run. The manual Telegram half of Gate D is still open.
-- **Backend suite:** 1158 passed, 0 skipped, ruff clean (`uv sync --group dbtest --group headless && uv run pytest -q`).
+- **Telegram polling mode** (`TELEGRAM_MODE=polling`): updates fetched with `getUpdates` (outbound only) through the webhook's own `process_update`, offset in `bots.tg_poll_offset` (migration 0004). The local Docker override uses it, so the local rehearsal needs no tunnel. See Telegram Integration.
+- **Backend suite:** 1228 passed, 0 skipped, ruff clean (`uv sync --group dbtest --group headless && uv run pytest -q`).
 - **Frontend:** `npm ci`, lint and build (mock mode) pass on Linux.
 
 ### Built but not yet proven
 
 - **Anthropic API path:** the agent has never run against the real API. Headless runs do not prove `output_config.format` acceptance of the BotSpec schema (O5), prompt caching, `fallbacks`, or real cost. This is the pre-deploy API check (see Milestone Gates).
 - **The Iranian LLM mirror is unknown and untested;** it may not support structured output, adaptive thinking or effort, or the server-side fallback beta.
-- **No real Telegram and no deployment.** The webhook path is tested only with `FakeTelegramClient`. The Docker image has never been built.
+- **No real Telegram and no deployment.** The webhook path and the poller are tested only with `FakeTelegramClient` (and the real client over a stub transport). Polling has not yet run against real Telegram through the proxy. The Docker image has never been built.
 - **The frontend has never talked to the real backend.**
 - **Owner-link race safety** relies on Postgres READ COMMITTED re-checking a single `UPDATE ... WHERE` after a concurrent commit. Tests cover it; a human security review is still worthwhile.
 
@@ -65,7 +66,7 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
    - **ClaudeCodeLLM:** no test covers a drain that hangs or raises after a successful interrupt. The code path is the same timeout block.
 3. **Deploy** (needs the owner's VPS; self-hosted with Docker Compose, own auth, no Supabase):
    - Provision the VPS: install Docker, open only ports 22, 80 and 443 in the firewall, and use SSH keys.
-   - Copy `deploy/.env.example` to `deploy/.env` and fill it in, then run `docker compose up -d --build`.
+   - Copy `deploy/.env.example` to `deploy/.env` and fill it in (on the Iranian VPS, `TELEGRAM_MODE=polling` unless Telegram can reach it inbound), then run `docker compose up -d --build`.
    - Create the first owner account with `docker compose exec backend python scripts/create_user.py --email ...`; then set `AUTH_ALLOW_SIGNUP=false` unless Gate E needs open signup.
    - Register two BotFather bots.
    - Load the golden spec inside the backend container with `scripts/load_spec.py --owner-email ... --spec /examples/workshop.botspec.json --sample-data scripts/workshop.sample_data.json`.
@@ -1028,7 +1029,7 @@ Automated scenarios use `MemoryStore` for speed. `tests/integration/test_store_c
 
 Location: `backend/app/integrations/telegram/`.
 
-**Client** (`client.py`): httpx calls to `getMe`, `setWebhook`, `deleteWebhook`, `sendMessage`, `editMessageText`, `answerCallbackQuery`. Timeouts of a few seconds; one retry on network errors and 429 (honoring `retry_after`).
+**Client** (`client.py`): httpx calls to `getMe`, `setWebhook`, `deleteWebhook`, `sendMessage`, `editMessageText`, `answerCallbackQuery`. Timeouts of a few seconds; one retry on network errors and 429 (honoring `retry_after`). Polling mode adds `getUpdates`: a long poll with a read timeout above its `timeout` and no retry of its own (the poller backs off).
 
 **Token onboarding** (`POST /bots/{id}/telegram/connect`):
 1. `getMe` with the token; reject if invalid.
@@ -1049,6 +1050,8 @@ Location: `backend/app/integrations/telegram/`.
 7. Return 200 in every case; log failures.
 
 **Multi-bot.** One process, one route, many bots. The path's `bot_id` selects the token, secret, and active revision. No per-bot process or container.
+
+**Polling mode** (`TELEGRAM_MODE=polling`; default `webhook`). For servers Telegram cannot reach inbound (the owner's dev machine and VPS are in Iran; outbound calls work through `HTTPS_PROXY`/`ALL_PROXY`). The poller (`poller.py`, started by the app lifespan only in this mode) is a supervisor that every ~10 s reads the bots with a stored token and keeps one task per bot and token: a disconnect or a token change (every connect re-encrypts) stops the old task, a new token gets a new one. Each task calls `deleteWebhook(drop_pending_updates=False)` once, then long-polls `getUpdates(offset, timeout=25, allowed_updates=["message","callback_query"])` and hands every update, strictly in order, to `process_update` in `app/api/webhook.py`, the same function the webhook route calls after its secret and body-size checks (dedupe, conversion, owner link, "not ready", dispatch, delivery). After each update it saves `bots.tg_poll_offset = update_id + 1` (migration 0004), compare-and-set on the token it polls with. Replays are safe: an update handled but not yet confirmed (crash before the offset save or the next `getUpdates`) comes back and is dropped by `tg_updates`; as with the webhook, an update whose processing dies half way is not retried. Errors: network errors and 5xx back off exponentially with jitter (1 s to 60 s); 429 waits `retry_after`; 409 deletes the webhook again and backs off; 401/404 are recorded in `tg_last_error` and stop that bot until its token changes. Connect in polling mode validates with `getMe`, rotates the secret and the owner link as before, calls `deleteWebhook(drop_pending_updates=True)` instead of `setWebhook`, and needs no public https `PUBLIC_BASE_URL`; connect and disconnect clear `tg_poll_offset`. `scripts/reregister_webhooks.py` does nothing in polling mode. Polling requires exactly one backend process (Telegram answers 409 to a second consumer).
 
 **Dispatch service** (`backend/app/services/dispatch.py`, owned by WP5): `async dispatch(bot, spec, event) -> RuntimeResponse`. It opens a transaction, takes the bot's advisory lock, builds `PgStore(bot.id, event.env, owner_actor_id=...)`, calls `BotRuntime.handle`, commits, and then, for `env="live"`, delivers every `OutMessage` through the Telegram client (the chat id is the recipient's actor id). For `env="sandbox"` nothing is sent; the caller returns the messages. The webhook, the simulator endpoint, and the data-admin action endpoint all go through this one function, so an admin cancel that promotes a waitlisted user notifies that user in Telegram.
 
@@ -1145,7 +1148,7 @@ Postgres schema `app` (Postgres on the VPS is not published to the internet). UU
 |---|---|---|
 | `users` | `id`, `email` unique (lower-cased), `password_hash` (argon2id), `created_at` | Index on `email` |
 | `auth_sessions` | `id`, `user_id`, `token_hash` unique (only a hash of the token is stored), `created_at`, `expires_at` | Index `(user_id)`. Login sessions, not to be confused with the bot conversation `sessions` table below |
-| `bots` | `id`, `owner_id` (`users.id`), `name`, `status` (`draft`/`live`/`paused`), `active_revision_id` null, `tg_bot_id` null unique, `tg_username`, `tg_token_enc`, `tg_webhook_secret`, `owner_link_code`, `owner_actor_id` null (the owner's Telegram user id), `created_at` | Index `(owner_id)` |
+| `bots` | `id`, `owner_id` (`users.id`), `name`, `status` (`draft`/`live`/`paused`), `active_revision_id` null, `tg_bot_id` null unique, `tg_username`, `tg_token_enc`, `tg_webhook_secret`, `owner_link_code`, `owner_actor_id` null (the owner's Telegram user id), `tg_last_error` null, `tg_poll_offset` bigint null (polling mode only), `created_at` | Index `(owner_id)` |
 | `revisions` | `id`, `bot_id`, `number` (per bot), `parent_id` null, `status` (`draft`/`active`/`superseded`/`rejected`), `spec` jsonb, `requirements` jsonb, `patch` jsonb, `change_request` text, `scenarios` jsonb, `superseded` jsonb, `test_report` jsonb, `sample_data` jsonb, `created_at`, `activated_at` | Unique `(bot_id, number)` |
 | `records` | `id` bigserial, `bot_id`, `env` (`live`/`sandbox`), `collection`, `data` jsonb, `status`, `actor_id`, `item_id` bigint, `created_at`, `updated_at` | Indexes `(bot_id, env, collection)`, `(bot_id, env, collection, item_id, status)`, `(bot_id, env, collection, actor_id)` |
 | `sessions` | `bot_id`, `env`, `actor_id`, `state` jsonb, `updated_at` | PK `(bot_id, env, actor_id)` |
@@ -1606,6 +1609,7 @@ Not part of the hackathon build.
 | 2026-10-05 | Self-host on one VPS with Docker Compose (Caddy, frontend, backend, Postgres); one hostname with `/api` and `/tg` routed to the backend; sslip.io hostname until a domain exists; Render and Vercel become the fallback | Owner's choice: one always-on server they control, no sleeping free tiers, database on the same machine | Active |
 | 2026-10-05 | Own authentication in the backend (email and password, argon2id, server-side sessions in an HttpOnly cookie, CSRF header); Supabase removed | Owner's decision: no external auth service; everything runs on the one server | Active |
 | 2026-10-05 | Restricted-network deployment (the VPS is in Iran): Docker registry mirror on the host, optional outbound proxy (OUTBOUND_HTTP(S)_PROXY) for the backend and Caddy, optional PyPI and npm mirrors as build args, `uv` installed from PyPI (ghcr.io blocked), and the LLM reached through an Anthropic-compatible mirror via ANTHROPIC_BASE_URL. The mirror must pass the spike and one golden eval before it is relied on | The owner's VPS is in Iran; Docker Hub, ghcr.io and api.anthropic.com are unreachable directly | Active |
+| 2026-10-05 | Telegram polling mode (`TELEGRAM_MODE=polling`) as an outbound-only alternative to webhooks; same dispatch path; offset persisted per bot | Inbound connections from Telegram are blocked in Iran (dev machine and VPS); outbound works through a proxy | Active |
 
 ---
 
@@ -1625,3 +1629,4 @@ Not part of the hackathon build.
 | 2026-10-05 | Deployment changed to a self-hosted VPS with Docker Compose (Caddy, frontend, backend, Postgres) with one hostname and nightly `pg_dump` backups; new `deploy/` directory, `frontend/Dockerfile` and `backend/scripts/reregister_webhooks.py`; Render and Vercel kept as a documented fallback; Supabase kept for Auth. Updated K14, O3, System Architecture, Security, Cost Strategy, Repository Structure, WP11, Risk Register, Fallback Plan, Demo Preparation Checklist and Current Status. |
 | 2026-10-05 | Own authentication replaces Supabase Auth: `users` and `auth_sessions` tables, `/auth/*` endpoints, `bf_session` cookie with CSRF header, `backend/scripts/create_user.py`; `scripts/dev_token.py` is replaced by sessions created through the API or `create_user.py`; the frontend's Supabase client is removed. Updated K14, System Architecture, Security, Database Schema, Backend API, Frontend, Cost Strategy, Repository Structure, WP4, WP9, Demo Preparation Checklist and Current Status. |
 | 2026-10-05 | Self-hosting work merged: the Docker Compose stack (`deploy/`, with a local override), own authentication, the webhook re-registration script (`backend/scripts/reregister_webhooks.py`), the `httpx` runtime dependency fix, and `FORWARDED_ALLOW_IPS` pinned to Caddy. Follow-ups: `httpx[socks]` and `httpx2[socks]` so the backend and scripts work behind a SOCKS `ALL_PROXY`; re-registration keeps queued Telegram updates (`set_webhook(drop_pending_updates=False)`; connect still drops); restricted-network Decision Log entry; `deploy/LOCAL-REHEARSAL.md`. |
+| 2026-10-05 | Telegram polling mode (`TELEGRAM_MODE=polling`, default `webhook`): `app/integrations/telegram/poller.py` (supervisor plus one `getUpdates` long-poll task per connected bot), the webhook's post-authentication handling extracted as `process_update` and shared by both modes, `bots.tg_poll_offset` (migration 0004), connect without `setWebhook` or a public URL in polling mode, `reregister_webhooks.py` a no-op in polling mode; the local Docker override runs in polling mode and `deploy/LOCAL-REHEARSAL.md` no longer needs a tunnel. Updated Telegram Integration, Database Schema and Current Status. |

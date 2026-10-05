@@ -6,6 +6,8 @@ from typing import Literal
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+TelegramMode = Literal["webhook", "polling"]
+
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
@@ -17,6 +19,12 @@ class Settings(BaseSettings):
 
     FRONTEND_ORIGIN: str = "http://localhost:3000"  # one origin, or several separated by commas
     PUBLIC_BASE_URL: str = "http://localhost:8000"
+
+    # How Telegram updates arrive. "webhook" (default): Telegram posts them to
+    # {PUBLIC_BASE_URL}/tg/{bot_id}, so it must reach this server over public https. "polling": the
+    # backend fetches them with getUpdates (outbound only; app/integrations/telegram/poller.py), for
+    # servers Telegram cannot reach. Polling needs exactly one backend process.
+    TELEGRAM_MODE: TelegramMode = "webhook"
 
     # Owner accounts and login sessions (app/security/). The session cookie is Secure unless
     # AUTH_COOKIE_SECURE is false, which is meant only for plain-http local development. A session ends

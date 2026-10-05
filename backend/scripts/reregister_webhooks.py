@@ -27,11 +27,15 @@ messages sent during the move) are delivered to the new one.
 * A bot its owner disconnects or reconnects while the script runs is left as that action left it
   and reported as failed; run the script again for it if it is still connected.
 
-Exit status: 0 every bot ok (or none connected); 1 at least one bot failed; 2 refused to run because
-PUBLIC_BASE_URL is not an https URL on a public host, TOKEN_ENC_KEY is unusable or decrypts none of
-the stored tokens, DATABASE_URL is not set, or no HTTP client for Telegram can be created (proxy
-settings). Nothing is called or written when the run is refused. Tokens and webhook secrets never
-appear in the output or the log.
+With ``TELEGRAM_MODE=polling`` there is no webhook to move (the poller fetches updates and needs no
+public address): the script says so and exits 0 without touching any bot. After switching a server
+from polling back to webhook mode, run it once so every connected bot gets its webhook.
+
+Exit status: 0 every bot ok (or none connected, or polling mode); 1 at least one bot failed; 2 refused
+to run because PUBLIC_BASE_URL is not an https URL on a public host, TOKEN_ENC_KEY is unusable or
+decrypts none of the stored tokens, DATABASE_URL is not set, or no HTTP client for Telegram can be
+created (proxy settings). Nothing is called or written when the run is refused. Tokens and webhook
+secrets never appear in the output or the log.
 """
 
 import argparse
@@ -303,7 +307,16 @@ async def _record(
 
 async def run(bot_id: uuid.UUID | None, dry_run: bool, provider: TelegramProvider | None = None) -> int:
     """The command: settings from the environment, the database engine and, when it comes to calling
-    Telegram, one HTTP client for every call. ``provider`` replaces the real client (tests)."""
+    Telegram, one HTTP client for every call. ``provider`` replaces the real client (tests).
+
+    In polling mode there are no webhooks: it says so and returns 0 without reading or calling anything.
+    """
+    if get_settings().TELEGRAM_MODE == "polling":
+        _say(
+            "TELEGRAM_MODE=polling: bots fetch their updates with getUpdates and have no webhook, "
+            "so there is nothing to re-register. Nothing was called or changed."
+        )
+        return EXIT_OK
     clients: list[httpx.AsyncClient] = []
 
     def telegram() -> TelegramProvider:

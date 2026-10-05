@@ -5,9 +5,11 @@ does not show what it says it should, stop there and fix it first: every later s
 earlier ones.
 
 What this rehearsal proves: the Docker stack, login, the agent building a bot, the Simulator, real
-Telegram (through a tunnel), a hostname switch, backup and restore, and restarts. What it cannot
-prove: the Iranian network, the Iranian LLM mirror, and the real certificate on the sslip.io name.
-Those are in "What changes for the VPS" at the end.
+Telegram (in polling mode: the backend fetches updates, so no tunnel and no public address are
+needed), backup and restore, and restarts. What it cannot prove: the Iranian network, the Iranian LLM
+mirror, the real certificate on the sslip.io name, and webhook mode (Telegram cannot reach this
+machine, so the hostname switch of Stage 3b is skipped). Those are in "What changes for the VPS" at
+the end.
 
 Conventions:
 
@@ -64,15 +66,15 @@ token made by the Claude CLI that ships inside the backend's Python environment.
 - [ ] From `deploy/`, check the file is complete: `./local.sh config > /dev/null && echo OK`.
   You should see `OK`. An error such as `set TOKEN_ENC_KEY in deploy/.env` means a value is missing.
 
-### 0.4 Telegram and the tunnel tool
+### 0.4 Telegram
 
 - [ ] Create two test bots with `@BotFather` in Telegram: send `/newbot`, choose a name and a username
   ending in `bot`. BotFather replies with a token like `123456789:AA...`. Save both tokens somewhere
   private. Bot A is for the workshop bot (Stages 2 to 4). Bot B is only for Stage 5.
 - [ ] Have two Telegram accounts you can use at the same time (two phones, or a phone plus Telegram
   Desktop or web). Account 1 plays the owner, account 2 plays a customer.
-- [ ] Check `cloudflared`: `cloudflared --version` prints a version (it is at `/usr/local/bin/cloudflared`
-  on this machine). It is only needed in Stage 3.
+- No tunnel tool is needed: the local stack runs in Telegram polling mode (`TELEGRAM_MODE=polling` in
+  `docker-compose.local.yml`), so the backend only makes outbound calls to Telegram, through your proxy.
 
 ---
 
@@ -214,61 +216,33 @@ Versions (نسخه‌ها), Settings (تنظیمات).
 
 ---
 
-## Stage 3: Real Telegram through a tunnel
+## Stage 3: Real Telegram (polling mode)
 
-Telegram has to reach your machine over the public internet, and it only talks to https addresses with
-a valid certificate. `cloudflared` gives you a temporary public address that forwards to your local
-Caddy. Your browser keeps using `https://localhost`; only Telegram uses the tunnel address.
+Telegram cannot reach your machine (inbound connections from Telegram are blocked, and so are tunnels
+such as cloudflared and ngrok). Polling mode is on in the local override (`TELEGRAM_MODE=polling` in
+`docker-compose.local.yml`): the backend asks Telegram for new messages itself, using only outbound
+connections through your proxy. There is no tunnel and no address to configure: just connect the bot in
+Settings. Your browser keeps using `https://localhost`.
 
-How the stack uses it: the backend builds every webhook address from `PUBLIC_BASE_URL`. By default
-`docker-compose.local.yml` sets it to `https://localhost`, which Telegram cannot reach. It can now be
-overridden from `deploy/.env.local`. (`FRONTEND_ORIGIN` stays `https://localhost`.)
+### 3.1 Check that polling mode is on
 
-### 3.1 Start the tunnel
+- [ ] From `deploy/`: `./local.sh exec backend printenv TELEGRAM_MODE` prints `polling`.
 
-- [ ] In a SEPARATE terminal (leave it running):
-
-  ```sh
-  cloudflared tunnel --url https://localhost --no-tls-verify --http-host-header localhost
-  ```
-
-  What the flags do: `--no-tls-verify` accepts Caddy's local certificate; `--http-host-header localhost`
-  makes the request look like `Host: localhost`, which is the only site name Caddy answers to. Without it
-  Caddy replies with an empty page. After a few seconds the log prints a box with an address like
-  `https://some-random-words.trycloudflare.com`. Copy it.
-- [ ] Check it works from outside: `curl https://some-random-words.trycloudflare.com/api/healthz`
-  (use your address). You should see `{"status":"ok"}`.
-
-If cloudflared cannot connect (it also needs outbound internet), it follows the standard proxy
-environment variables. Start it with them set, for example
-`HTTPS_PROXY=http://127.0.0.1:10808 cloudflared tunnel --url ...`, or `ALL_PROXY=socks5h://127.0.0.1:10808`
-if you are on a SOCKS proxy. I could not test this offline. If it still fails, check
-`cloudflared tunnel --help` for your version's options. The quick tunnel is temporary: each start
-gives a new address and there is no uptime guarantee.
-
-### 3.2 Point the backend at the tunnel
-
-- [ ] Add the tunnel address to `deploy/.env.local`, with no trailing slash:
-
-  ```
-  PUBLIC_BASE_URL=https://some-random-words.trycloudflare.com
-  ```
-
-  (The example file has this line commented out; remove the `#`.)
-- [ ] From `deploy/`: `./local.sh up`. Only the backend is recreated. When it finishes, `./local.sh ps`
-  shows it healthy again.
-
-### 3.3 Connect bot A
+### 3.2 Connect bot A
 
 - [ ] In the browser, open your bot, then **Settings tab**, and paste bot A's BotFather token into the
   token box (توکن ربات), then press اتصال. The status changes to وصل است and shows the bot's username
-  and link. If you see an error about the webhook, the backend cannot reach Telegram (proxy) or the
-  tunnel is down.
+  and link. If you see an error saying Telegram is unreachable, the backend cannot reach Telegram
+  through the proxy.
+- [ ] Within about 10 seconds the backend starts polling bot A; 3.3 below shows it answering. If it
+  does not answer, `./local.sh logs backend` shows why, for example
+  `bot <id>: getUpdates failed (network error (ConnectError)); retrying in 4.0s` when the proxy is
+  down. The log never shows the bot token.
 - [ ] The owner link box (دریافت اعلان‌ها در تلگرام) now shows a link. On the OWNER phone (account 1)
   press باز کردن در تلگرام, or open the link, and press Start in Telegram. The bot greets you as the
   owner. In the browser press بررسی وضعیت: it says متصل شد. The link works once only.
 
-### 3.4 Customer and owner behaviour
+### 3.3 Customer and owner behaviour
 
 On the CUSTOMER phone (account 2), open bot A and send `/start`.
 
@@ -290,48 +264,19 @@ On the CUSTOMER phone (account 2), open bot A and send `/start`.
 
 ---
 
-## Stage 3b: Hostname switch rehearsal
+## Stage 3b: Hostname switch (webhook mode only; skipped locally)
 
-This is what you will do on the VPS when the host name changes (for example from the sslip.io name to a
-real domain). The point: the bot keeps working, the owner stays linked, and customer messages sent while
-the address was down are delivered afterwards, not thrown away.
+Moving webhooks to a new host name (`scripts/reregister_webhooks.py`) only applies in webhook mode, which
+cannot run on this machine because Telegram cannot reach it. In polling mode the host name plays no part
+for Telegram, and the script says `nothing to re-register` and changes nothing. If the VPS runs in
+webhook mode, the procedure is in the README ("Changing the hostname later").
 
-- [ ] In the cloudflared terminal press Ctrl-C. The tunnel is now down.
-- [ ] On the customer phone send two messages to bot A (for example `/start` and a browse request). The
-  bot does not answer; Telegram holds the messages and keeps retrying the old address.
-- [ ] Start the tunnel again:
+What polling mode should do instead, and you can check here:
 
-  ```sh
-  cloudflared tunnel --url https://localhost --no-tls-verify --http-host-header localhost
-  ```
-
-  The new address is different. Copy it.
-- [ ] Put the new address in `deploy/.env.local` as `PUBLIC_BASE_URL=...` and run `./local.sh up`. The
-  backend is recreated with the new address.
-- [ ] Dry run first. It prints one line per connected bot and changes nothing:
-
-  ```sh
-  ./local.sh exec backend python scripts/reregister_webhooks.py --dry-run
-  ```
-
-  You should see bot A's id and its new webhook address (ending `/tg/<bot id>`) followed by
-  `dry run: would re-register`, and a last line `dry run: 1 would be re-registered, 0 would fail`.
-- [ ] The real run:
-
-  ```sh
-  ./local.sh exec backend python scripts/reregister_webhooks.py
-  ```
-
-  One line per bot ending in `ok`, then `1 ok, 0 failed` (add a bot and the numbers grow). The script
-  exits with status 0 when every bot is ok.
-- [ ] The two messages sent while the tunnel was down now arrive: the customer phone receives the bot's
-  answers within a few seconds. (The script keeps queued updates on purpose; a fresh connect drops them.)
-- [ ] The bot still works: browse and book on the customer phone.
-- [ ] The owner is still linked: in the Settings tab the owner box still says متصل شد, and the owner phone
-  still gets alerts. You did NOT need a new owner link.
-- [ ] Optional: ask Telegram what it thinks. Replace `<TOKEN>` with bot A's token:
-  `curl https://api.telegram.org/bot<TOKEN>/getWebhookInfo`. The `url` is the new address and
-  `pending_update_count` is 0.
+- [ ] Messages sent while the backend is down are answered when it is back. From `deploy/`:
+  `./local.sh stop backend`; on the customer phone send bot A `/start` and a browse request (no answer);
+  `./local.sh start backend`. Within a few seconds the customer phone receives both answers, once each
+  and in order. The owner is still linked (Settings still says متصل شد).
 
 ---
 
@@ -365,7 +310,7 @@ Run these with the stack up and some data in it (the bot from Stage 2 and 3, wit
   The restore ends with `restore finished`.
 - [ ] The data is back: log in with the demo account, the bot is there with its three revisions, the Data
   tab shows your workshops and bookings, Settings shows the Telegram connection, and bot A answers on the
-  customer phone (the tunnel must still be running with the same `PUBLIC_BASE_URL`). That the stored bot
+  customer phone (the restore also brought back its polling position). That the stored bot
   token still works proves your `TOKEN_ENC_KEY` was the same.
 
 ### 4.2 Restart in the middle of an agent run
@@ -385,7 +330,7 @@ Run these with the stack up and some data in it (the bot from Stage 2 and 3, wit
 
 - [ ] `./local.sh down`, then `./local.sh up`. (Plain `down`, without `-v`: it keeps the volumes.)
 - [ ] Everything comes back: you are still logged in or can log in, the bots and revisions are there,
-  the Data tab has its records, and bot A answers on Telegram (same tunnel, same `PUBLIC_BASE_URL`).
+  the Data tab has its records, and bot A answers on Telegram.
 
 ---
 
@@ -402,7 +347,7 @@ the repair spec in `examples/repair.botspec.json` shows what is expected.
   ```
 
   Answer any questions, check Tests are green, press تأیید و فعال‌سازی.
-- [ ] Connect it to bot B in the Settings tab (needs the tunnel from Stage 3) and link the owner phone.
+- [ ] Connect it to bot B in the Settings tab (polled like bot A in Stage 3) and link the owner phone.
 - [ ] On the customer phone, send bot B a repair request. The owner phone receives an alert with
   approve and reject buttons. Tap approve: the customer is told the request was approved, and the status
   in the Data tab changes.
@@ -418,8 +363,8 @@ You are ready to move to the VPS when ALL of these are ticked:
   revisions and green tests.
 - [ ] Stage 3: bot A worked on real Telegram on two accounts, including the two-hour cancellation refusal
   and the live Data tab update.
-- [ ] Stage 3b: the hostname switch kept the bot working and the owner linked, and messages sent while
-  the tunnel was down were delivered.
+- [ ] Stage 3b (polling check): messages sent while the backend was down were answered once each after
+  it came back, and the owner stayed linked.
 - [ ] Stage 4: backup, wipe and restore got everything back; a restart interrupted the agent run
   cleanly; full down and up lost nothing.
 - [ ] You have a copy of `TOKEN_ENC_KEY` that is not on this machine only.
@@ -432,6 +377,9 @@ Do not copy `.env.local`, `docker-compose.local.yml` or `local.sh` to the server
 - `SITE_HOST` is the sslip.io name made from the server's IP, for example `203-0-113-7.sslip.io`
   (dots to dashes). `PUBLIC_BASE_URL` and `FRONTEND_ORIGIN` follow from it automatically; there is no
   override. Ports 80 and 443 must be reachable from the internet so Caddy can get the certificate.
+- `TELEGRAM_MODE` in `deploy/.env`: `webhook` (the default) only if Telegram's servers can reach the VPS
+  over https; on a VPS in Iran that is unlikely, so set `TELEGRAM_MODE=polling`, as in this rehearsal.
+  The site's host name is then not used by Telegram at all.
 - `LLM_PROVIDER=anthropic`, with `ANTHROPIC_API_KEY` set to the mirror's key and `ANTHROPIC_BASE_URL`
   set to the Iranian mirror's address. This path was NOT exercised here (the rehearsal used your Claude
   login). Before relying on the mirror, run both of these on the server and check they pass:
@@ -454,8 +402,9 @@ Do not copy `.env.local`, `docker-compose.local.yml` or `local.sh` to the server
 - `AUTH_COOKIE_SECURE=true` stays on (the site is https). Set `AUTH_ALLOW_SIGNUP=false` after your own
   account exists.
 - After the first start: create your account with `create_user.py`, connect your real bot, and run
-  `backup.sh` once to prove it works on the server. When the hostname later changes, you repeat Stage 3b:
-  change `SITE_HOST`, `docker compose up -d`, then `reregister_webhooks.py --dry-run` and the real run.
+  `backup.sh` once to prove it works on the server. When the hostname later changes: change `SITE_HOST`
+  and run `docker compose up -d`; in webhook mode only, then run `reregister_webhooks.py --dry-run` and
+  the real run (README, "Changing the hostname later").
 
 ## If you are not behind a proxy
 

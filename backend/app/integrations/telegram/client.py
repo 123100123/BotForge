@@ -1,4 +1,4 @@
-"""Small async Telegram Bot API client (roadmap K15: httpx directly, six methods, no framework).
+"""Small async Telegram Bot API client (roadmap K15: httpx directly, seven methods, no framework).
 
 Security: the bot token lives in the request URL (``/bot<token>/<method>``). It is held only in a
 private attribute of the client, is never part of an exception message or a log line written here,
@@ -8,10 +8,13 @@ URL; the log-redaction filter (``app.security.redact``) is the second line of de
 
 Behavior: short timeouts; one retry on a network error and on HTTP 429 (sleeping ``retry_after``
 seconds, only when it is small enough not to stall a webhook request). Telegram's ``description``
-travels in ``TelegramError`` so callers can show or record it.
+travels in ``TelegramError`` so callers can show or record it. ``get_updates`` (polling mode, see
+``poller.py``) is the exception: a long poll whose read timeout exceeds its ``timeout``, with no
+retry of its own, because the poller owns the backoff and ``retry_after`` handling for it.
 """
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Callable
 from typing import Any, Protocol
@@ -21,6 +24,10 @@ import httpx
 API_BASE = "https://api.telegram.org"
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MAX_RETRY_AFTER = 5.0  # seconds; a longer 429 is raised instead of stalling the caller
+# The update types BotForge handles (app.api.webhook); setWebhook and getUpdates ask for exactly these.
+ALLOWED_UPDATES = ["message", "callback_query"]
+# getUpdates holds the request open for up to its ``timeout``; the read timeout must exceed that.
+LONG_POLL_GRACE = 15.0
 
 log = logging.getLogger(__name__)
 for _name in ("httpx", "httpcore"):  # their INFO request lines include the token-bearing URL
@@ -56,7 +63,11 @@ class TelegramApi(Protocol):
         self, url: str, secret_token: str, *, drop_pending_updates: bool = True
     ) -> None: ...
 
-    async def delete_webhook(self) -> None: ...
+    async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None: ...
+
+    async def get_updates(
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+    ) -> list[dict[str, Any]]: ...
 
     async def send_message(
         self, chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None
@@ -91,12 +102,22 @@ class TelegramClient:
     def __repr__(self) -> str:
         return "TelegramClient(<token hidden>)"
 
-    async def _call(self, method: str, payload: dict[str, Any] | None = None) -> Any:
+    async def _call(
+        self,
+        method: str,
+        payload: dict[str, Any] | None = None,
+        *,
+        timeout: httpx.Timeout | None = None,
+        retry: bool = True,
+    ) -> Any:
+        """One Bot API call. ``timeout`` replaces the client's for this request; ``retry=False`` raises
+        the first network error or 429 instead of retrying once (the poller backs off by itself)."""
         http = self._http or shared_http_client()
         url = f"{API_BASE}/bot{self.__token}/{method}"
-        for attempt in (1, 2):
+        extra: dict[str, Any] = {"timeout": timeout} if timeout is not None else {}
+        for attempt in (1, 2) if retry else (2,):
             try:
-                response = await http.post(url, json=payload or {})
+                response = await http.post(url, json=payload or {}, **extra)
             except (httpx.HTTPError, httpx.InvalidURL) as exc:
                 # type name only: httpx messages may include the request URL
                 if attempt == 1:
@@ -134,13 +155,27 @@ class TelegramClient:
             {
                 "url": url,
                 "secret_token": secret_token,
-                "allowed_updates": ["message", "callback_query"],
+                "allowed_updates": ALLOWED_UPDATES,
                 "drop_pending_updates": drop_pending_updates,
             },
         )
 
-    async def delete_webhook(self) -> None:
-        await self._call("deleteWebhook", {"drop_pending_updates": False})
+    async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
+        """Keeps queued updates by default (the poller then takes them with getUpdates). A polling-mode
+        connect passes True, as the webhook-mode connect's setWebhook drops them."""
+        await self._call("deleteWebhook", {"drop_pending_updates": drop_pending_updates})
+
+    async def get_updates(
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+    ) -> list[dict[str, Any]]:
+        """Long poll: Telegram answers when an update arrives or after ``timeout`` seconds. Passing
+        ``offset`` confirms every update below it. Fails with error code 409 while a webhook is set."""
+        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": allowed_updates}
+        if offset is not None:
+            payload["offset"] = offset
+        read_timeout = httpx.Timeout(timeout + LONG_POLL_GRACE, connect=5.0)
+        result = await self._call("getUpdates", payload, timeout=read_timeout, retry=False)
+        return [u for u in result if isinstance(u, dict)] if isinstance(result, list) else []
 
     async def send_message(
         self, chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None
@@ -189,6 +224,11 @@ class FakeTelegramClient:
 
     ``calls`` holds ``(method, kwargs)`` tuples in order; ``tokens`` the tokens the provider was
     asked for. ``fail_methods`` maps a method name to the ``TelegramError`` description to raise.
+
+    Polling: ``push_updates`` queues updates for ``get_updates``, which behaves like Telegram's
+    (an ``offset`` confirms and drops every queued update below it; with nothing queued it waits up
+    to ``poll_wait`` seconds for a push, a stand-in for the long poll). ``get_updates_errors`` are
+    raised by the next calls, one per call, before anything is returned.
     """
 
     def __init__(self, *, bot_id: int = 424242, username: str = "fake_bot") -> None:
@@ -198,7 +238,15 @@ class FakeTelegramClient:
         self.tokens: list[str] = []
         self.fail_methods: dict[str, str] = {}
         self.get_me_error: TelegramError | None = None
+        self.pending_updates: list[dict[str, Any]] = []
+        self.get_updates_errors: list[Exception] = []
+        self.poll_wait = 0.05
+        self._pushed = asyncio.Event()
         self._message_id = 1000
+
+    def push_updates(self, *updates: dict[str, Any]) -> None:
+        self.pending_updates.extend(updates)
+        self._pushed.set()
 
     # --- provider / inspection helpers -------------------------------------------------------
 
@@ -231,8 +279,22 @@ class FakeTelegramClient:
             "setWebhook", url=url, secret_token=secret_token, drop_pending_updates=drop_pending_updates
         )
 
-    async def delete_webhook(self) -> None:
-        self._record("deleteWebhook")
+    async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
+        self._record("deleteWebhook", drop_pending_updates=drop_pending_updates)
+
+    async def get_updates(
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+    ) -> list[dict[str, Any]]:
+        self._record("getUpdates", offset=offset, timeout=timeout, allowed_updates=allowed_updates)
+        if self.get_updates_errors:
+            raise self.get_updates_errors.pop(0)
+        if offset is not None:  # confirmed: Telegram forgets them
+            self.pending_updates = [u for u in self.pending_updates if u.get("update_id", 0) >= offset]
+        if not self.pending_updates:
+            self._pushed.clear()
+            with contextlib.suppress(TimeoutError):
+                await asyncio.wait_for(self._pushed.wait(), self.poll_wait)
+        return list(self.pending_updates)
 
     async def send_message(
         self, chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None
