@@ -1,5 +1,7 @@
 """ClaudeCodeLLM against a fake ``claude_agent_sdk`` (no CLI subprocess, no network); make_llm selection."""
 
+import asyncio
+import time
 from dataclasses import dataclass, field
 from types import SimpleNamespace
 from typing import Any
@@ -470,6 +472,40 @@ async def test_finish_stops_the_loop_and_closes_the_session(sdk: SimpleNamespace
     assert o["allowed_tools"] == ["mcp__botforge__add", "mcp__botforge__finish"]
     assert o["max_turns"] == 10 * 2 + 20 and o["tools"] == []
     assert list(o["mcp_servers"]) == ["botforge"]
+
+
+@pytest.mark.parametrize("failure", ["raises", "hangs"])
+async def test_finish_survives_a_failing_interrupt(
+    sdk: SimpleNamespace, monkeypatch: pytest.MonkeyPatch, failure: str
+) -> None:
+    class BadInterrupt(FakeClient):
+        async def interrupt(self) -> None:
+            self.interrupted = True
+            if failure == "raises":
+                raise Exception("Control request timeout: interrupt")  # what the SDK raises
+            await asyncio.sleep(3600)
+
+    sdk.ClaudeSDKClient = BadInterrupt
+    monkeypatch.setattr(llm_claude_code, "DRAIN_SECONDS", 0.05)
+    script(Query([Resp(calls=[("finish", {})]), Resp(text="never reached", stop="end_turn")]))
+    _, handler = recorder()
+    started = time.perf_counter()
+    result = await run_loop(handler)
+    assert result.stop_reason == "finished" and result.tool_calls == 1
+    assert time.perf_counter() - started < 2
+    assert not client().open
+
+
+async def test_cancellation_during_the_interrupt_propagates(sdk: SimpleNamespace) -> None:
+    class CancelledInterrupt(FakeClient):
+        async def interrupt(self) -> None:
+            raise asyncio.CancelledError
+
+    sdk.ClaudeSDKClient = CancelledInterrupt
+    script(Query([Resp(calls=[("finish", {})])]))
+    _, handler = recorder()
+    with pytest.raises(asyncio.CancelledError):
+        await run_loop(handler)
 
 
 async def test_tool_results_are_json_text_with_is_error(sdk: SimpleNamespace) -> None:
