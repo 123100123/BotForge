@@ -15,10 +15,24 @@ Codes:
                                          known highest confirmed count per item)
   capacity_mode_changed          warning capacity mode changed while bookings exist
   booking_resource_changed       warning booking points at another resource while bookings exist
-  status_removed_with_records    warning request status removed while requests exist
+  booking_preset_changed         warning booking preset (booking <-> events) changed while bookings
+                                         exist
+  booking_category_changed       warning booking category_field changed while bookings exist
+  status_removed_with_records    warning request/orders status removed while records exist
+  orders_resource_changed        warning orders point at another resource while orders exist
+
+Orders behave like request: checkout_fields are compared like form_fields, removed statuses warn.
+Enabling/disabling a capability or changing its audience never touches data (no issue).
 """
 
-from app.botspec.models import BookingCapability, BotSpec, FieldDef, RequestCapability
+from app.botspec.models import (
+    BookingCapability,
+    BotSpec,
+    FieldDef,
+    OrdersCapability,
+    RequestCapability,
+    StatusDef,
+)
 from app.botspec.validate import SpecIssue
 
 
@@ -145,17 +159,38 @@ def check_compat(
         if isinstance(oc, BookingCapability) and isinstance(nc, BookingCapability) and n > 0:
             issues += _booking_compat(base, oc, nc, max_confirmed_per_item)
         if isinstance(oc, RequestCapability) and isinstance(nc, RequestCapability) and n > 0:
-            new_status = {s.key for s in nc.statuses}
-            for s in oc.statuses:
-                if s.key not in new_status:
+            issues += _statuses_compat(base, oc.statuses, nc.statuses, "درخواست‌های")
+        if isinstance(oc, OrdersCapability) and isinstance(nc, OrdersCapability):
+            issues += _fields_compat(
+                [*base, "checkout_fields"], oc.checkout_fields, nc.checkout_fields, n, check_required=False
+            )
+            if n > 0:
+                issues += _statuses_compat(base, oc.statuses, nc.statuses, "سفارش‌های")
+                if nc.resource != oc.resource:
                     issues.append(
                         _warn(
-                            [*base, "statuses", s.key],
-                            "status_removed_with_records",
-                            f"وضعیت «{s.label}» حذف می‌شود؛ درخواست‌های این وضعیت بدون وضعیت معتبر می‌مانند.",
+                            [*base, "resource"],
+                            "orders_resource_changed",
+                            f"«{oc.title}» به منبع دیگری وصل می‌شود؛ "
+                            "سفارش‌های قبلی به کالاهای قبلی اشاره می‌کنند.",
                         )
                     )
     return issues
+
+
+def _statuses_compat(
+    base: list[str], old: list[StatusDef], new: list[StatusDef], records_fa: str
+) -> list[SpecIssue]:
+    new_status = {s.key for s in new}
+    return [
+        _warn(
+            [*base, "statuses", s.key],
+            "status_removed_with_records",
+            f"وضعیت «{s.label}» حذف می‌شود؛ {records_fa} این وضعیت بدون وضعیت معتبر می‌مانند.",
+        )
+        for s in old
+        if s.key not in new_status
+    ]
 
 
 def _booking_compat(
@@ -171,6 +206,22 @@ def _booking_compat(
                 [*base, "resource"],
                 "booking_resource_changed",
                 f"«{oc.title}» به منبع دیگری وصل می‌شود؛ رزروهای قبلی به موارد قبلی اشاره می‌کنند.",
+            )
+        )
+    if nc.preset != oc.preset:
+        issues.append(
+            _warn(
+                [*base, "preset"],
+                "booking_preset_changed",
+                f"نوع «{oc.title}» بین رزرو و رویداد تغییر می‌کند؛ ثبت‌نام‌های قبلی حفظ می‌شوند.",
+            )
+        )
+    if nc.category_field != oc.category_field:
+        issues.append(
+            _warn(
+                [*base, "category_field"],
+                "booking_category_changed",
+                f"دسته‌بندی «{oc.title}» تغییر می‌کند؛ اشتراک‌های دسته‌بندی قبلی ممکن است بی‌اثر شوند.",
             )
         )
     if oc.capacity.mode != nc.capacity.mode:

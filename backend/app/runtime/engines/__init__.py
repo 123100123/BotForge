@@ -17,6 +17,7 @@ ENGINE_MODULES: dict[str, str] = {
     "catalog": "app.runtime.engines.catalog",
     "booking": "app.runtime.engines.booking",
     "request": "app.runtime.engines.request",
+    "orders": "app.runtime.engines.orders",  # Wave 0 stub; W1-ORD replaces the module
 }
 
 _loaded: dict[str, Engine] = {}

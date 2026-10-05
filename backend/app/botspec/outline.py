@@ -4,6 +4,9 @@ Contains keys, titles, labels, types and field definitions (including choices, n
 forms). Deliberately omits every rule value: capacity, waitlist, cancellation, deadlines,
 cutoffs, per-user limits, notifications, owner-action transitions, sort options, text overrides,
 info page bodies. Acceptance scenarios must come from the owner's requirements, not the spec.
+
+``enabled``/``audience`` are included: a disabled capability cannot be reached by users at all,
+and a staff/managers capability can only be driven by the owner persona.
 """
 
 from typing import Literal
@@ -11,14 +14,18 @@ from typing import Literal
 from pydantic import BaseModel
 
 from app.botspec.models import (
+    Audience,
     BookingCapability,
     BotSpec,
     CatalogCapability,
     FieldDef,
     FieldType,
     InfoCapability,
+    OrdersCapability,
     RequestCapability,
 )
+
+CapabilityType = Literal["info", "catalog", "booking", "request", "orders"]
 
 
 class OutlineField(BaseModel):
@@ -37,20 +44,23 @@ class OutlineResource(BaseModel):
     fields: list[OutlineField]
 
 
-class OutlineItem(BaseModel):  # info page, request status, or owner action
+class OutlineItem(BaseModel):  # info page, request/orders status, or owner action
     key: str
     label: str
 
 
 class OutlineCapability(BaseModel):
     key: str
-    type: Literal["info", "catalog", "booking", "request"]
+    type: CapabilityType
     title: str
-    resource: str | None = None  # catalog/booking resource, or request item_resource
-    form_fields: list[OutlineField] = []
+    resource: str | None = None  # catalog/booking/orders resource, or request item_resource
+    form_fields: list[OutlineField] = []  # booking/request form, orders checkout fields
     pages: list[OutlineItem] = []  # info
-    statuses: list[OutlineItem] = []  # request
-    owner_actions: list[OutlineItem] = []  # request
+    statuses: list[OutlineItem] = []  # request, orders
+    owner_actions: list[OutlineItem] = []  # request, orders
+    preset: Literal["booking", "events"] | None = None  # booking only
+    enabled: bool = True
+    audience: Audience = "everyone"
 
 
 class OutlineMenuItem(BaseModel):
@@ -77,7 +87,9 @@ def _fields(fields: list[FieldDef]) -> list[OutlineField]:
 def spec_outline(spec: BotSpec) -> SpecOutline:
     caps: list[OutlineCapability] = []
     for cap in spec.capabilities:
-        oc = OutlineCapability(key=cap.key, type=cap.type, title=cap.title)
+        oc = OutlineCapability(
+            key=cap.key, type=cap.type, title=cap.title, enabled=cap.enabled, audience=cap.audience
+        )
         if isinstance(cap, InfoCapability):
             oc.pages = [OutlineItem(key=p.key, label=p.title) for p in cap.pages]
         elif isinstance(cap, CatalogCapability):
@@ -85,6 +97,12 @@ def spec_outline(spec: BotSpec) -> SpecOutline:
         elif isinstance(cap, BookingCapability):
             oc.resource = cap.resource
             oc.form_fields = _fields(cap.form_fields)
+            oc.preset = cap.preset
+        elif isinstance(cap, OrdersCapability):
+            oc.resource = cap.resource
+            oc.form_fields = _fields(cap.checkout_fields)
+            oc.statuses = [OutlineItem(key=s.key, label=s.label) for s in cap.statuses]
+            oc.owner_actions = [OutlineItem(key=a.key, label=a.label) for a in cap.owner_actions]
         elif isinstance(cap, RequestCapability):
             oc.resource = cap.item_resource
             oc.form_fields = _fields(cap.form_fields)

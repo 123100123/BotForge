@@ -19,6 +19,15 @@ capability type) gets a short Persian "no longer available" reply plus the main 
 raises. A capability type whose engine module does not exist yet gets a "not available yet" reply.
 Non-owners attempting an owner action get ``Outcome(result="rejected", reason="not_allowed")``.
 Every event upserts the acting user first.
+
+Capability gating (Business OS): a capability that is disabled (``enabled=False``) or whose
+``audience`` does not allow the actor (``ctx.capability_available``) is treated exactly like a
+missing one on the Telegram paths (callback, menu open, text with a session): stale reply plus the
+main menu, never an engine call; the main menu hides it. Admin events bypass gating.
+
+Group context (``event.chat_type == "group"``): start and text events and any ``menu`` callback
+return an empty response without side effects (no user upsert, no session change); other
+callbacks route normally. Admin events are unaffected.
 """
 
 from typing import Literal
@@ -43,8 +52,26 @@ from app.runtime.store import Store
 from app.runtime.texts import common
 
 
+def _group_noop(event: RuntimeEvent) -> bool:
+    """Group events the runtime ignores: start, text, and any ``menu`` callback (malformed
+    callback data included: a group never gets the stale menu)."""
+    if event.chat_type != "group":
+        return False
+    if event.kind in ("start", "text"):
+        return True
+    if event.kind != "callback":
+        return False
+    try:
+        cap_key, _, _ = parse_callback(event.data or "")
+    except CallbackError:
+        return True
+    return cap_key == MENU
+
+
 class BotRuntime:
     async def handle(self, event: RuntimeEvent, spec: BotSpec, store: Store) -> RuntimeResponse:
+        if _group_noop(event):
+            return RuntimeResponse(messages=[])
         await store.upsert_user(event.actor)
         ctx = await Ctx.create(event, spec, store)
         if event.kind == "start":
@@ -83,6 +110,10 @@ class BotRuntime:
             await ctx.clear_session()
             self._welcome(ctx)
             return
+        if not ctx.can_use(cap):
+            await ctx.clear_session()
+            ctx.stale()
+            return
         engine = self._engine(ctx, cap)
         if engine is None:
             await ctx.clear_session()
@@ -99,7 +130,7 @@ class BotRuntime:
             await self._on_menu(ctx, action, arg)
             return
         cap = ctx.spec.capability(cap_key)
-        if cap is None or action not in ACTIONS_BY_TYPE.get(cap.type, frozenset()):
+        if cap is None or action not in ACTIONS_BY_TYPE.get(cap.type, frozenset()) or not ctx.can_use(cap):
             ctx.stale()
             return
         if action not in FORM_ACTIONS:
@@ -118,7 +149,7 @@ class BotRuntime:
             return
         item = next((m for m in ctx.spec.menu if m.key == arg), None) if action == ACT_OPEN else None
         cap = ctx.spec.capability(item.capability) if item is not None else None
-        if item is None or cap is None:
+        if item is None or cap is None or not ctx.can_use(cap):
             ctx.stale()
             return
         engine = self._engine(ctx, cap)

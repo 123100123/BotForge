@@ -17,6 +17,13 @@ deadline do not interfere with the scenario's first steps.
 
 Extension point: ``TEMPLATES`` maps a capability type to ``fn(spec, cap) -> list[Scenario]``;
 a later package registers ``request`` templates with ``register_templates("request", fn)``.
+
+Capability flags: disabled capabilities (``enabled=False``) get no scenarios (users cannot reach
+them). Capabilities restricted to staff/managers are driven as the owner persona (the only
+privileged persona the drivers know): each template scenario is rewritten so its single customer
+persona becomes ``owner``; scenarios that need two or more distinct customers, or that test a
+non-owner being refused an owner action, are dropped, and ``expect_notified`` steps addressed to
+the owner are removed (the owner is now the acting actor, who never receives notices).
 """
 
 from collections.abc import Callable
@@ -34,7 +41,7 @@ from app.botspec.models import (
 from app.botspec.records import validate_record
 from app.runtime import formatting
 from app.testing.runner import START_CLOCK
-from app.testing.scenario import KV, Scenario, SeedRecord, Step, resolve_relative
+from app.testing.scenario import KV, OWNER, Scenario, SeedRecord, Step, resolve_relative
 
 Template = Callable[[BotSpec, Any], list[Scenario]]
 
@@ -546,11 +553,45 @@ def register_templates(cap_type: str, fn: Template) -> None:
     TEMPLATES[cap_type] = fn
 
 
+def _as_owner(scenario: Scenario) -> Scenario | None:
+    """Rewrite ``scenario`` so its customer persona acts as the owner, or None if it cannot be
+    driven by one privileged persona without changing its meaning (see the module docstring)."""
+    personas = {
+        who
+        for step in scenario.steps
+        for who in (step.actor, step.target_actor)
+        if who is not None and who != OWNER
+    }
+    if len(personas) > 1:
+        return None
+    if any(st.do == "owner_action" and st.actor not in (None, OWNER) for st in scenario.steps):
+        return None  # tests that a non-owner is refused; meaningless when everyone is the owner
+
+    def swap(who: str | None) -> str | None:
+        return OWNER if who is not None and who in personas else who
+
+    steps = [
+        step.model_copy(update={"actor": swap(step.actor), "target_actor": swap(step.target_actor)})
+        for step in scenario.steps
+        if not (step.do == "expect_notified" and swap(step.actor) == OWNER)
+    ]
+    if not steps:
+        return None
+    return Scenario.model_validate({**scenario.model_dump(), "steps": [s.model_dump() for s in steps]})
+
+
 def derive_scenarios(spec: BotSpec) -> list[Scenario]:
-    """Scenarios generated from every capability's configuration, in capability order."""
+    """Scenarios generated from every enabled capability's configuration, in capability order.
+    Capabilities restricted to staff/managers are driven as the owner persona."""
     out: list[Scenario] = []
     for cap in spec.capabilities:
+        if not cap.enabled:
+            continue
         fn = TEMPLATES.get(cap.type)
-        if fn is not None:
-            out.extend(fn(spec, cap))
+        if fn is None:
+            continue
+        scenarios = fn(spec, cap)
+        if cap.audience != "everyone":
+            scenarios = [s for s in (_as_owner(sc) for sc in scenarios) if s is not None]
+        out.extend(scenarios)
     return out

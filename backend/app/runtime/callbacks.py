@@ -16,7 +16,15 @@ Vocabulary (capability type -> action -> arg):
                  cancel-> booking record id
   request        new   -> ""                        pick -> item record id
                  mine  -> ""                        own  -> "<record_id>.<owner_action_key>"
+  orders         list  -> page number               item -> item record id
+                 add   -> item record id (qty +1)   dec  -> item record id (qty -1)
+                 cart  -> ""                        chk  -> "" (start checkout)
+                 mine  -> ""                        cancel-> order record id
+                 own   -> "<record_id>.<owner_action_key>"
+                 home / open / show -> reserved for the orders engine (W1-ORD defines the arg)
   form (any)     ans   -> choice index              skip -> ""        stop -> ""
+
+The actions add/cart/dec/chk exist only for orders; other types' action sets are unchanged.
 """
 
 import re
@@ -38,6 +46,10 @@ ACT_OWN = "own"
 ACT_ANS = "ans"
 ACT_SKIP = "skip"
 ACT_STOP = "stop"
+ACT_ADD = "add"  # orders only
+ACT_CART = "cart"  # orders only
+ACT_DEC = "dec"  # orders only
+ACT_CHK = "chk"  # orders only
 
 FORM_ACTIONS = frozenset({ACT_ANS, ACT_SKIP, ACT_STOP})
 ACTIONS_BY_TYPE: dict[str, frozenset[str]] = {
@@ -46,6 +58,23 @@ ACTIONS_BY_TYPE: dict[str, frozenset[str]] = {
     "catalog": frozenset({ACT_LIST, ACT_ITEM}),
     "booking": frozenset({ACT_LIST, ACT_ITEM, ACT_BOOK, ACT_MINE, ACT_CANCEL}) | FORM_ACTIONS,
     "request": frozenset({ACT_NEW, ACT_PICK, ACT_MINE, ACT_OWN}) | FORM_ACTIONS,
+    "orders": frozenset(
+        {
+            ACT_HOME,
+            ACT_OPEN,
+            ACT_SHOW,
+            ACT_LIST,
+            ACT_ITEM,
+            ACT_ADD,
+            ACT_CART,
+            ACT_DEC,
+            ACT_CHK,
+            ACT_MINE,
+            ACT_CANCEL,
+            ACT_OWN,
+        }
+    )
+    | FORM_ACTIONS,
 }
 ALL_ACTIONS: frozenset[str] = frozenset().union(*ACTIONS_BY_TYPE.values())
 

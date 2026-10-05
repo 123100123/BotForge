@@ -10,7 +10,7 @@ from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, field_validator
 
-from app.botspec.models import BotSpec
+from app.botspec.models import Audience, BotSpec, Role
 from app.runtime.callbacks import MAX_CALLBACK_BYTES
 
 if TYPE_CHECKING:
@@ -21,6 +21,25 @@ class Actor(BaseModel):
     id: str  # Telegram user id as string, or persona id ("ali"); "owner" = the bot owner persona
     display_name: str
     is_owner: bool = False
+    role: Role = "customer"  # stored role of the bot user; the owner is a manager regardless
+
+    @property
+    def effective_role(self) -> Role:
+        """The role used for gating: "manager" for the owner, else the stored role."""
+        return "manager" if self.is_owner else self.role
+
+
+def audience_allows(audience: Audience, actor: Actor) -> bool:
+    """Whether ``actor`` may use a capability with this ``audience``.
+
+    everyone: all actors; staff: staff and managers; managers: managers only (the owner is one).
+    """
+    role = actor.effective_role
+    if audience == "everyone":
+        return True
+    if audience == "staff":
+        return role in ("staff", "manager")
+    return role == "manager"
 
 
 class RuntimeEvent(BaseModel):
@@ -35,6 +54,10 @@ class RuntimeEvent(BaseModel):
                  (Outcome.action = "cancel"; ignores the cancellation deadline). Request:
                  ``make_callback(cap_key, "own", f"{record_id}.{owner_action_key}")``
                  (Outcome.action = "owner_action").
+
+    chat_type: where the interaction happened. "group" (a Telegram group the bot was added to):
+      start and text events get an empty response, a ``menu`` callback gets an empty response,
+      other callbacks route normally (engines handle group specifics). Admin events ignore it.
     """
 
     bot_id: str
@@ -44,6 +67,7 @@ class RuntimeEvent(BaseModel):
     text: str | None = None
     data: str | None = None  # callback data
     now: datetime  # timezone-aware UTC; always injected
+    chat_type: Literal["private", "group"] = "private"
 
     @field_validator("now")
     @classmethod
@@ -65,7 +89,18 @@ class Button(BaseModel):
         return v
 
 
-NoticeKind = Literal["booked", "waitlisted", "cancelled", "promoted", "submitted", "status_changed"]
+NoticeKind = Literal[
+    "booked",
+    "waitlisted",
+    "cancelled",
+    "promoted",
+    "submitted",
+    "status_changed",
+    "ordered",
+    "order_status_changed",
+    "reminder",
+    "announcement",
+]
 
 
 class OutMessage(BaseModel):
@@ -86,12 +121,13 @@ ReasonCode = Literal[
     "not_found",
     "invalid_input",
     "not_allowed",
+    "out_of_stock",
 ]
 
 
 class Outcome(BaseModel):  # machine-readable result of a business action
     capability: str
-    action: Literal["book", "cancel", "submit", "owner_action"]
+    action: Literal["book", "cancel", "submit", "owner_action", "order"]
     result: Literal["confirmed", "waitlisted", "cancelled", "submitted", "ok", "rejected"]
     reason: ReasonCode | None = None
     record_id: int | None = None

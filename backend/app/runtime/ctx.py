@@ -24,12 +24,13 @@ from app.runtime.contracts import (
     ReasonCode,
     RuntimeEvent,
     RuntimeResponse,
+    audience_allows,
 )
 from app.runtime.store import Record, Store
 from app.runtime.texts import common, default_text
 
 Buttons = list[list[Button]]
-OutcomeAction = Literal["book", "cancel", "submit", "owner_action"]
+OutcomeAction = Literal["book", "cancel", "submit", "owner_action", "order"]
 OutcomeResult = Literal["confirmed", "waitlisted", "cancelled", "submitted", "ok", "rejected"]
 EffectKind = Literal["record_created", "record_updated", "record_deleted", "notification"]
 
@@ -48,6 +49,12 @@ MAX_RECORD_ID = 2**63 - 1  # records.id is a bigint
 
 def _cap_key(cap: AnyCapability | str) -> str:
     return cap if isinstance(cap, str) else cap.key
+
+
+def capability_available(cap: AnyCapability, actor: Actor) -> bool:
+    """Whether ``actor`` may use ``cap`` from Telegram: it is enabled and its audience allows the
+    actor. Web-admin events bypass this check (the runtime never calls it for them)."""
+    return cap.enabled and audience_allows(cap.audience, actor)
 
 
 class Ctx:
@@ -211,20 +218,38 @@ class Ctx:
         """``[بازگشت -> cap:action:arg, منوی اصلی]``."""
         return [self.button(common.BACK, cap, action, arg), self.home_button()]
 
+    def can_use(self, cap: AnyCapability) -> bool:
+        """``capability_available(cap, self.actor)``."""
+        return capability_available(cap, self.actor)
+
+    def _menu_item_visible(self, cap_key: str) -> bool:
+        """A menu item is shown unless its capability exists and is disabled or not allowed for
+        the actor (a missing capability keeps the old behaviour: shown, then stale on press)."""
+        cap = self.spec.capability(cap_key)
+        return cap is None or self.can_use(cap)
+
     def menu_button_for(
         self, cap: AnyCapability | str, view: str = "main", label: str | None = None
     ) -> Button | None:
         """Button re-opening ``cap`` the way the menu does (first menu item for that capability
-        and view), or None if no menu item points at it."""
+        and view), or None if no menu item points at it or the capability is hidden from the
+        actor (disabled or not allowed)."""
         key = _cap_key(cap)
+        if not self._menu_item_visible(key):
+            return None
         item = next((m for m in self.spec.menu if m.capability == key and m.view == view), None)
         if item is None:
             return None
         return Button(label=label or common.BACK, data=make_callback(MENU, ACT_OPEN, item.key))
 
     def menu_buttons(self) -> Buttons:
-        """One row per ``spec.menu`` item, callback ``menu:open:<item key>``."""
-        return [[Button(label=m.label, data=make_callback(MENU, ACT_OPEN, m.key))] for m in self.spec.menu]
+        """One row per visible ``spec.menu`` item, callback ``menu:open:<item key>``. Items whose
+        capability is disabled or not allowed for the actor are left out."""
+        return [
+            [Button(label=m.label, data=make_callback(MENU, ACT_OPEN, m.key))]
+            for m in self.spec.menu
+            if self._menu_item_visible(m.capability)
+        ]
 
     def show_menu(self, text: str | None = None, edit: bool | None = None) -> None:
         self.reply(text if text is not None else common.MENU_HEADER, self.menu_buttons(), edit=edit)

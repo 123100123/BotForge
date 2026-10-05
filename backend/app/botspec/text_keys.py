@@ -19,8 +19,12 @@ Placeholder meanings:
   user     - display name of the acting bot user (owner notices)
   label    - FieldDef.label of the form field being asked
   error    - Persian validation message for a rejected form answer
-  id       - request record id
-  status   - Persian status label (request)
+  id       - request record id; order number (orders)
+  status   - Persian status label (request, orders)
+  price    - formatted unit price of an item (orders)
+  qty      - quantity of an item in the cart (orders)
+  total    - formatted total price of a cart or order (orders)
+  lines    - pre-rendered cart/order item lines (orders)
 """
 
 import re
@@ -71,6 +75,28 @@ TEXT_KEYS: dict[str, dict[str, frozenset[str]]] = {
         "mine_empty": P(),
         "status_changed": P({"title", "id", "status"}),
         "owner_submitted": P({"title", "id", "user", "details"}),
+        "action_done": P({"id", "status"}),
+        "not_allowed": P(),
+        **_FORM_KEYS,
+    },
+    "orders": {
+        "list_header": P({"title"}),
+        "empty": P({"title"}),
+        "item_line": P({"title", "price"}),
+        "item_detail": P({"title", "details", "price"}),
+        "added_to_cart": P({"title", "qty"}),
+        "cart_summary": P({"lines", "total"}),
+        "cart_empty": P(),
+        "checkout_prompt": P({"total"}),
+        "placed": P({"title", "id", "total"}),
+        "cancelled": P({"id"}),
+        "not_cancellable": P({"id", "status"}),
+        "status_changed": P({"title", "id", "status"}),
+        "out_of_stock": P({"title"}),
+        "mine_header": P(),
+        "mine_empty": P(),
+        "owner_placed": P({"title", "id", "user", "lines", "total", "details"}),
+        "owner_cancelled": P({"title", "id", "user"}),
         "action_done": P({"id", "status"}),
         "not_allowed": P(),
         **_FORM_KEYS,

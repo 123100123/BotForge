@@ -14,8 +14,10 @@ Issue codes (stable; the UI and tests key on them):
   unknown_resource         resource / item_resource reference does not exist
   unknown_capability       menu item references a missing capability
   unknown_field            title_field / detail_fields / start_field / upcoming_only_field /
-                           sort_field / capacity.field missing on the resource
-  field_type_mismatch      start_field / upcoming_only_field not datetime; capacity.field not integer
+                           sort_field / capacity.field / category_field / price_field /
+                           stock_field missing on the resource
+  field_type_mismatch      start_field / upcoming_only_field not datetime; capacity.field /
+                           price_field / stock_field not integer; category_field not choice
   capacity_field_not_required  per_item capacity field is optional on the resource
   capacity_mode_mismatch   capacity value/field inconsistent with mode
   capacity_value_invalid   fixed capacity value < 1
@@ -24,16 +26,26 @@ Issue codes (stable; the UI and tests key on them):
   choices_on_non_choice    non-choice field with choices
   invalid_default          FieldDef.default cannot be coerced to the field type
   datetime_form_field      form_fields contain a datetime field
-  start_field_required     deadline_hours / closes_hours_before_start set without start_field
-  value_out_of_range       negative hours, max_active_per_user < 1
+  start_field_required     deadline_hours / closes_hours_before_start / reminder_hours_before set
+                           without start_field
+  value_out_of_range       negative hours, max_active_per_user < 1, reminder_hours_before
+                           outside 1..720
+  too_many_checkout_fields orders checkout_fields has more than MAX_CHECKOUT_FIELDS fields
   mine_view_unsupported    "mine" menu item on an info or catalog capability
-  unknown_status           initial_status / from_statuses / to_status not in statuses
+  unknown_status           initial_status / from_statuses / to_status / cancellable_statuses not
+                           in statuses
   callback_too_long        an owner action's callback data could exceed 64 bytes
   unknown_text_key         texts key not declared for the capability type
   invalid_placeholder      texts value uses a placeholder not whitelisted for its key
-  menu_empty / menu_too_long / no_capabilities
+  menu_empty               no menu item reaches an enabled capability
+  menu_too_long            more than MAX_MENU_ITEMS menu items reach enabled capabilities
+  no_capabilities          the spec has no capability at all
   cancel_without_mine      (warning) booking allows cancellation but has no "mine" menu item
-  capability_unreachable   (warning) capability not referenced by any menu item
+  capability_unreachable   (warning) enabled capability not referenced by any menu item
+
+Disabled capabilities (``enabled=False``) are still fully validated; only the menu rules above
+ignore them. A menu item pointing at a missing capability counts as enabled for the menu rules
+(it is already an ``unknown_capability`` error).
 """
 
 from collections import Counter
@@ -43,14 +55,18 @@ from typing import Any, Literal
 from pydantic import BaseModel, ValidationError
 
 from app.botspec.models import (
+    MAX_CHECKOUT_FIELDS,
     AnyCapability,
     BookingCapability,
     BotSpec,
     CatalogCapability,
     FieldDef,
     FieldType,
+    OrdersCapability,
+    OwnerAction,
     RequestCapability,
     Resource,
+    StatusDef,
     TextOverride,
     capacity_problems,
     field_def_problems,
@@ -61,6 +77,7 @@ from app.runtime.callbacks import ACT_OWN, CallbackError, make_callback  # leaf 
 
 RESERVED_KEYS = frozenset({"menu"})
 MAX_MENU_ITEMS = 8
+MAX_REMINDER_HOURS = 720
 # Largest record id we budget for in owner-action callback data ("own" arg = "<id>.<action>").
 _MAX_RECORD_ID_TOKEN = "999999999999"
 
@@ -248,6 +265,13 @@ def _check_booking(c: _Collector, spec: BotSpec, cap: BookingCapability, base: l
             c.error(cl_path, "value_out_of_range", "closes_hours_before_start must be >= 0")
     if cap.max_active_per_user is not None and cap.max_active_per_user < 1:
         c.error([*base, "max_active_per_user"], "value_out_of_range", "max_active_per_user must be >= 1")
+    if cap.reminder_hours_before is not None:
+        rpath = [*base, "reminder_hours_before"]
+        if cap.start_field is None:
+            c.error(rpath, "start_field_required", "reminder_hours_before requires start_field")
+        if not 1 <= cap.reminder_hours_before <= MAX_REMINDER_HOURS:
+            c.error(rpath, "value_out_of_range", f"reminder_hours_before must be 1..{MAX_REMINDER_HOURS}")
+    _check_field_ref(c, [*base, "category_field"], res, cap.category_field, want=FieldType.choice)
 
     if cap.cancellation.enabled and not any(m.capability == cap.key and m.view == "mine" for m in spec.menu):
         c.warn(
@@ -258,20 +282,25 @@ def _check_booking(c: _Collector, spec: BotSpec, cap: BookingCapability, base: l
     _check_texts(c, [*base, "texts"], cap.type, cap.texts)
 
 
-def _check_request(c: _Collector, spec: BotSpec, cap: RequestCapability, base: list[str]) -> None:
-    if cap.item_resource is not None:
-        _check_resource_ref(c, [*base, "item_resource"], spec, cap.item_resource)
-    _check_fields(c, [*base, "form_fields"], cap.form_fields, form=True)
-    c.unique([*base, "statuses"], (s.key for s in cap.statuses), "status")
-    c.unique([*base, "owner_actions"], (a.key for a in cap.owner_actions), "owner action")
-    statuses = {s.key for s in cap.statuses}
-    if cap.initial_status not in statuses:
+def _check_workflow(
+    c: _Collector,
+    cap_key: str,
+    base: list[str],
+    statuses_def: list[StatusDef],
+    initial_status: str,
+    owner_actions: list[OwnerAction],
+) -> set[str]:
+    """Statuses + owner actions (request and orders). Returns the declared status keys."""
+    c.unique([*base, "statuses"], (s.key for s in statuses_def), "status")
+    c.unique([*base, "owner_actions"], (a.key for a in owner_actions), "owner action")
+    statuses = {s.key for s in statuses_def}
+    if initial_status not in statuses:
         c.error(
             [*base, "initial_status"],
             "unknown_status",
-            f"initial_status '{cap.initial_status}' is not a declared status",
+            f"initial_status '{initial_status}' is not a declared status",
         )
-    for act in cap.owner_actions:
+    for act in owner_actions:
         apath = [*base, "owner_actions", act.key]
         for st in act.from_statuses:
             if st not in statuses:
@@ -279,14 +308,42 @@ def _check_request(c: _Collector, spec: BotSpec, cap: RequestCapability, base: l
         if act.to_status not in statuses:
             c.error([*apath, "to_status"], "unknown_status", f"status '{act.to_status}' is not declared")
         try:
-            make_callback(cap.key, ACT_OWN, f"{_MAX_RECORD_ID_TOKEN}.{act.key}")
+            make_callback(cap_key, ACT_OWN, f"{_MAX_RECORD_ID_TOKEN}.{act.key}")
         except CallbackError:
             c.error(
                 apath,
                 "callback_too_long",
                 "capability key + owner action key are too long for 64-byte callback data; shorten them",
             )
+    return statuses
+
+
+def _check_request(c: _Collector, spec: BotSpec, cap: RequestCapability, base: list[str]) -> None:
+    if cap.item_resource is not None:
+        _check_resource_ref(c, [*base, "item_resource"], spec, cap.item_resource)
+    _check_fields(c, [*base, "form_fields"], cap.form_fields, form=True)
+    _check_workflow(c, cap.key, base, cap.statuses, cap.initial_status, cap.owner_actions)
     _check_texts(c, [*base, "texts"], cap.type, cap.texts)
+
+
+def _check_orders(c: _Collector, spec: BotSpec, cap: OrdersCapability, base: list[str]) -> None:
+    res = _check_resource_ref(c, [*base, "resource"], spec, cap.resource)
+    _check_field_ref(c, [*base, "price_field"], res, cap.price_field, want=FieldType.integer)
+    _check_field_ref(c, [*base, "stock_field"], res, cap.stock_field, want=FieldType.integer)
+    fpath = [*base, "checkout_fields"]
+    _check_fields(c, fpath, cap.checkout_fields, form=True)
+    if len(cap.checkout_fields) > MAX_CHECKOUT_FIELDS:
+        c.error(fpath, "too_many_checkout_fields", f"checkout allows at most {MAX_CHECKOUT_FIELDS} fields")
+    statuses = _check_workflow(c, cap.key, base, cap.statuses, cap.initial_status, cap.owner_actions)
+    for st in cap.cancellable_statuses:
+        if st not in statuses:
+            c.error([*base, "cancellable_statuses"], "unknown_status", f"status '{st}' is not declared")
+    _check_texts(c, [*base, "texts"], cap.type, cap.texts)
+
+
+def _menu_target_enabled(by_key: dict[str, AnyCapability], cap_key: str) -> bool:
+    target = by_key.get(cap_key)
+    return target is None or target.enabled
 
 
 def validate_spec(spec: BotSpec) -> list[SpecIssue]:
@@ -326,13 +383,16 @@ def validate_spec(spec: BotSpec) -> list[SpecIssue]:
             _check_booking(c, spec, cap, base)
         elif isinstance(cap, RequestCapability):
             _check_request(c, spec, cap, base)
+        elif isinstance(cap, OrdersCapability):
+            _check_orders(c, spec, cap, base)
 
-    # Menu
-    if not spec.menu:
-        c.error(["menu"], "menu_empty", "the menu needs at least one item")
-    elif len(spec.menu) > MAX_MENU_ITEMS:
-        c.error(["menu"], "menu_too_long", f"the menu allows at most {MAX_MENU_ITEMS} items")
+    # Menu (only items reaching an enabled capability count; unknown targets count as enabled)
     by_key: dict[str, AnyCapability] = {cap.key: cap for cap in spec.capabilities}
+    live_items = [m for m in spec.menu if _menu_target_enabled(by_key, m.capability)]
+    if not live_items:
+        c.error(["menu"], "menu_empty", "the menu needs at least one item that reaches an enabled capability")
+    elif len(live_items) > MAX_MENU_ITEMS:
+        c.error(["menu"], "menu_too_long", f"the menu allows at most {MAX_MENU_ITEMS} items")
     for m in spec.menu:
         target = by_key.get(m.capability)
         if target is None:
@@ -341,15 +401,15 @@ def validate_spec(spec: BotSpec) -> list[SpecIssue]:
                 "unknown_capability",
                 f"capability '{m.capability}' does not exist",
             )
-        elif m.view == "mine" and target.type not in ("booking", "request"):
+        elif m.view == "mine" and target.type not in ("booking", "request", "orders"):
             c.error(
                 ["menu", m.key, "view"],
                 "mine_view_unsupported",
-                f"'mine' view needs a booking or request capability, not {target.type}",
+                f"'mine' view needs a booking, request or orders capability, not {target.type}",
             )
     referenced = {m.capability for m in spec.menu}
     for cap in spec.capabilities:
-        if cap.key not in referenced:
+        if cap.enabled and cap.key not in referenced:
             c.warn(
                 ["capabilities", cap.key],
                 "capability_unreachable",

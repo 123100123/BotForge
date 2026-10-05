@@ -281,7 +281,7 @@ def test_valid_text_override_passes(workshop_data: dict[str, Any]) -> None:
 
 
 def test_text_registry_covers_all_types() -> None:
-    assert set(TEXT_KEYS) == {"info", "catalog", "booking", "request"}
+    assert set(TEXT_KEYS) == {"info", "catalog", "booking", "request", "orders"}
     for key in (
         "confirmed",
         "waitlisted",
