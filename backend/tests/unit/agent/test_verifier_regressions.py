@@ -5,9 +5,10 @@ import copy
 import pytest
 
 from app.agent.context import Limits
+from app.agent.events import EventBus
 from app.agent.llm import ToolCall
 from app.agent.modify import merge_delta, normalize_statement
-from app.agent.orchestrator import OrchestratorError
+from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.phases import STEP_LIMIT_TEXT
 from app.agent.phases.testgen import NO_ACCEPTANCE
 from app.agent.requirements import Requirements, RequirementsDelta
@@ -123,6 +124,80 @@ async def test_a_changed_requirement_regenerates_its_earlier_tests() -> None:
     assert run.state.delta_touched == ["R8"]
     assert run.state.new_scenario_ids == ["acc_cancel_too_late_v2", "acc_cancel_in_time_v2"]
     assert run.state.delta.added[0].statement.startswith("لغو ثبت‌نام فقط تا ۳")
+
+
+DEADLINE_3H = "لغو ثبت‌نام فقط تا ۳ ساعت قبل از شروع کارگاه ممکن است."
+
+
+def deadline_3h_scenarios() -> list[dict]:
+    """Tests for the 3h wording: cancelling 2.5h before the start is refused (a 2h draft allows it)."""
+    late, early = copy.deepcopy(deadline_scenarios("R8"))
+    late["id"], early["id"] = "acc_cancel_3h_too_late", "acc_cancel_3h_in_time"
+    late["seed"][0]["values"][-1]["value"] = "+4h"
+    late["steps"][1]["hours"] = 1.5
+    early["seed"][0]["values"][-1]["value"] = "+5h"
+    return [late, early]
+
+
+async def test_a_rewording_split_by_a_clarify_pause_still_regenerates_its_tests() -> None:
+    """Round 2 rewords R8 (2h -> 3h) but pauses for a question, so no testgen runs; round 3
+    re-lists the same 3h wording (not "touched" in round 3). The 2h tests written in round 1 must
+    not count as coverage of the 3h requirement: they are dropped and 3h tests are written."""
+    reworded = {**deadline_requirement("R8"), "statement": DEADLINE_3H}
+    question = {
+        "id": "Q1",
+        "text": "برای همهٔ کارگاه‌ها؟",
+        "why": "scope of the deadline",
+        "severity": "blocking",
+        "options": ["بله", "خیر"],
+    }
+    scripts = {
+        "structured": {
+            "triage": [triage_out()],
+            "understand": [
+                change_out(added=[deadline_requirement("R99")]),
+                change_out(changed=[reworded], questions=[question]),
+                change_out(changed=[reworded]),
+            ],
+            "testgen": [{"scenarios": deadline_scenarios("R8")}, {"scenarios": deadline_3h_scenarios()}],
+        },
+        "loops": {
+            # Round 1 sets 2h. The round-3 build forgets the new deadline (the draft stays at 2h);
+            # only the 3h tests can catch that, and the repair loop then fixes the spec.
+            "build": [[[patch({"op": "set", "path": DEADLINE_HOURS, "value": 2})], [finish()]], [[finish()]]],
+            "repair": [
+                [[patch({"op": "set", "path": DEADLINE_HOURS, "value": 3})], [run_tests()], [finish()]]
+            ],
+        },
+    }
+    h = modify_harness(scripts)
+    run = await h.start_change(MOD_DEADLINE)
+    assert run.status == "waiting_approval", run.state.error
+    assert run.state.new_scenario_ids == ["acc_cancel_too_late", "acc_cancel_in_time"]
+
+    run = await h.answer(run.id, "مهلت را ۳ ساعت کن")
+    assert run.status == "waiting_user", run.state.error
+    assert run.state.delta.added[0].statement == DEADLINE_3H
+    assert len([c for c in h.llm.calls if c.task == "testgen"]) == 1  # the pause wrote no tests
+
+    # The answer is handled by a fresh orchestrator (a process restart): only persisted state remains.
+    h.orch = Orchestrator(h.repo, h.llm, limits=Limits(), bus=EventBus())
+    run = await h.answer(run.id, "بله، برای همه")
+    assert run.status == "waiting_approval", run.state.error
+    state = run.state
+    testgen_calls = [c for c in h.llm.calls if c.task == "testgen"]
+    assert len(testgen_calls) == 2
+    focus = testgen_calls[1].messages[0]["content"].split("<changed_requirements>")[1]
+    assert '"R8"' in focus.split("</changed_requirements>")[0] and "۳ ساعت" in focus
+    assert state.new_scenario_ids == ["acc_cancel_3h_too_late", "acc_cancel_3h_in_time"]
+    assert not {"acc_cancel_too_late", "acc_cancel_in_time"} & {s.id for s in state.scenarios}
+    assert state.untested_touched == []  # consumed by testgen
+    assert h.of_type(run.id, "approval_requested")[-1]["can_approve"] is True
+    await h.orch.approve(run.id)
+    live = h.repo.revisions[h.repo.bots[h.bot_id].active_revision_id]
+    assert live.spec.capability("book_workshop").cancellation.deadline_hours == 3
+    assert {"acc_cancel_3h_too_late", "acc_cancel_3h_in_time"} <= {s["id"] for s in live.scenarios}
+    assert not {"acc_cancel_too_late", "acc_cancel_in_time"} & {s["id"] for s in live.scenarios}
 
 
 def test_merge_delta_is_cumulative_with_stable_ids() -> None:
