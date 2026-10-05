@@ -1,5 +1,6 @@
 """Agent runs API with FakeLLM injected and the SQL repository. Needs TEST_DATABASE_URL."""
 
+import asyncio
 import json
 import uuid
 from collections.abc import AsyncIterator
@@ -429,11 +430,6 @@ async def test_modify_stale_base_and_triage_over_the_api(
         assert count.scalar_one() == 3  # base, the stale draft, the other revision: triage adds none
 
 
-@pytest.mark.skip(
-    reason="Hangs indefinitely (never finishes); suspected SSE stream not closing for a run marked "
-    "interrupted at startup (orchestrator.ensure_status_event in api/runs.py stream_events). "
-    "Tracked as open work item 0 in IMPLEMENTATION_ROADMAP.md 'Current Status'."
-)
 async def test_run_status_events_and_startup_interruption_over_the_api(
     app_client: tuple[Any, httpx.AsyncClient], make_bot: MakeBot, session_factory: SessionFactory
 ) -> None:
@@ -442,7 +438,9 @@ async def test_run_status_events_and_startup_interruption_over_the_api(
     bot_id, _ = await make_bot("alice", active=False)
     token = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
     created = await api.start(bot_id, f"{GOLDEN_PROMPT} {token}")
-    events = await api.events(created["id"])
+    # The run waits for approval (still active), so its SSE stream stays open by design, and
+    # httpx.ASGITransport returns a response only after the app finishes: read the table instead.
+    events = [e.model_dump(mode="json") for e in await api.orch.repo.list_events(created["id"])]
     statuses = [e["payload"] for e in events if e["type"] == "run_status"]
     assert statuses == [
         {"status": "running", "phase": "understand"},
@@ -464,3 +462,23 @@ async def test_run_status_events_and_startup_interruption_over_the_api(
     assert events[-1]["type"] == "run_status" and events[-1]["payload"]["status"] == "interrupted"
     again = await api.events(created["id"])
     assert [e["type"] for e in again].count("run_status") == 3  # not duplicated
+
+
+async def test_live_stream_ends_when_the_run_reaches_a_terminal_state(
+    app_client: tuple[Any, httpx.AsyncClient], make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    app, client = app_client
+    api = make_api(session_factory, client, app)
+    bot_id, _ = await make_bot("alice", active=False)
+    created = await api.start(bot_id)
+    assert (await api.run(created["id"]))["status"] == "waiting_approval"
+    # Opened while the run is live: the response arrives only once the stream ends by itself.
+    watching = asyncio.create_task(api.events(created["id"]))
+    await asyncio.sleep(0.2)
+    assert not watching.done()  # an active run keeps its stream open
+    approved = await client.post(f"/runs/{created['id']}/approve", headers=ALICE)
+    assert approved.status_code == 200 and approved.json()["status"] == "done"
+    events = await asyncio.wait_for(watching, timeout=10)
+    assert "deployed" in [e["type"] for e in events]
+    assert events[-1]["type"] == "run_status" and events[-1]["payload"]["status"] == "done"
+    assert events == [e.model_dump(mode="json") for e in await api.orch.repo.list_events(created["id"])]
