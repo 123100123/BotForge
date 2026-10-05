@@ -3,8 +3,10 @@
 # changing one means rebuilding the image (docker compose up -d --build).
 FROM node:22-alpine AS deps
 WORKDIR /app
+# Optional npm mirror (e.g. https://registry.npmmirror.com), empty = the default registry.
+ARG NPM_CONFIG_REGISTRY=
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN if [ -n "$NPM_CONFIG_REGISTRY" ]; then npm config set registry "$NPM_CONFIG_REGISTRY"; fi && npm ci
 
 FROM node:22-alpine AS build
 WORKDIR /app

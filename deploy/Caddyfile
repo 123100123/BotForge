@@ -5,8 +5,10 @@
 # domain, so Let's Encrypt can rate-limit it; Caddy then falls back to ZeroSSL automatically.
 # With SITE_HOST=localhost Caddy uses its own internal CA (a local test; browsers warn, curl needs -k).
 {
-	# Optional ACME account email (expiry notices). An empty value is ignored.
-	email {$ACME_EMAIL:}
+	# Optional ACME account email (expiry notices). docker-compose.yml sets ACME_EMAIL_LINE to
+	# "email you@example.com" when ACME_EMAIL is set and to nothing otherwise; the environment is
+	# substituted as text before parsing, so an empty value leaves an empty (valid) line.
+	{$ACME_EMAIL_LINE:}
 }
 
 {$SITE_HOST} {

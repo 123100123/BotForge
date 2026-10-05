@@ -9,6 +9,13 @@
 
 name: botforge
 
+# Build-time network settings shared by both image builds. Optional and empty by default: a proxy for
+# the downloads (http_proxy / https_proxy / no_proxy are predefined build args in Docker).
+x-build-proxy: &build_proxy
+  http_proxy: ${BUILD_PROXY:-}
+  https_proxy: ${BUILD_PROXY:-}
+  no_proxy: localhost,127.0.0.1
+
 services:
   db:
     image: postgres:16-alpine
@@ -30,6 +37,12 @@ services:
   backend:
     build:
       context: ../backend
+      args:
+        <<: *build_proxy
+        PIP_INDEX_URL: ${PIP_INDEX_URL:-}
+        UV_EXTRA_GROUPS: ${UV_EXTRA_GROUPS:-}
+      extra_hosts:
+        - "host.docker.internal:host-gateway" # lets a proxy running on the host be reached
     restart: unless-stopped
     depends_on:
       db:
@@ -46,11 +59,20 @@ services:
       TOKEN_ENC_KEY: ${TOKEN_ENC_KEY:?set TOKEN_ENC_KEY in deploy/.env}
       LLM_PROVIDER: ${LLM_PROVIDER:-anthropic}
       ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      # The SDK reads this variable when no base_url is passed, and an empty value would break it,
+      # so the default is the SDK's own default. Set it only for an Anthropic-compatible mirror.
+      ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
       LLM_MODEL_STRONG: ${LLM_MODEL_STRONG:-}
       LLM_MODEL_FAST: ${LLM_MODEL_FAST:-}
       LOG_LLM_BODIES: ${LOG_LLM_BODIES:-false}
       AGENT_DAILY_RUN_CAP: ${AGENT_DAILY_RUN_CAP:-30}
       AGENT_RUNS_PER_MINUTE: ${AGENT_RUNS_PER_MINUTE:-5}
+      # Optional outbound proxy (Telegram, the LLM API). The internal names always bypass it.
+      HTTP_PROXY: ${OUTBOUND_HTTP_PROXY:-}
+      HTTPS_PROXY: ${OUTBOUND_HTTPS_PROXY:-}
+      NO_PROXY: db,backend,frontend,localhost,127.0.0.1${OUTBOUND_NO_PROXY:+,${OUTBOUND_NO_PROXY}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     volumes:
       # The golden spec for scripts/load_spec.py (the image holds only app/, alembic/ and scripts/).
       - ../examples:/examples:ro
@@ -59,7 +81,11 @@ services:
   frontend:
     build:
       context: ../frontend
+      extra_hosts:
+        - "host.docker.internal:host-gateway"
       args:
+        <<: *build_proxy
+        NPM_CONFIG_REGISTRY: ${NPM_CONFIG_REGISTRY:-}
         # Inlined into the JavaScript at build time: changing one needs `docker compose up -d --build`.
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
         NEXT_PUBLIC_MOCK: ${NEXT_PUBLIC_MOCK:-}
@@ -74,7 +100,14 @@ services:
       - frontend
     environment:
       SITE_HOST: ${SITE_HOST}
-      ACME_EMAIL: ${ACME_EMAIL:-}
+      # Written into the Caddyfile only when ACME_EMAIL is set (see the global block there).
+      ACME_EMAIL_LINE: ${ACME_EMAIL:+email ${ACME_EMAIL}}
+      # Optional outbound proxy: Caddy may need it to reach Let's Encrypt / ZeroSSL (ACME).
+      HTTP_PROXY: ${OUTBOUND_HTTP_PROXY:-}
+      HTTPS_PROXY: ${OUTBOUND_HTTPS_PROXY:-}
+      NO_PROXY: db,backend,frontend,localhost,127.0.0.1${OUTBOUND_NO_PROXY:+,${OUTBOUND_NO_PROXY}}
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "80:80"
       - "443:443"

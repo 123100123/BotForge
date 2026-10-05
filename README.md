@@ -264,6 +264,48 @@ docker compose exec backend python scripts/reregister_webhooks.py   # once: Tele
 certificate for the new name. The Telegram webhooks of connected bots still point at the old host until
 `reregister_webhooks.py` has run.
 
+### Restricted networks (Iran)
+
+When Docker Hub, ghcr.io, PyPI, npm, Telegram or the Anthropic API are blocked or slow, use these
+optional settings. Everything below is empty by default and then changes nothing.
+
+- **Base images (Docker Hub).** Set a registry mirror in `/etc/docker/daemon.json` and restart Docker:
+
+  ```json
+  { "registry-mirrors": ["https://docker.arvancloud.ir"] }
+  ```
+
+  `sudo systemctl restart docker`. A registry mirror covers Docker Hub only (`python`, `node`,
+  `postgres`, `caddy`), not ghcr.io. That is why the backend image installs `uv` from PyPI instead of
+  copying it from `ghcr.io/astral-sh/uv`. If a mirror does not have an image, pull it elsewhere and move it
+  with `docker save | ssh ... docker load`.
+- **Proxy for downloads and outbound calls.** In `deploy/.env`: `BUILD_PROXY` is used only while building
+  (pip, npm, uv downloads). `OUTBOUND_HTTP_PROXY` / `OUTBOUND_HTTPS_PROXY` (and extra bypass hosts in
+  `OUTBOUND_NO_PROXY`) become `HTTP_PROXY` / `HTTPS_PROXY` / `NO_PROXY` inside the backend and Caddy
+  containers: Telegram API calls and the LLM call go through it, and so does Caddy's certificate
+  request to Let's Encrypt or ZeroSSL, which may be blocked too. `db`, `backend`, `frontend`, `localhost`
+  and `127.0.0.1` always bypass it. A proxy running on the server itself is reachable as
+  `http://host.docker.internal:<port>` (compose maps that name to the host; the proxy must listen on
+  an address the containers can reach, not only on 127.0.0.1).
+- **Package mirrors.** `PIP_INDEX_URL` (a PyPI mirror, used by pip and uv for the backend build) and
+  `NPM_CONFIG_REGISTRY` (an npm mirror for the frontend build). Pass them and the proxy to a build with
+  `docker compose build` / `up -d --build`.
+- **LLM through a mirror.** `ANTHROPIC_BASE_URL` points the backend at an Anthropic-compatible service,
+  and `ANTHROPIC_API_KEY` is then that service's key. **Warning:** a third-party LLM mirror sees every
+  prompt, including the owners' chat text and the bots' data, and may not support every API feature the
+  agent uses: structured output through `output_config`, adaptive thinking and effort, and the
+  server-side fallback beta. Before relying on it, run inside the container
+  `docker compose exec backend python scripts/spike_structured_output.py` and
+  `docker compose exec backend python scripts/eval_golden.py --create --runs 1 --provider anthropic`
+  and check that both pass.
+
+**Local rehearsal.** To try the whole stack on a developer machine behind a proxy (Caddy serves
+`https://localhost` with its own CA; use `curl -k`): `cd deploy && cp .env.local.example .env.local`, fill it
+in (`claude setup-token` gives the `CLAUDE_CODE_OAUTH_TOKEN`), then `./local.sh up`, `./local.sh logs`,
+`./local.sh psql`, `./local.sh backup`, `./local.sh down -v`. It uses `docker-compose.local.yml`, which
+assumes a proxy on the host at port 10808 and publishes Postgres on 127.0.0.1:55432. Never use it on the
+VPS.
+
 ### Updating
 
 `git pull`, then `docker compose up -d --build` from `deploy/`. Keep `docker compose` runs on the one

@@ -15,6 +15,7 @@ dependencies = [
     "pyjwt[crypto]>=2.10.1",
     "cryptography>=44.0.1",
     "anthropic>=1.11.0",
+    "httpx",  # app/integrations/telegram/client.py; anthropic no longer pulls it in (it uses httpx2)
 ]
 
 [dependency-groups]

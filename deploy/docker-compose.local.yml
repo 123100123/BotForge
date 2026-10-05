@@ -1,0 +1,45 @@
+# LOCAL REHEARSAL ONLY. NEVER USE THIS FILE ON THE VPS.
+#
+# Runs the production stack on a developer machine behind a proxy, with https://localhost served by
+# Caddy's internal CA (curl needs -k, browsers warn). It differs from production in these ways:
+#   - SITE_HOST is localhost;
+#   - the backend image includes the `headless` dependency group and runs LLM_PROVIDER=claude_cli, using
+#     a Claude Code token (CLAUDE_CODE_OAUTH_TOKEN from deploy/.env.local) instead of an API key;
+#   - downloads and outbound calls go through the proxy on the host (host.docker.internal:10808);
+#   - Postgres is published on 127.0.0.1:55432 for inspection.
+#
+# Usage, from deploy/ (or just use ./local.sh):
+#   cp .env.local.example .env.local   # then fill it in
+#   docker compose --env-file .env.local -f docker-compose.yml -f docker-compose.local.yml up -d --build
+
+services:
+  db:
+    ports:
+      - "127.0.0.1:55432:5432" # local only: never reachable from other machines
+
+  backend:
+    build:
+      args:
+        UV_EXTRA_GROUPS: headless
+        http_proxy: http://host.docker.internal:10808
+        https_proxy: http://host.docker.internal:10808
+    environment:
+      FRONTEND_ORIGIN: https://localhost
+      PUBLIC_BASE_URL: https://localhost
+      LLM_PROVIDER: claude_cli
+      # `claude setup-token` prints it. The SDK passes the container environment through to the CLI.
+      CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
+      # The container user has no home directory; the CLI wants a writable one.
+      HOME: /tmp
+      HTTP_PROXY: http://host.docker.internal:10808
+      HTTPS_PROXY: http://host.docker.internal:10808
+
+  frontend:
+    build:
+      args:
+        http_proxy: http://host.docker.internal:10808
+        https_proxy: http://host.docker.internal:10808
+
+  caddy:
+    environment:
+      SITE_HOST: localhost
