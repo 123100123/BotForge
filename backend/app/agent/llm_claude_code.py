@@ -250,6 +250,9 @@ class ClaudeCodeLLM:
     Tools are served by an in-process SDK MCP server named ``botforge``. The SDK validates arguments
     against each tool's JSON schema before our handler runs; such rejected calls are counted toward
     ``max_tool_calls`` like any other call (they reached the model as an error result).
+
+    The CLI runs tools while a response is still streaming, so when ``on_usage`` returns False
+    (``budget``) the tools of the response that exhausted the budget may already have run.
     """
 
     def __init__(
@@ -482,12 +485,15 @@ class ClaudeCodeLLM:
         """Interrupt the session and drain it to its closing result; the context exit then closes it.
 
         A response that still completes during the drain is charged (``on_usage`` included); its
-        verdict no longer matters because the loop is already ending.
+        verdict no longer matters because the loop is already ending. Best effort and bounded: the
+        interrupt and the drain together get ``DRAIN_SECONDS``; any failure (the SDK raises a bare
+        ``Exception`` for an error or unanswered control request) is logged and the caller still
+        returns its result. Cancellation is never swallowed.
         """
         try:
-            await client.interrupt()
             async with asyncio.timeout(DRAIN_SECONDS):
+                await client.interrupt()
                 async for message in client.receive_response():
                     session.observe(sdk, message)
-        except (TimeoutError, sdk.ClaudeSDKError) as exc:
-            log.warning("claude_cli session did not drain cleanly after interrupt: %r", exc)
+        except Exception as exc:  # asyncio.CancelledError is a BaseException and propagates
+            log.warning("claude_cli session did not interrupt/drain cleanly: %r", exc)
