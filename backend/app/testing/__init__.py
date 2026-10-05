@@ -1,2 +1,8 @@
-# Importing these modules registers the request and orders drivers / derived-scenario templates.
-from app.testing import orders_derive, orders_driver, request_derive, request_driver  # noqa: F401
+# Importing these modules registers the request, orders and events drivers / derived-scenario templates.
+from app.testing import (  # noqa: F401
+    events_derive,
+    orders_derive,
+    orders_driver,
+    request_derive,
+    request_driver,
+)
