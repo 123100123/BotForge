@@ -21,6 +21,11 @@ dependencies = [
 dbtest = [
     "pgserver>=0.1.4",
 ]
+# Optional: ``ClaudeCodeLLM`` (LLM_PROVIDER=claude_cli) runs the model through the local Claude Code
+# login for development and live evals. Not a runtime dependency: the app and image work without it.
+headless = [
+    "claude-agent-sdk>=0.2.163",  # option names and stream shapes verified against 0.2.163
+]
 dev = [
     "pytest",
     "pytest-asyncio",

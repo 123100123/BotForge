@@ -1,6 +1,7 @@
 """Application settings read from the environment (names match ``.env.example``)."""
 
 from functools import lru_cache
+from typing import Literal
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -23,6 +24,13 @@ class Settings(BaseSettings):
     ANTHROPIC_API_KEY: str | None = None
     LLM_MODEL_STRONG: str | None = None
     LLM_MODEL_FAST: str | None = None
+
+    # "anthropic": the API (production). "claude_cli": headless Claude Code with the developer's login
+    # (local development and live evals; needs `uv sync --group headless`).
+    LLM_PROVIDER: Literal["anthropic", "claude_cli"] = "anthropic"
+    CLAUDE_CLI_MODEL: str = "claude-opus-5-5"
+    CLAUDE_CLI_EFFORT: str = "medium"
+    CLAUDE_CLI_PATH: str | None = None  # default: the CLI bundled with claude-agent-sdk, else `claude`
 
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False

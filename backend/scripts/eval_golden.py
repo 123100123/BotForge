@@ -15,9 +15,14 @@ revision is exactly the expected change (capacity value 12; cancellation.deadlin
 scenario passed; for the capacity change only ``golden_capacity_10_real`` was superseded (nothing
 for the deadline); at least one new acceptance scenario exists; activation succeeded.
 
-Usage (from backend/, needs ANTHROPIC_API_KEY; each run costs real money):
-    uv run python scripts/eval_golden.py --create [--runs N] [--verbose]
-    uv run python scripts/eval_golden.py --modify [--runs N] [--verbose]
+Usage (from backend/):
+    uv run python scripts/eval_golden.py --create [--runs N] [--verbose] [--provider anthropic|claude_cli]
+    uv run python scripts/eval_golden.py --modify [--runs N] [--verbose] [--provider anthropic|claude_cli]
+
+--provider defaults to LLM_PROVIDER. ``anthropic`` needs ANTHROPIC_API_KEY and each run costs real
+money. ``claude_cli`` needs no API key: it runs headless Claude Code with your Claude Code login
+(``uv sync --group headless`` once, and be logged in to Claude Code); its cost line is the notional
+API cost of the same tokens.
 """
 
 import argparse
@@ -41,6 +46,7 @@ from app.agent.requirements import Requirements
 from app.botspec.diff import diff_specs
 from app.botspec.models import BookingCapability, BotSpec
 from app.botspec.validate import check_spec, has_errors
+from app.config import get_settings
 from app.testing.scenario import Scenario
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
@@ -211,7 +217,7 @@ def answer_for(questions: list[dict[str, Any]]) -> str:
     return " ".join(dict.fromkeys(lines)) or DEFAULT_ANSWER
 
 
-async def one_run(index: int, llm: AnthropicLLM, verbose: bool) -> dict[str, Any]:
+async def one_run(index: int, llm: LLMClient, verbose: bool) -> dict[str, Any]:
     repo = InMemoryAgentRepository()
     orch = Orchestrator(repo, llm, limits=Limits.from_settings(), bus=EventBus())
     bot_id = repo.add_bot("ارزیابی")
@@ -286,8 +292,6 @@ async def one_run(index: int, llm: AnthropicLLM, verbose: bool) -> dict[str, Any
 
 
 def api_key_available() -> bool:
-    from app.config import get_settings
-
     return bool(os.environ.get("ANTHROPIC_API_KEY") or get_settings().ANTHROPIC_API_KEY)
 
 
@@ -300,12 +304,18 @@ async def main() -> int:
     mode.add_argument(
         "--modify", action="store_true", help="evaluate the two golden modifications in sequence"
     )
+    parser.add_argument(
+        "--provider",
+        choices=["anthropic", "claude_cli"],
+        default=get_settings().LLM_PROVIDER,
+        help="model provider (default: LLM_PROVIDER); claude_cli uses the Claude Code login, no API key",
+    )
     parser.add_argument("--runs", type=int, default=1)
     parser.add_argument("--verbose", action="store_true")
     args = parser.parse_args()
     if not (args.create or args.modify):
         parser.error("choose a flow to evaluate: --create or --modify")
-    if not api_key_available():
+    if args.provider == "anthropic" and not api_key_available():
         print(
             "ANTHROPIC_API_KEY is not set (environment or backend/.env). This script calls the live "
             "model and costs real money; set the key and run it again.",
@@ -313,11 +323,16 @@ async def main() -> int:
         )
         return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    llm = AnthropicLLM()
-    print(
-        f"mode={'modify' if args.modify else 'create'} strong={llm.strong_model} "
-        f"fast={llm.fast_model} runs={args.runs}"
-    )
+    llm: LLMClient
+    if args.provider == "claude_cli":
+        from app.agent.llm_claude_code import ClaudeCodeLLM
+
+        cli = ClaudeCodeLLM()
+        llm, models = cli, f"model={cli.model} effort={cli.effort}"
+    else:
+        api = AnthropicLLM()
+        llm, models = api, f"strong={api.strong_model} fast={api.fast_model}"
+    print(f"mode={'modify' if args.modify else 'create'} provider={args.provider} {models} runs={args.runs}")
     results = []
     for i in range(1, args.runs + 1):
         if args.modify:
@@ -328,8 +343,9 @@ async def main() -> int:
         print(json.dumps(result, ensure_ascii=False, indent=2, default=str))
     passed = sum(1 for r in results if r["result"] == "PASS")
     cost = sum(r["cost_usd"] for r in results)
+    cost_label = "notional cost" if args.provider == "claude_cli" else "total cost"
     print(
-        f"\nSUMMARY: {passed}/{len(results)} PASS, total cost ${cost:.4f}, "
+        f"\nSUMMARY: {passed}/{len(results)} PASS, {cost_label} ${cost:.4f}, "
         f"mean tool calls {sum(r['tool_calls'] for r in results) / len(results):.1f}"
     )
     return 0 if passed == len(results) else 1

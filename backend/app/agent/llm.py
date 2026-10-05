@@ -1,13 +1,17 @@
 """LLM boundary for the agent (roadmap: "LLM Strategy").
 
-``LLMClient`` is the only way phases reach a model. Two implementations:
+``LLMClient`` is the only way phases reach a model. Three implementations:
 
 - ``AnthropicLLM``: the official async ``anthropic`` SDK. Streaming requests (``get_final_message``),
   a cached system prefix, adaptive thinking with per-task effort, structured output through
   ``output_config.format`` (schema prepared with ``anthropic.transform_schema``), tools with
   ``tool_choice`` left at ``auto`` (forced tool use is rejected by current models), server-side
   refusal fallback (``fallbacks="default"``), and ``stop_reason`` checked before content is read.
+- ``ClaudeCodeLLM`` (``llm_claude_code.py``): headless Claude Code through ``claude-agent-sdk`` with the
+  developer's Claude Code login, for local development and live evals (``LLM_PROVIDER=claude_cli``).
 - ``FakeLLM``: scripted structured results and scripted tool-call turns. Every automated test uses it.
+
+``make_llm()`` returns the client selected by ``LLM_PROVIDER``.
 
 The tool loop is append-only: assistant turns (thinking blocks included) go back unchanged, tool
 results are appended as one user message per turn. ``tool_loop`` enforces ``max_tool_calls`` and
@@ -447,6 +451,17 @@ class AnthropicLLM:
             if turn.limit_hit:
                 return LoopResult("tool_limit", state["calls"], total, last_text)
             history.append({"role": "user", "content": turn.results})
+
+
+def make_llm() -> LLMClient:
+    """The client for ``LLM_PROVIDER``: ``AnthropicLLM`` (default) or ``ClaudeCodeLLM`` (claude_cli)."""
+    from app.config import get_settings
+
+    if get_settings().LLM_PROVIDER == "claude_cli":
+        from app.agent.llm_claude_code import ClaudeCodeLLM
+
+        return ClaudeCodeLLM()
+    return AnthropicLLM()
 
 
 # --------------------------------------------------------------------------- fake
