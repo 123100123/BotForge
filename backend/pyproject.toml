@@ -20,6 +20,8 @@ dependencies = [
     "httpx[socks]",
     # anthropic uses httpx2, which has its own socks extra (anthropic itself offers none).
     "httpx2[socks]",
+    # app/spreadsheets/: reads uploaded .xlsx files (read-only mode). CSV uses the standard library.
+    "openpyxl>=3.1",
 ]
 
 [dependency-groups]

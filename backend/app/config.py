@@ -53,6 +53,24 @@ class Settings(BaseSettings):
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False
 
+    # Notifications (app/notifications/): one ticker task in this process sends queued outbox rows
+    # (reminders, announcements, scheduled reports). Off by default so tests and local runs never send;
+    # the compose deployment turns it on. It must run in exactly one backend process.
+    NOTIFICATIONS_TICKER: bool = False
+    NOTIFICATIONS_TICK_SECONDS: int = Field(default=20, ge=1, le=3600)
+    # Global send ceiling across all bots (Telegram allows about 30 messages per second per bot token).
+    NOTIFICATIONS_SEND_RATE_PER_SECOND: int = Field(default=15, ge=1, le=30)
+
+    # Spreadsheet uploads (app/spreadsheets/): where the files are stored and how large they may be.
+    UPLOAD_DIR: str = "./uploads"
+    UPLOAD_MAX_BYTES: int = Field(default=5 * 1024 * 1024, ge=1)
+    SPREADSHEET_MAX_ROWS: int = Field(default=50_000, ge=1)
+    SPREADSHEET_MAX_COLUMNS: int = Field(default=100, ge=1)
+
+    # Manager Copilot (app/copilot/): questions per owner account per rolling 24 hours (cost control,
+    # counted like AGENT_DAILY_RUN_CAP).
+    COPILOT_DAILY_CAP: int = Field(default=50, ge=0)
+
     @property
     def frontend_origins(self) -> list[str]:
         """``FRONTEND_ORIGIN`` split on commas, whitespace and trailing slashes
