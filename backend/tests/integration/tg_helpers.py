@@ -11,7 +11,7 @@ from app.db.models import Bot
 from app.integrations.telegram.client import FakeTelegramClient
 from app.revisions.service import activate, create_draft
 from app.security.crypto import encrypt_token, generate_webhook_secret
-from tests.integration.helpers import SessionFactory
+from tests.integration.helpers import SessionFactory, user_id
 
 ALICE = {"X-Test-User": "alice"}
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
@@ -45,13 +45,15 @@ async def make_live_bot(
     session_factory: SessionFactory,
     spec: dict[str, Any] | None,
     *,
-    owner_id: str = "alice",
+    owner: str = "alice",
     owner_actor_id: str | None = None,
 ) -> LiveBot:
-    """A bot with an encrypted token, a webhook secret and (if ``spec``) an active revision."""
+    """A bot of the test account ``<owner>@example.com`` with an encrypted token, a webhook secret and
+    (if ``spec``) an active revision."""
     tg_id, token = new_token()
     secret = generate_webhook_secret()
     code = f"code{uuid.uuid4().hex[:10]}"
+    owner_id = await user_id(session_factory, owner)
     async with session_factory() as session:
         bot = Bot(
             owner_id=owner_id,

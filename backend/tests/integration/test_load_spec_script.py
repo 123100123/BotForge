@@ -10,7 +10,7 @@ import pytest
 from sqlalchemy import select
 
 from app.db.models import Bot, RecordRow, Revision
-from tests.integration.helpers import BACKEND, REPO, SessionFactory
+from tests.integration.helpers import BACKEND, REPO, SessionFactory, email_for, user_id
 
 SPEC = REPO / "examples" / "workshop.botspec.json"
 SAMPLE = BACKEND / "scripts" / "workshop.sample_data.json"
@@ -44,7 +44,7 @@ async def _records(session_factory: SessionFactory, bot_id: uuid.UUID, env: str)
         return list(rows.scalars())
 
 
-async def _only_bot(session_factory: SessionFactory, owner: str) -> Bot:
+async def _only_bot(session_factory: SessionFactory, owner: uuid.UUID) -> Bot:
     async with session_factory() as session:
         return (await session.execute(select(Bot).where(Bot.owner_id == owner))).scalar_one()
 
@@ -52,11 +52,12 @@ async def _only_bot(session_factory: SessionFactory, owner: str) -> Bot:
 async def test_sample_data_is_stored_and_loaded_into_the_sandbox_only(
     session_factory: SessionFactory, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    code = await script.load_spec(SPEC, "load-spec-sample", None, None, SAMPLE)
+    owner = await user_id(session_factory, "load-spec-sample")
+    code = await script.load_spec(SPEC, owner, None, None, SAMPLE)
     assert code == 0
     assert "3 sample records loaded" in capsys.readouterr().out
 
-    bot = await _only_bot(session_factory, "load-spec-sample")
+    bot = await _only_bot(session_factory, owner)
     sandbox = await _records(session_factory, bot.id, "sandbox")
     assert {r.collection for r in sandbox} == {"workshop"} and len(sandbox) == 3
     assert {r.data["title"] for r in sandbox} >= {"کارگاه عکاسی"}
@@ -70,8 +71,9 @@ async def test_sample_data_is_stored_and_loaded_into_the_sandbox_only(
 
 
 async def test_without_sample_data_the_script_behaves_as_before(session_factory: SessionFactory) -> None:
-    assert await script.load_spec(SPEC, "load-spec-plain", None, None) == 0
-    bot = await _only_bot(session_factory, "load-spec-plain")
+    owner = await user_id(session_factory, "load-spec-plain")
+    assert await script.load_spec(SPEC, email_for("load-spec-plain"), None, None) == 0  # by email
+    bot = await _only_bot(session_factory, owner)
     assert bot.active_revision_id is not None
     assert await _records(session_factory, bot.id, "sandbox") == []
     async with session_factory() as session:
@@ -88,10 +90,19 @@ async def test_invalid_sample_data_loads_nothing(
     not_a_list = tmp_path / "bad.json"
     not_a_list.write_text('{"ref": "x"}', encoding="utf-8")
 
-    assert await script.load_spec(SPEC, "load-spec-bad", None, None, unknown_resource) == 1
-    assert await script.load_spec(SPEC, "load-spec-bad", None, None, not_a_list) == 1
+    owner = await user_id(session_factory, "load-spec-bad")
+    assert await script.load_spec(SPEC, owner, None, None, unknown_resource) == 1
+    assert await script.load_spec(SPEC, owner, None, None, not_a_list) == 1
     err = capsys.readouterr().err
     assert "invalid sample data" in err and "not a list of SeedRecord" in err
     async with session_factory() as session:
-        bots = (await session.execute(select(Bot).where(Bot.owner_id == "load-spec-bad"))).scalars().all()
+        bots = (await session.execute(select(Bot).where(Bot.owner_id == owner))).scalars().all()
     assert bots == []  # the failed run left no bot behind
+
+
+async def test_an_unknown_owner_is_refused(
+    session_factory: SessionFactory, capsys: pytest.CaptureFixture[str]
+) -> None:
+    assert await script.load_spec(SPEC, uuid.uuid4(), None, None) == 1
+    assert await script.load_spec(SPEC, "nobody-here@example.com", None, None) == 1
+    assert capsys.readouterr().err.count("no such account") == 2

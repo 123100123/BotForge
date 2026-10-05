@@ -1,4 +1,4 @@
-"""Bots endpoints, with stand-in auth for two users. Needs TEST_DATABASE_URL."""
+"""Bots endpoints, signed in with real session cookies as two users. Needs TEST_DATABASE_URL."""
 
 import httpx
 from sqlalchemy import select
@@ -8,7 +8,7 @@ from app.db.models import AgentRun, Bot
 from app.main import create_app, mark_interrupted_runs
 from app.runtime.pg_store import PgStore
 from tests.integration.conftest import MakeBot
-from tests.integration.helpers import NOW, SessionFactory
+from tests.integration.helpers import NOW, SessionFactory, user_id
 
 ALICE = {"X-Test-User": "alice"}
 BOB = {"X-Test-User": "bob"}
@@ -16,10 +16,10 @@ BOB = {"X-Test-User": "bob"}
 SECRET_FIELDS = {"tg_token_enc", "tg_webhook_secret", "tg_bot_id", "owner_id", "owner_actor_id"}
 
 
-async def test_me(client: httpx.AsyncClient) -> None:
+async def test_me(client: httpx.AsyncClient, session_factory: SessionFactory) -> None:
     response = await client.get("/me", headers=BOB)
     assert response.status_code == 200
-    assert response.json() == {"id": "bob", "email": "bob@example.com"}
+    assert response.json() == {"id": str(await user_id(session_factory, "bob")), "email": "bob@example.com"}
 
 
 async def test_create_bot(client: httpx.AsyncClient) -> None:
@@ -104,9 +104,10 @@ async def test_read_rename_delete(
 async def test_responses_never_contain_secret_values(
     client: httpx.AsyncClient, session_factory: SessionFactory
 ) -> None:
+    carol = await user_id(session_factory, "carol")
     async with session_factory() as session:
         bot = Bot(
-            owner_id="carol",
+            owner_id=carol,
             name="با توکن",
             tg_token_enc="ENCRYPTED-TOKEN-VALUE",
             tg_webhook_secret="WEBHOOK-SECRET-VALUE",
@@ -132,8 +133,9 @@ async def test_startup_marks_running_agent_runs_interrupted(
 ) -> None:  # type: ignore[no-untyped-def]
     from app.db import session as db_session
 
+    dave = await user_id(session_factory, "dave")
     async with session_factory() as session:
-        bot = Bot(owner_id="dave", name="b")
+        bot = Bot(owner_id=dave, name="b")
         session.add(bot)
         await session.flush()
         statuses = ["running", "waiting_user", "done", "running"]

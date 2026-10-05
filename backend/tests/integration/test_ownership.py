@@ -1,32 +1,29 @@
-"""Ownership with the REAL dependencies: nothing in ``dependency_overrides``. Needs TEST_DATABASE_URL.
+"""Ownership with the REAL dependencies: nothing in ``dependency_overrides``. Needs a database.
 
-Tokens are HS256-signed with a locally generated secret configured through the environment, exactly
-as a deployment with ``SUPABASE_JWT_SECRET`` would verify them; sessions come from the real
-``get_session`` against the test database.
+Requests carry real login sessions: ``auth_sessions`` rows made by the app's own ``create_session``,
+sent as the ``bf_session`` cookie with the CSRF header (``helpers.CookieAuth``; ``X-Test-User`` names
+the account). The app uses its own ``get_session`` against the test database.
 """
 
-import time
 import uuid
 from collections.abc import AsyncIterator
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import httpx
 import pytest
 import pytest_asyncio
 from fastapi import APIRouter, Depends
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 
 from app.api.deps import BOT_NOT_FOUND, REVISION_NOT_FOUND, RUN_NOT_FOUND, get_owned_revision, get_owned_run
 from app.config import get_settings
 from app.db import session as db_session
-from app.db.models import AgentRun, Bot, Revision
+from app.db.models import AgentRun, AuthSession, Bot, Revision, User
 from app.main import create_app
-from app.security.auth import reset_verifier
+from app.security.sessions import SESSION_COOKIE, create_session, new_token
 from tests.integration.conftest import MakeBot
-from tests.integration.helpers import SessionFactory, make_client
-from tests.unit.security.tokens import SUPABASE_URL, mint, new_secret
-
-SECRET = new_secret()
+from tests.integration.helpers import ANONYMOUS, CookieAuth, SessionFactory, email_for, make_client, user_id
 
 WORKSHOP = {
     "title": "کارگاه عکاسی",
@@ -50,44 +47,47 @@ async def probe_revision(revision: Revision = Depends(get_owned_revision)) -> di
     return {"id": str(revision.id), "bot_id": str(revision.bot_id)}
 
 
-def auth(user_id: str, **claims: Any) -> dict[str, str]:
-    token = mint(SECRET, "HS256", sub=user_id, email=f"{user_id[:8]}@example.com", **claims)
-    return {"Authorization": f"Bearer {token}"}
+def auth(name: str) -> dict[str, str]:
+    return {"X-Test-User": name}
 
 
 def new_user() -> str:
-    return str(uuid.uuid4())  # Supabase user ids are UUIDs
+    return f"owner-{uuid.uuid4().hex[:12]}"  # a fresh account name
 
 
 def error(pair: tuple[str, str]) -> dict[str, dict[str, str]]:
     return {"error": {"code": pair[0], "message": pair[1]}}
 
 
+def with_cookie(token: str) -> dict[str, str]:
+    """A request that bypasses CookieAuth and presents ``token`` itself (with the CSRF header)."""
+    return {"X-Test-User": ANONYMOUS, "Cookie": f"{SESSION_COOKIE}={token}", "X-BotForge-CSRF": "1"}
+
+
 @pytest_asyncio.fixture
-async def real_client(migrated_db: str, monkeypatch: pytest.MonkeyPatch) -> AsyncIterator[httpx.AsyncClient]:
-    """The production app: real JWT verification, real ownership checks, real sessions."""
+async def real_client(
+    migrated_db: str, session_factory: SessionFactory, monkeypatch: pytest.MonkeyPatch
+) -> AsyncIterator[httpx.AsyncClient]:
+    """The production app: real cookie sessions, real ownership checks, real database sessions."""
     monkeypatch.setenv("DATABASE_URL", migrated_db)
-    monkeypatch.setenv("SUPABASE_URL", SUPABASE_URL)
-    monkeypatch.setenv("SUPABASE_JWT_SECRET", SECRET)
-    monkeypatch.setenv("SUPABASE_JWKS_URL", "")
     get_settings.cache_clear()
-    reset_verifier()
     app = create_app()
     app.include_router(probe)
     assert not app.dependency_overrides
     try:
-        async with make_client(app) as client:
+        async with make_client(app, auth=CookieAuth(session_factory)) as client:
             yield client
     finally:
         await db_session.dispose_engine()
         get_settings.cache_clear()
-        reset_verifier()
 
 
-async def test_owner_has_full_access_to_their_bot(real_client: httpx.AsyncClient) -> None:
+async def test_owner_has_full_access_to_their_bot(
+    real_client: httpx.AsyncClient, session_factory: SessionFactory
+) -> None:
     alice = new_user()
     me = await real_client.get("/me", headers=auth(alice))
-    assert me.json() == {"id": alice, "email": f"{alice[:8]}@example.com"}
+    assert me.json() == {"id": str(await user_id(session_factory, alice)), "email": email_for(alice)}
 
     created = await real_client.post("/bots", json={"name": "ربات من"}, headers=auth(alice))
     assert created.status_code == 201, created.text
@@ -146,20 +146,25 @@ async def test_other_owners_get_404_on_every_bot_route(
     assert records["items"][0]["data"]["title"] == WORKSHOP["title"]
 
 
-async def test_requests_without_a_valid_token_are_401_and_change_nothing(
+async def test_requests_without_a_valid_session_are_401_and_change_nothing(
     real_client: httpx.AsyncClient, make_bot: MakeBot, session_factory: SessionFactory
 ) -> None:
     alice = new_user()
     bot_id, _ = await make_bot(alice, name="الف")
+    alice_id = await user_id(session_factory, alice)
+    async with session_factory() as session:
+        expired = await create_session(session, alice_id, now=datetime.now(UTC) - timedelta(days=30))
+        logged_out = await create_session(session, alice_id)
+        await session.commit()
+    assert (await real_client.post("/auth/logout", headers=with_cookie(logged_out))).status_code == 204
+
     probe_name = f"probe-{uuid.uuid4()}"
-    now = int(time.time())
     attempts = {
-        "missing": {},
-        "garbage": {"Authorization": "Bearer garbage"},
-        "expired": auth(alice, exp=now - 3600),
-        "foreign secret": {"Authorization": f"Bearer {mint(new_secret(), 'HS256', sub=alice)}"},
-        "foreign issuer": auth(alice, iss="https://other-project.supabase.co/auth/v1"),
-        "foreign audience": auth(alice, aud="anon"),
+        "missing": {"X-Test-User": ANONYMOUS, "X-BotForge-CSRF": "1"},
+        "garbage": with_cookie("garbage"),
+        "unknown": with_cookie(new_token()),
+        "expired": with_cookie(expired),
+        "logged out": with_cookie(logged_out),
     }
     routes: list[tuple[str, str, dict[str, Any] | None]] = [
         ("GET", "/me", None),
@@ -172,11 +177,12 @@ async def test_requests_without_a_valid_token_are_401_and_change_nothing(
         ("POST", f"/bots/{bot_id}/data/workshop", {"data": WORKSHOP}),
     ]
     for label, headers in attempts.items():
-        expected = "auth_required" if label == "missing" else "invalid_token"
+        expected = "auth_required" if label == "missing" else "invalid_session"
         for method, path, body in routes:
             response = await real_client.request(method, path, json=body, headers=headers)
             assert response.status_code == 401, (label, method, path, response.text)
             assert response.json()["error"]["code"] == expected
+            assert "set-cookie" not in response.headers
 
     async with session_factory() as session:
         bot = await session.get(Bot, bot_id)
@@ -232,5 +238,21 @@ async def test_owned_run_and_revision_dependencies(
         absent = await real_client.get(path.replace(str(own_id), str(uuid.uuid4())), headers=auth(bob))
         assert foreign.status_code == absent.status_code == 404
         assert foreign.json() == absent.json() == error(not_found)
-        anonymous = await real_client.get(path)
+        anonymous = await real_client.get(path, headers=auth(ANONYMOUS))
         assert anonymous.status_code == 401
+
+
+async def test_deleting_an_account_deletes_its_bots_and_sessions(
+    real_client: httpx.AsyncClient, make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    alice = new_user()
+    bot_id, _ = await make_bot(alice)
+    assert (await real_client.get("/me", headers=auth(alice))).status_code == 200  # makes a session
+    alice_id = await user_id(session_factory, alice)
+    async with session_factory() as session:
+        await session.execute(delete(User).where(User.id == alice_id))
+        await session.commit()
+    async with session_factory() as session:
+        assert await session.get(Bot, bot_id) is None
+        left = select(func.count()).select_from(AuthSession).where(AuthSession.user_id == alice_id)
+        assert (await session.execute(left)).scalar_one() == 0

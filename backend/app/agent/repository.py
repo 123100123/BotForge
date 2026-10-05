@@ -325,7 +325,7 @@ class SqlAgentRepository:
             bot = await session.get(Bot, _uuid(bot_id))
             if bot is None:
                 raise BotMissing()
-            return BotInfo(str(bot.id), bot.name, bot.owner_id, _str(bot.active_revision_id))
+            return BotInfo(str(bot.id), bot.name, str(bot.owner_id), _str(bot.active_revision_id))
 
     async def load_revision_spec(self, revision_id: str) -> BotSpec:
         async with self._sm() as session:

@@ -3,6 +3,7 @@
 from functools import lru_cache
 from typing import Literal
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -17,9 +18,11 @@ class Settings(BaseSettings):
     FRONTEND_ORIGIN: str = "http://localhost:3000"  # one origin, or several separated by commas
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
-    SUPABASE_URL: str | None = None
-    SUPABASE_JWT_SECRET: str | None = None
-    SUPABASE_JWKS_URL: str | None = None
+    # Owner accounts and login sessions (app/security/). The session cookie is Secure unless
+    # AUTH_COOKIE_SECURE is false, which is meant only for plain-http local development.
+    AUTH_COOKIE_SECURE: bool = True
+    AUTH_ALLOW_SIGNUP: bool = True
+    AUTH_SESSION_TTL_HOURS: int = Field(default=168, ge=1, le=24 * 366)
 
     ANTHROPIC_API_KEY: str | None = None
     LLM_MODEL_STRONG: str | None = None

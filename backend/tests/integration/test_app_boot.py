@@ -14,6 +14,7 @@ import app.api as api_package
 from app.api.deps import CurrentUser, get_current_user
 from app.config import Settings, get_settings
 from app.main import create_app
+from app.security.sessions import SESSION_COOKIE, new_token
 from tests.integration.helpers import make_client
 
 PROBE = """
@@ -139,7 +140,7 @@ async def test_error_body_when_database_is_not_configured() -> None:
     app = create_app()
 
     async def user() -> CurrentUser:
-        return CurrentUser(id="alice")
+        return CurrentUser(id=uuid.UUID(int=1), email="alice@example.com")
 
     app.dependency_overrides[get_current_user] = user
     async with make_client(app) as client:
@@ -148,8 +149,10 @@ async def test_error_body_when_database_is_not_configured() -> None:
     assert response.json()["error"]["code"] == "database_unavailable"
 
 
-# Routes reachable without a Supabase token. The Telegram webhook authenticates by its secret header.
-PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}"}
+# Routes reachable without a session. The Telegram webhook authenticates by its secret header; the
+# auth routes are how a session is obtained (and ended).
+PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}", "/auth/signup", "/auth/login", "/auth/logout"}
+STATE_CHANGING = {"post", "put", "patch", "delete"}
 
 
 async def test_every_api_route_requires_authentication() -> None:
@@ -172,6 +175,33 @@ async def test_every_api_route_requires_authentication() -> None:
                 assert response.json()["error"]["code"] == "auth_required"
                 checked += 1
     assert checked >= 11  # /me, the bot routes and the data routes
+
+
+async def test_every_state_changing_route_requires_the_csrf_header() -> None:
+    """Regression guard: with a session cookie but without ``X-BotForge-CSRF: 1`` (or with a foreign
+    Origin), every state-changing route except the Telegram webhook is refused with 403 before any
+    database work. GET routes are not subject to the check (they get as far as the session lookup)."""
+    app = create_app()
+    cookie = {"Cookie": f"{SESSION_COOKIE}={new_token()}"}
+    attempts = {
+        "no header": cookie,
+        "wrong value": {**cookie, "X-BotForge-CSRF": "true"},
+        "foreign origin": {**cookie, "X-BotForge-CSRF": "1", "Origin": "https://evil.example.com"},
+        "null origin": {**cookie, "X-BotForge-CSRF": "1", "Origin": "null"},
+    }
+    checked = 0
+    async with make_client(app) as client:
+        for template, operations in app.openapi()["paths"].items():
+            if template == "/tg/{bot_id}":
+                continue
+            path = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), template)
+            for method in sorted(set(operations) & STATE_CHANGING):
+                for label, headers in attempts.items():
+                    response = await client.request(method.upper(), path, headers=headers, json={})
+                    assert response.status_code == 403, (label, method, template, response.status_code)
+                    assert response.json()["error"]["code"] == "csrf_failed"
+                checked += 1
+    assert checked >= 20  # the auth routes, bot, data, run, revision, simulator and Telegram routes
 
 
 async def test_cors_allows_only_the_frontend_origin(monkeypatch: pytest.MonkeyPatch) -> None:

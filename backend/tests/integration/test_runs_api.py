@@ -22,7 +22,7 @@ from app.db.models import AgentEvent, AgentRun, Bot, RecordRow, Revision
 from app.main import create_app
 from app.revisions.service import activate, create_draft
 from tests.integration.conftest import MakeBot
-from tests.integration.helpers import SessionFactory, install_test_auth, make_client
+from tests.integration.helpers import SessionFactory, signed_in_client
 from tests.unit.agent.helpers import (
     DEADLINE_HOURS,
     GOLDEN_PROMPT,
@@ -96,8 +96,7 @@ def make_api(session_factory: SessionFactory, client: httpx.AsyncClient, app: An
 @pytest_asyncio.fixture
 async def app_client(session_factory: SessionFactory) -> AsyncIterator[tuple[Any, httpx.AsyncClient]]:
     app = create_app()
-    install_test_auth(app, session_factory)
-    async with make_client(app) as c:
+    async with signed_in_client(app, session_factory) as c:
         yield app, c
 
 

@@ -9,9 +9,7 @@ creation.
 
 import asyncio
 import json
-import time
 import uuid
-from collections import defaultdict, deque
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime, timedelta
 from typing import Annotated, Any
@@ -31,6 +29,7 @@ from app.agent.state import TERMINAL_STATUSES
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot, get_owned_run
 from app.db.models import AgentRun, Bot
 from app.db.session import get_session, get_sessionmaker
+from app.security.rate_limit import RateLimiter
 
 router = APIRouter(tags=["runs"])
 
@@ -103,24 +102,6 @@ def get_orchestrator() -> Orchestrator:
     return _orchestrator
 
 
-class RateLimiter:
-    """At most ``limit`` events per ``window`` seconds per key (in process; one backend process)."""
-
-    def __init__(self, window: float = 60.0) -> None:
-        self.window = window
-        self._hits: dict[str, deque[float]] = defaultdict(deque)
-
-    def allow(self, key: str, limit: int) -> bool:
-        now = time.monotonic()
-        hits = self._hits[key]
-        while hits and now - hits[0] > self.window:
-            hits.popleft()
-        if len(hits) >= limit:
-            return False
-        hits.append(now)
-        return True
-
-
 run_creation_limiter = RateLimiter()
 
 
@@ -155,7 +136,7 @@ async def create_run(
     ).scalar_one()
     if today >= settings.AGENT_DAILY_RUN_CAP:
         raise _err(429, "daily_run_cap", DAILY_CAP_MESSAGE)
-    if not run_creation_limiter.allow(user.id, settings.AGENT_RUNS_PER_MINUTE):
+    if not run_creation_limiter.allow(str(user.id), settings.AGENT_RUNS_PER_MINUTE):
         raise _err(429, "rate_limited", RATE_LIMIT_MESSAGE)
     await session.commit()  # release the request's connection before the run starts
     try:

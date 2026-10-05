@@ -26,7 +26,9 @@ from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.security.body_limit import BodyLimitMiddleware
+from app.security.rate_limit import AuthRateLimits
 from app.security.redact import install_log_redaction
+from app.security.sessions import SessionCookieRefresh
 
 log = logging.getLogger(__name__)
 
@@ -121,6 +123,10 @@ def create_app() -> FastAPI:
     settings = get_settings()
     install_log_redaction()  # SECURITY (WP4b): redact tokens and credentials from every log record
     app = FastAPI(title="BotForge", lifespan=lifespan)
+    app.state.auth_rate_limits = AuthRateLimits()  # login and signup limits, per app instance
+    # Re-sends the session cookie after a sliding renewal (app/security/sessions.py). Innermost, so
+    # it sees every response the routes produce, including those returned as Response objects.
+    app.add_middleware(SessionCookieRefresh)
     # SECURITY: FastAPI parses a body before authentication runs, so bodies are capped up front.
     # Added before CORS so that CORS stays the outer layer and also decorates 413 answers.
     app.add_middleware(BodyLimitMiddleware)

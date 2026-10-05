@@ -1,83 +1,91 @@
 """Authentication and ownership dependencies (roadmap: Security, Backend API).
 
-``get_current_user`` verifies the Supabase access token sent as ``Authorization: Bearer <jwt>``
-(see ``app/security/auth.py``). ``get_owned_bot``, ``get_owned_run`` and ``get_owned_revision`` load
-an entity only when its bot belongs to the caller; anything else is a 404 with exactly the body of a
-missing entity, so ids of other owners' objects cannot be probed.
+``get_current_user`` authenticates the ``bf_session`` cookie against ``auth_sessions`` (see
+``app/security/sessions.py``) and, for a state-changing method, applies the CSRF check
+(``app/security/csrf.py``) before touching the database. Order and answers:
+
+1. no session cookie: 401 ``auth_required``;
+2. a method other than GET/HEAD/OPTIONS without ``X-BotForge-CSRF: 1`` or with a foreign ``Origin``:
+   403 ``csrf_failed``;
+3. a cookie that names no live session (unknown, malformed, expired, logged out): 401
+   ``invalid_session``.
+
+There is no other way in: no bearer tokens, no anonymous sessions.
+
+``get_owned_bot``, ``get_owned_run`` and ``get_owned_revision`` load an entity only when its bot
+belongs to the caller; anything else is a 404 with exactly the body of a missing entity, so ids of
+other owners' objects cannot be probed.
 
 Path parameter names matter: routes using these dependencies must name their placeholders
 ``{bot_id}``, ``{run_id}`` and ``{revision_id}``. Every dependency shares the request's single
 ``get_session`` (default dependency scope), so the returned objects belong to the endpoint's session.
-Endpoint tests may still replace these functions through ``app.dependency_overrides``.
 """
 
-import logging
 import uuid
 
-from fastapi import Depends, HTTPException
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from fastapi import Depends, HTTPException, Request
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import AgentRun, Bot, Revision
 from app.db.session import get_session
-from app.security.auth import AuthUnavailable, CurrentUser, InvalidToken, JwtVerifier, get_verifier
+from app.security.accounts import CurrentUser
+from app.security.csrf import SAFE_METHODS, csrf_ok
+from app.security.sessions import SESSION_COOKIE, request_refresh, resolve_session
 
 __all__ = [
     "CurrentUser",
-    "bearer_scheme",
     "get_current_user",
     "get_owned_bot",
     "get_owned_revision",
     "get_owned_run",
 ]
 
-log = logging.getLogger(__name__)
-
-# auto_error=False: every failure gets the project's error body instead of FastAPI's default.
-bearer_scheme = HTTPBearer(auto_error=False, description="Supabase access token")
-
 AUTH_REQUIRED = ("auth_required", "برای ادامه وارد حساب کاربری خود شوید.")
-INVALID_TOKEN = ("invalid_token", "نشست شما نامعتبر است یا به پایان رسیده است. لطفاً دوباره وارد شوید.")
-AUTH_UNAVAILABLE = (
-    "auth_unavailable",
-    "سرویس ورود در حال حاضر در دسترس نیست. لطفاً کمی بعد دوباره تلاش کنید.",
-)
+INVALID_SESSION = ("invalid_session", "نشست شما نامعتبر است یا به پایان رسیده است. لطفاً دوباره وارد شوید.")
+CSRF_FAILED = ("csrf_failed", "درخواست تأیید نشد. صفحه را دوباره بارگذاری کنید و دوباره تلاش کنید.")
 BOT_NOT_FOUND = ("bot_not_found", "ربات پیدا نشد.")
 RUN_NOT_FOUND = ("run_not_found", "اجرای ایجنت پیدا نشد.")
 REVISION_NOT_FOUND = ("revision_not_found", "نسخه پیدا نشد.")
 
 
-def _unauthorized(error: tuple[str, str]) -> HTTPException:
+def http_error(status: int, error: tuple[str, str]) -> HTTPException:
     code, message = error
-    return HTTPException(
-        status_code=401,
-        detail={"code": code, "message": message},
-        headers={"WWW-Authenticate": "Bearer"},
-    )
+    return HTTPException(status_code=status, detail={"code": code, "message": message})
 
 
-def _not_found(error: tuple[str, str]) -> HTTPException:
-    code, message = error
-    return HTTPException(status_code=404, detail={"code": code, "message": message})
+def require_csrf(request: Request) -> None:
+    """403 ``csrf_failed`` unless the request passes the CSRF check."""
+    if not csrf_ok(request):
+        raise http_error(403, CSRF_FAILED)
+
+
+async def session_token(request: Request) -> str:
+    """The session cookie of a request that passes the CSRF check (steps 1 and 2). Declared before
+    ``get_session`` in ``get_current_user``, so these refusals come before any database work."""
+    token = request.cookies.get(SESSION_COOKIE)
+    if not token:
+        raise http_error(401, AUTH_REQUIRED)
+    if request.method not in SAFE_METHODS:
+        require_csrf(request)
+    return token
 
 
 async def get_current_user(
-    credentials: HTTPAuthorizationCredentials | None = Depends(bearer_scheme),
-    verifier: JwtVerifier = Depends(get_verifier),
+    request: Request,
+    token: str = Depends(session_token),
+    session: AsyncSession = Depends(get_session),
 ) -> CurrentUser:
-    """The verified caller. 401 without a valid token; 503 when verification is not possible."""
-    if credentials is None:  # no Authorization header, or a scheme other than Bearer
-        raise _unauthorized(AUTH_REQUIRED)
-    try:
-        return await verifier.verify(credentials.credentials)
-    except InvalidToken as exc:
-        log.debug("access token rejected: %s", exc)
-        raise _unauthorized(INVALID_TOKEN) from None
-    except AuthUnavailable as exc:
-        log.debug("access token not verifiable: %s", exc)
-        code, message = AUTH_UNAVAILABLE
-        raise HTTPException(status_code=503, detail={"code": code, "message": message}) from None
+    """The signed-in caller (see the module docstring for the checks and their order)."""
+    resolved = await resolve_session(session, token)
+    user = None if resolved.user is None else CurrentUser(id=resolved.user.id, email=resolved.user.email)
+    if resolved.wrote:
+        await session.commit()  # a renewal or the purge of an expired session, whatever comes next
+    if user is None:
+        raise http_error(401, INVALID_SESSION)
+    if resolved.renewed:
+        request_refresh(request, token)
+    return user
 
 
 async def get_owned_bot(
@@ -89,7 +97,7 @@ async def get_owned_bot(
     stmt = select(Bot).where(Bot.id == bot_id, Bot.owner_id == user.id)
     bot = (await session.execute(stmt)).scalar_one_or_none()
     if bot is None:
-        raise _not_found(BOT_NOT_FOUND)
+        raise http_error(404, BOT_NOT_FOUND)
     return bot
 
 
@@ -110,7 +118,7 @@ async def get_owned_run(
     )
     row = (await session.execute(stmt)).first()
     if row is None:
-        raise _not_found(RUN_NOT_FOUND)
+        raise http_error(404, RUN_NOT_FOUND)
     return row[0]
 
 
@@ -131,5 +139,5 @@ async def get_owned_revision(
     )
     row = (await session.execute(stmt)).first()
     if row is None:
-        raise _not_found(REVISION_NOT_FOUND)
+        raise http_error(404, REVISION_NOT_FOUND)
     return row[0]

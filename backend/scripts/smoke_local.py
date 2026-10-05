@@ -6,21 +6,24 @@ Usage (from backend/):
     uv run python scripts/smoke_local.py --local-defaults
     uv run python scripts/dev_db.py stop
 
-What runs: the real FastAPI app (all middleware, real JWT verification, real ownership checks, real
-PgStore, the real Telegram webhook) is driven in-process through ``httpx.ASGITransport``; no server
-port is opened. Only two things are replaced: access tokens are minted locally (HS256, like
-``dev_token.py``) and the Telegram client is the in-memory ``FakeTelegramClient`` (the app's
+What runs: the real FastAPI app (all middleware, real cookie sessions and CSRF checks, real
+ownership checks, real PgStore, the real Telegram webhook) is driven in-process through
+``httpx.ASGITransport``; no server port is opened. Two throw-away accounts sign up through
+``POST /auth/signup`` (or, when AUTH_ALLOW_SIGNUP is false, are created directly and log in through
+``POST /auth/login``) and keep their session cookies in their own client's cookie jar. Only the
+Telegram client is replaced, by the in-memory ``FakeTelegramClient`` (the app's
 ``get_telegram_provider`` dependency is overridden), so nothing leaves the machine.
 
-``--local-defaults`` fills in SUPABASE_JWT_SECRET, TOKEN_ENC_KEY, PUBLIC_BASE_URL and FRONTEND_ORIGIN
-with process-local values when they are unset. SUPABASE_JWKS_URL must be unset (the smoke test signs
-its own tokens). The test creates one bot (and deletes it at the end); it refuses a DATABASE_URL on a
-non-local host unless ``--allow-remote`` is given. Exit code 0 only if every step passes.
+``--local-defaults`` fills in TOKEN_ENC_KEY, PUBLIC_BASE_URL and FRONTEND_ORIGIN with process-local
+values when they are unset. The test creates one bot and two accounts and deletes them at the end; it
+refuses a DATABASE_URL on a non-local host unless ``--allow-remote`` is given. Exit code 0 only if
+every step passes.
 """
 
 import argparse
 import asyncio
 import os
+import secrets
 import sys
 import traceback
 import uuid
@@ -38,7 +41,6 @@ sys.path.insert(0, str(HERE))
 
 LOCAL_HOSTS = {None, "", "localhost", "127.0.0.1", "::1"}
 LOCAL_DEFAULTS = {
-    "SUPABASE_JWT_SECRET": "smoke-local-secret-not-for-production-0123456789",
     "PUBLIC_BASE_URL": "https://bots.example.test",  # the fake Telegram client never calls it
     "FRONTEND_ORIGIN": "http://localhost:3000",
 }
@@ -155,53 +157,62 @@ def configure_environment(local_defaults: bool, allow_remote: bool) -> None:
         raise SystemExit(
             f"DATABASE_URL points at {host}, not a local database; pass --allow-remote to proceed"
         )
-    missing = [
-        n
-        for n in ("SUPABASE_JWT_SECRET", "TOKEN_ENC_KEY", "PUBLIC_BASE_URL", "FRONTEND_ORIGIN")
-        if not getattr(settings, n)
-    ]
+    missing = [n for n in ("TOKEN_ENC_KEY", "PUBLIC_BASE_URL", "FRONTEND_ORIGIN") if not getattr(settings, n)]
     if missing:
         raise SystemExit(f"unset: {', '.join(missing)} (use --local-defaults for local values)")
-    if settings.SUPABASE_JWKS_URL:
-        raise SystemExit("SUPABASE_JWKS_URL is set; unset it (the smoke test signs its own HS256 tokens)")
 
 
 async def smoke() -> int:
     import httpx
-    from dev_token import mint_token
     from load_spec import load_spec
+    from sqlalchemy import delete
 
-    from app.config import get_settings
-    from app.db.models import Revision
+    from app.db.models import Revision, User
     from app.db.session import dispose_engine, get_sessionmaker
     from app.integrations.telegram.client import FakeTelegramClient, get_telegram_provider
     from app.main import create_app
-    from app.security.auth import reset_verifier
+    from app.security.accounts import create_user
+    from app.security.sessions import SESSION_COOKIE
 
-    settings = get_settings()
-    reset_verifier()
     app = create_app()
     fake = FakeTelegramClient(bot_id=uuid.uuid4().int % 10**9 + 10**9, username="smoke_workshop_bot")
     app.dependency_overrides[get_telegram_provider] = lambda: fake.provider
     transport = httpx.ASGITransport(app=app, raise_app_exceptions=False)
 
-    owner_id = str(uuid.uuid4())
-    stranger_id = str(uuid.uuid4())
-    secret = settings.SUPABASE_JWT_SECRET or ""
-    owner_token = mint_token(
-        secret, user_id=owner_id, email="owner@example.com", supabase_url=settings.SUPABASE_URL
-    )
-    stranger_token = mint_token(
-        secret, user_id=stranger_id, email="stranger@example.com", supabase_url=settings.SUPABASE_URL
-    )
-    auth = {"Authorization": f"Bearer {owner_token}"}
-    stranger = {"Authorization": f"Bearer {stranger_token}"}
+    def client(**headers: str) -> httpx.AsyncClient:
+        # https, so the cookie jar returns the Secure session cookie; one client is one browser.
+        return httpx.AsyncClient(
+            transport=transport, base_url="https://smoke.local", timeout=30, headers=headers
+        )
+
+    run_tag = uuid.uuid4().hex[:12]
+    accounts = {
+        role: (f"smoke-{role}-{run_tag}@example.com", secrets.token_urlsafe(18))
+        for role in ("owner", "stranger")
+    }
+    csrf = {"X-BotForge-CSRF": "1"}
 
     h = Harness()
     state: dict[str, Any] = {}
     now = datetime.now(UTC)
 
-    async with httpx.AsyncClient(transport=transport, base_url="http://smoke.local", timeout=30) as c:
+    async def sign_in(c: httpx.AsyncClient, role: str) -> str:
+        """Sign up through the API (or, with signup disabled, create the account and log in)."""
+        email, password = accounts[role]
+        r = await c.post("/auth/signup", json={"email": email, "password": password})
+        how = "signed up"
+        if r.status_code == 403 and error_code(r) == "signup_disabled":
+            async with get_sessionmaker()() as session:
+                await create_user(session, email, password)
+                await session.commit()
+            r = await c.post("/auth/login", json={"email": email, "password": password})
+            how = "created directly, logged in"
+        check(r.status_code in (200, 201), f"{role}: HTTP {r.status_code}: {r.text[:300]}")
+        check(c.cookies.get(SESSION_COOKIE), f"{role}: no {SESSION_COOKIE} cookie was set")
+        state[f"{role}_id"] = r.json()["user"]["id"]
+        return how
+
+    async with client(**csrf) as c, client(**csrf) as other, client() as anon:
         bot_url = ""
 
         async def healthz() -> str:
@@ -209,29 +220,40 @@ async def smoke() -> int:
             return "status ok"
 
         async def unauthenticated() -> str:
-            r = await c.get("/bots")
+            r = await anon.get("/bots")
             check(r.status_code == 401, f"expected 401, got {r.status_code}")
             check(error_code(r) == "auth_required", f"unexpected error code {error_code(r)}")
             return "401 auth_required"
 
-        async def token() -> str:
-            me = expect(await c.get("/me", headers=auth), 200).json()
-            check(me["id"] == owner_id, "token subject was not accepted as the user id")
-            return f"user {owner_id}"
+        async def accounts_sign_in() -> str:
+            how = await sign_in(c, "owner")
+            await sign_in(other, "stranger")
+            me = expect(await c.get("/me"), 200).json()
+            check(me == {"id": state["owner_id"], "email": accounts["owner"][0]}, f"/me answered {me}")
+            return f"owner {state['owner_id']} ({how})"
+
+        async def csrf_required() -> str:
+            r = await c.post("/bots", json={"name": "x"}, headers={"X-BotForge-CSRF": ""})
+            check(r.status_code == 403, f"expected 403, got {r.status_code}")
+            check(error_code(r) == "csrf_failed", f"unexpected error code {error_code(r)}")
+            return "403 csrf_failed without the header"
 
         async def create_bot() -> str:
             nonlocal bot_url
-            r = expect(await c.post("/bots", headers=auth, json={"name": "Smoke workshop bot"}), 201)
+            r = expect(await c.post("/bots", json={"name": "Smoke workshop bot"}), 201)
             state["bot_id"] = r.json()["id"]
             bot_url = f"/bots/{state['bot_id']}"
             return f"bot {state['bot_id']}"
 
         async def load_revision() -> str:
             code = await load_spec(
-                REPO / "examples" / "workshop.botspec.json", owner_id, uuid.UUID(state["bot_id"]), None
+                REPO / "examples" / "workshop.botspec.json",
+                uuid.UUID(state["owner_id"]),
+                uuid.UUID(state["bot_id"]),
+                None,
             )
             check(code == 0, "load_spec reported an error")
-            bot = expect(await c.get(bot_url, headers=auth), 200).json()
+            bot = expect(await c.get(bot_url), 200).json()
             check(bot["active_revision_number"] == 1, f"active revision is {bot['active_revision_number']}")
             state["revision_id"] = bot["active_revision_id"]
             # load_spec stores no sample data, so the simulator sandbox would be empty. Give the
@@ -257,7 +279,7 @@ async def smoke() -> int:
             return "revision 1 is active"
 
         async def data_api_create() -> str:
-            bad = await c.post(f"{bot_url}/data/workshop", headers=auth, json={"data": {"title": "x"}})
+            bad = await c.post(f"{bot_url}/data/workshop", json={"data": {"title": "x"}})
             check(bad.status_code == 400, f"invalid payload: expected 400, got {bad.status_code}")
             body = bad.json()["error"]
             check(body["code"] == "invalid_record", f"invalid payload: code {body['code']}")
@@ -271,25 +293,21 @@ async def smoke() -> int:
                     "starts_at": (now + timedelta(days=30 + n)).isoformat(),
                     "price": 500000,
                 }
-                created = expect(
-                    await c.post(f"{bot_url}/data/workshop", headers=auth, json={"data": payload}), 201
-                )
+                created = expect(await c.post(f"{bot_url}/data/workshop", json={"data": payload}), 201)
                 ids.append(created.json()["id"])
             state["workshops"] = ids
             return f"invalid -> invalid_record with {len(body['field_errors'])} field error(s); created {ids}"
 
         async def simulator() -> str:
             booked = []
-            expect(await c.post(f"{bot_url}/simulator/reset", headers=auth, json={}), 200)
+            expect(await c.post(f"{bot_url}/simulator/reset", json={}), 200)
             for persona in ("ali", "sara"):
 
                 async def send(kind: str, data: str | None = None, persona: str = persona) -> list[list[str]]:
                     body: dict[str, Any] = {"persona": persona, "kind": kind}
                     if data is not None:
                         body["data"] = data
-                    resp = expect(
-                        await c.post(f"{bot_url}/simulator/events", headers=auth, json=body), 200
-                    ).json()
+                    resp = expect(await c.post(f"{bot_url}/simulator/events", json=body), 200).json()
                     state["last_outcomes"] = resp["outcomes"]
                     return [
                         [b["data"] for b in row]
@@ -312,9 +330,7 @@ async def smoke() -> int:
         async def telegram_connect() -> str:
             tg_id = fake.bot_id
             token_value = f"{tg_id}:AA{uuid.uuid4().hex}{uuid.uuid4().hex[:6]}"
-            r = expect(
-                await c.post(f"{bot_url}/telegram/connect", headers=auth, json={"token": token_value}), 200
-            )
+            r = expect(await c.post(f"{bot_url}/telegram/connect", json={"token": token_value}), 200)
             status = r.json()
             check(status["connected"] and status["username"] == "smoke_workshop_bot", f"status {status}")
             check(token_value not in r.text, "the response contains the bot token")
@@ -331,7 +347,7 @@ async def smoke() -> int:
 
             async def post(update: dict[str, Any], secret_header: str | None = None) -> None:
                 headers = {"X-Telegram-Bot-Api-Secret-Token": secret_header or state["webhook_secret"]}
-                expect(await c.post(f"/tg/{state['bot_id']}", json=update, headers=headers), 200)
+                expect(await anon.post(f"/tg/{state['bot_id']}", json=update, headers=headers), 200)
 
             def shown_rows(chat_id: int) -> list[list[str]]:
                 calls = [
@@ -347,7 +363,7 @@ async def smoke() -> int:
 
             check(
                 (
-                    await c.post(
+                    await anon.post(
                         f"/tg/{state['bot_id']}",
                         json={"update_id": 1},
                         headers={"X-Telegram-Bot-Api-Secret-Token": "wrong"},
@@ -396,7 +412,7 @@ async def smoke() -> int:
             return "two Telegram users booked workshop " + first_workshop + " through the webhook"
 
         async def data_lists_bookings() -> str:
-            page = expect(await c.get(f"{bot_url}/data/book_workshop", headers=auth), 200).json()
+            page = expect(await c.get(f"{bot_url}/data/book_workshop"), 200).json()
             check(page["total"] == 2, f"expected 2 bookings, got {page['total']}")
             names = sorted(row["actor_name"] or "" for row in page["items"])
             check(
@@ -410,9 +426,9 @@ async def smoke() -> int:
 
         async def admin_cancel() -> str:
             url = f"{bot_url}/data/book_workshop/{state['booking_id']}/actions/cancel"
-            r = expect(await c.post(url, headers=auth), 200).json()
+            r = expect(await c.post(url), 200).json()
             check(r["ok"] is True, f"cancel answered {r}")
-            page = expect(await c.get(f"{bot_url}/data/book_workshop", headers=auth), 200).json()
+            page = expect(await c.get(f"{bot_url}/data/book_workshop"), 200).json()
             check(
                 sorted(row["status"] for row in page["items"]) == ["cancelled", "confirmed"],
                 "statuses after cancel",
@@ -420,31 +436,39 @@ async def smoke() -> int:
             return "booking cancelled, the other one is unchanged"
 
         async def revisions() -> str:
-            rows = expect(await c.get(f"{bot_url}/revisions", headers=auth), 200).json()
+            rows = expect(await c.get(f"{bot_url}/revisions"), 200).json()
             check(len(rows) == 1 and rows[0]["status"] == "active", f"revisions: {rows}")
             return "1 revision, active"
 
         async def tests_run() -> str:
-            r = expect(await c.post(f"/revisions/{state['revision_id']}/tests/run", headers=auth), 200).json()
+            r = expect(await c.post(f"/revisions/{state['revision_id']}/tests/run"), 200).json()
             check(r["total"] > 0 and r["failed"] == 0, f"report: total {r['total']}, failed {r['failed']}")
             return f"{r['passed']}/{r['total']} scenarios passed"
 
         async def other_user() -> str:
-            r = await c.get(bot_url, headers=stranger)
+            r = await other.get(bot_url)
             check(r.status_code == 404, f"expected 404, got {r.status_code}")
             check(error_code(r) == "bot_not_found", f"error code {error_code(r)}")
             return "404 bot_not_found"
 
         async def delete_bot() -> str:
-            expect(await c.delete(bot_url, headers=auth), 204)
-            check((await c.get(bot_url, headers=auth)).status_code == 404, "bot still readable after delete")
+            expect(await c.delete(bot_url), 204)
+            check((await c.get(bot_url)).status_code == 404, "bot still readable after delete")
             check(fake.calls_to("deleteWebhook"), "the webhook was not dropped")
             return "bot deleted, webhook dropped"
+
+        async def logout() -> str:
+            expect(await c.post("/auth/logout"), 204)
+            check(not c.cookies.get(SESSION_COOKIE), "the session cookie was not cleared")
+            r = await c.get("/me")
+            check(r.status_code == 401, f"/me after logout: expected 401, got {r.status_code}")
+            return "204, cookie cleared, /me is 401"
 
         steps: list[tuple[str, Step]] = [
             ("GET /healthz", healthz),
             ("unauthenticated call is 401", unauthenticated),
-            ("minted token is accepted (/me)", token),
+            ("two accounts sign in; session cookie set; /me", accounts_sign_in),
+            ("state change without the CSRF header is 403", csrf_required),
             ("create bot", create_bot),
             ("load workshop spec as active revision", load_revision),
             ("data API: invalid payload rejected, 2 workshops created", data_api_create),
@@ -457,13 +481,17 @@ async def smoke() -> int:
             ("tests/run reports zero failures", tests_run),
             ("another user gets 404 on the bot", other_user),
             ("delete bot", delete_bot),
+            ("log out ends the session", logout),
         ]
         try:
             for name, step in steps:
                 await h.run(name, step)
         finally:
-            if state.get("bot_id") and not any(n == "delete bot" and ok for n, ok in h.results):
-                await c.delete(bot_url, headers=auth)  # do not leave the smoke bot behind
+            # Do not leave the smoke accounts behind; their bots go with them (ON DELETE CASCADE).
+            emails = [email for email, _ in accounts.values()]
+            async with get_sessionmaker()() as session:
+                await session.execute(delete(User).where(User.email.in_(emails)))
+                await session.commit()
     await dispose_engine()
 
     total = len(h.results)
