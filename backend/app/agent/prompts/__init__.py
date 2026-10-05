@@ -24,9 +24,26 @@ def _text_keys_section() -> str:
     return "\n".join(lines)
 
 
+_REGISTRY_INTRO = """## Capability registry
+
+Business needs map to these registry capabilities. kind `spec`: you build it as the BotSpec
+capability named in "realised by" (type, preset or fixed key). kind `module`: not part of the spec;
+the owner switches it on in the Capability Center, so you only recommend it. `unavailable`: record
+the request under unsupported."""
+
+
+@cache
+def _registry_section() -> str:
+    # Imported lazily: the capabilities service pulls in the database models.
+    from app.capabilities.service import catalog_markdown
+
+    return f"{_REGISTRY_INTRO}\n\n{catalog_markdown()}"
+
+
 @cache
 def system_prompt() -> str:
-    return "\n\n".join([load("system"), load("catalog"), _text_keys_section()]) + "\n"
+    parts = [load("system"), load("catalog"), _text_keys_section(), _registry_section()]
+    return "\n\n".join(parts) + "\n"
 
 
 TASKS = (

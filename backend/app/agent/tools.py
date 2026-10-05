@@ -82,14 +82,18 @@ TOOL_DEFS: dict[str, ToolDef] = {
         "set_spec",
         "Replace the whole draft BotSpec. Runs schema and semantic validation and returns "
         "{ok, issues[]}. A schema-invalid spec is not stored; a schema-valid spec with semantic "
-        "errors is stored so you can patch it.",
+        "errors is stored so you can patch it. Capabilities may be info, catalog, booking (preset "
+        "booking or events), request or orders; booking, request and orders take `enabled` (false "
+        "hides it but keeps data) and `audience` (everyone, staff, managers).",
         _spec_schema(),
     ),
     "apply_spec_patch": ToolDef(
         "apply_spec_patch",
         "Apply key-addressed patch ops atomically to the draft and validate the result. Returns "
         "{ok, issues[], changed_paths[]} or {ok:false, error}. If the draft currently has several "
-        "errors, fix them all in one call (the whole result must validate) or use set_spec.",
+        "errors, fix them all in one call (the whole result must validate) or use set_spec. To switch a "
+        "capability off or on set its `enabled`; to restrict it set its `audience`; do not "
+        "remove it.",
         {
             "type": "object",
             "properties": {

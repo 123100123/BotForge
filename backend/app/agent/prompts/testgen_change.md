@@ -11,4 +11,8 @@ expect the action to be rejected with the matching reason; and a second case whe
 allowed. For a changed configured number (such as the capacity), write the one scenario that
 reaches exactly that number with `capacity_override` null and actors u1, u2, ... plus one more.
 
+For a new or changed orders requirement use only the orders steps listed after the step table
+(book = add to cart, submit_request = add and check out, cancel, owner_action, expect_request); for
+the events preset use the booking steps. Do not write scenarios for capabilities that are disabled.
+
 The scenario format and the step table follow.

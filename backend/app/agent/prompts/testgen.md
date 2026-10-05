@@ -28,22 +28,47 @@ Scenario: `{"id", "title", "source": "acceptance", "requirement_ids", "capabilit
 | submit_request | actor, capability [item, form] | submitted / rejected |
 | owner_action | capability, action, target_actor [item] | ok / rejected; on a booking: action "cancel" and item (owner cancels target_actor's booking) |
 | expect_request | actor, capability, expect = a status key | |
-| expect_notified | actor, event | (no expect) - event is one of booked, waitlisted, cancelled, promoted, submitted, status_changed |
+| expect_notified | actor, event | (no expect) - event is one of booked, waitlisted, cancelled, promoted, submitted, status_changed, ordered, order_status_changed |
 | open | actor, capability [item, view, contains] | (no expect) - contains may only check a value you seeded, e.g. an item title |
 | advance_time | hours (> 0) | (no expect) - moves the clock forward |
 
 `reason` (only with expect "rejected"): capacity_full, duplicate, user_limit, booking_closed,
-cancel_deadline_passed, cancellation_disabled, not_found, invalid_input, not_allowed.
+cancel_deadline_passed, cancellation_disabled, not_found, invalid_input, not_allowed, out_of_stock.
 `form`: `[{"key", "value"}]` answers for the capability's form fields (book and submit_request only).
 Actors: any id like "ali", "sara", "reza", "u1"; "owner" is the bot owner. Owner notifications go
 to "owner" (check them with expect_notified actor "owner").
 Notifications are always matched with `event`, never `contains`.
 Leave out fields a step does not use.
 
+Steps per capability type (a step the type's driver lacks fails the test; never invent others):
+- booking, including preset "events" (an event is a booking: RSVP = book, cancel RSVP = cancel; use
+  the same steps and the same coverage): book, cancel, expect_booking, expect_counts, owner_action
+  (action "cancel" + item), open, expect_notified, advance_time. Reminders, category filters and
+  subscriptions have no steps: do not test them.
+- request: submit_request, owner_action, expect_request, open, expect_notified, advance_time.
+- orders, exactly these (cart and checkout are mapped onto the existing steps):
+  - `book` (actor, capability, item): add one unit of the item to the actor's cart; expect
+    confirmed (added) or rejected with reason out_of_stock.
+  - `submit_request` (actor, capability, item, form): add the item and check out; `form` answers the
+    checkout_fields by key; expect submitted or rejected.
+  - `cancel` (actor, capability, item): the actor cancels their latest order containing the item;
+    expect cancelled or rejected.
+  - `owner_action` (capability, action = an owner action key, target_actor [actor "owner"]): moves
+    the target's latest order; expect ok or rejected (not_allowed).
+  - `expect_request` (actor, capability, expect = a status key, or "none" when no order): the
+    actor's latest order status.
+  - `open`, `expect_notified` (event ordered for the owner after checkout, order_status_changed for
+    the customer after an owner action), `advance_time`.
+  Never use expect_booking, expect_counts, totals, payment or quantities >1. Seed the catalog
+  resource: fill its price_field (and stock_field, e.g. 1 to test out_of_stock) as plain digits.
+Only test capabilities that are enabled; users cannot reach disabled ones, and capabilities with a
+staff or managers audience are driven as the owner, so do not write multi-customer scenarios for them.
+
 Good coverage, one scenario per behavior: the basic booking flow; reaching capacity (waitlisted
 or rejected, as the requirements say); promotion from the waitlist after a cancellation (with
 expect_notified "promoted"); cancellation freeing a seat; duplicates; the configured capacity
-number; deadlines with advance_time. Only test what a requirement states or assumes.
+number; deadlines with advance_time; for orders: checkout then the owner action and the status,
+out of stock, customer cancellation. Only test what a requirement states or assumes.
 
 Example:
 ```

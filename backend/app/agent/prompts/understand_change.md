@@ -14,6 +14,9 @@ requirements below (the live bot), even when a previous delta or a current draft
 - `added`: a new requirement with no base counterpart (for example a cancellation deadline when
   the base says nothing about deadlines). Use any id; ids are renumbered after the highest base id.
 - `removed`: ids of base requirements the owner no longer wants.
+- Switching an existing capability on or off, or changing who may use it (staff, managers), is a
+  `changed` requirement (or an `added` one); never a removal. Use `removed` only when the owner
+  wants the feature gone for good.
 - Touch nothing the owner did not ask about. A requirement that only gets more specific (a
   deadline added to "customers can cancel") is an addition, unless the base statement itself
   contradicts the new rule, in which case it is a change.

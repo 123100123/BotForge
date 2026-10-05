@@ -14,8 +14,13 @@ The owner of a bot that is already live sent the message below. Classify it and 
   workshop on Friday, a new price, a deleted product). Items are managed by the owner, never by
   you. `reply`: one sentence telling the owner to do it in the «داده‌ها» (Data) tab.
 - `unsupported`: a change the catalog cannot build (online payment, chat with customers, AI
-  answers, integrations with other services, anything outside the four capability types).
+  answers, integrations with other services, anything outside the catalog's types: info, catalog, booking with events, request, orders).
   `reply`: a plain Persian explanation and the closest supported alternative.
+
+Turning an existing feature on or off, or restricting it to staff or managers, is a `change`. Asking
+for reports, Excel analysis, daily staff reports, scheduled reports, announcements or the copilot is
+not a spec change: choose `question` and tell the owner to enable these modules in the Capability
+Center (مرکز قابلیت‌ها).
 
 When the message mixes a change with something else, choose `change`. When unsure between
 `change` and `question`, choose `change` only if the owner asks for something to be different.
