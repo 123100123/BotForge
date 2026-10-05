@@ -201,7 +201,7 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /**
  * Raw-body upload (no multipart): the file is the request body and its name travels in the query string.
- * Auth is the same Bearer header as every other call (a header, not a cookie, so no CSRF token is needed).
+ * Auth is the same session cookie as every other call, so the PUT carries the CSRF header like `request()`.
  */
 async function uploadFile(botId: string, file: File): Promise<UploadOut> {
   let res: Response;
@@ -210,8 +210,9 @@ async function uploadFile(botId: string, file: File): Promise<UploadOut> {
       `${API_BASE_URL}/uploads/bots/${encodeURIComponent(botId)}?filename=${encodeURIComponent(file.name)}`,
       {
         method: "PUT",
+        credentials: "same-origin",
         headers: {
-          ...(await authHeaders()),
+          ...CSRF_HEADERS,
           "Content-Type": file.type || "application/octet-stream",
         },
         body: file,
