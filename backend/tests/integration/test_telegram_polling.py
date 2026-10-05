@@ -329,6 +329,66 @@ async def test_rate_limit_waits_exactly_retry_after(
     assert sleeps.waits[0] == 37.0
 
 
+@pytest.mark.parametrize(
+    ("retry_after", "expected"),
+    [
+        (1e9, [300.0, 300.0]),  # capped: a bot is never deaf for more than 5 minutes per answer
+        (0.0, [1.0, 1.0]),  # floored: never a tight loop
+        (float("inf"), [1.0, 2.0]),  # unusable values are an ordinary, growing backoff
+        (float("nan"), [1.0, 2.0]),
+        (-5.0, [1.0, 2.0]),
+        ("10", [1.0, 2.0]),
+    ],
+)
+async def test_rate_limit_retry_after_is_bounded_and_invalid_values_back_off(
+    retry_after: Any,
+    expected: list[float],
+    bot: LiveBot,
+    telegram: Telegram,
+    sleeps: Sleeps,
+    make_poller: Callable[..., TelegramPoller],
+) -> None:
+    fake = telegram(bot.token)
+    limited = TelegramError("getUpdates", "Too Many Requests", error_code=429, retry_after=retry_after)
+    fake.get_updates_errors.extend([limited, limited])
+    fake.push_updates(message_update(812, 742, "/start"))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: sent_texts(fake, 742))  # still polling afterwards
+    assert sleeps.waits[:2] == expected
+    assert bot.id in poller.polling
+
+
+async def test_a_batch_without_progress_never_spins(
+    bot: LiveBot,
+    telegram: Telegram,
+    sleeps: Sleeps,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    """An update without a usable update_id cannot be confirmed: alone it would come straight back,
+    so every refetch is preceded by a growing wait. A later valid id confirms it."""
+    fake = telegram(bot.token)
+    bad = {"update_id": "x", "message": {"text": "/start"}}
+    fake.push_updates(bad)
+    await make_poller(bot.id).sync_once()
+    await eventually(lambda: len(sleeps.waits) >= 4)
+    assert sleeps.waits[:4] == [1.0, 2.0, 4.0, 8.0]
+    assert len(polls(fake)) <= len(sleeps.waits) + 1  # never two fetches without a wait between
+
+    fake.push_updates(message_update(1201, 791, "/start"))  # a valid id after it
+    await eventually(lambda: sent_texts(fake, 791))
+
+    async def saved() -> bool:
+        return (await row(session_factory, bot.id)).tg_poll_offset == 1202
+
+    await eventually(saved)
+    waits = len(sleeps.waits)
+    await eventually(lambda: any(c["offset"] == 1202 for c in polls(fake)))
+    await asyncio.sleep(0.1)  # idle long polls follow, with no further waits
+    assert len(sleeps.waits) == waits and fake.pending_updates == []
+
+
 async def test_network_errors_and_5xx_back_off_exponentially_and_success_resets(
     bot: LiveBot, telegram: Telegram, sleeps: Sleeps, make_poller: Callable[..., TelegramPoller]
 ) -> None:

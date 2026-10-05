@@ -285,3 +285,15 @@ def test_install_covers_every_logger_and_is_idempotent(pristine_factory: None) -
 def test_create_app_installs_redaction(pristine_factory: None) -> None:
     create_app()
     assert getattr(logging.getLogRecordFactory(), "_botforge_redacting", False)
+
+
+def test_the_raw_exception_is_dropped_once_its_text_is_redacted() -> None:
+    """A formatter that formats ``exc_info`` itself (a JSON formatter) cannot reach the raw message."""
+    try:
+        raise ValueError(f"bad token {TG_TOKEN}")
+    except ValueError:
+        rec = record("failed", exc_info=sys.exc_info())
+    filtered(rec)
+    assert rec.exc_info is None
+    output = logging.Formatter("%(message)s").format(rec)
+    assert "ValueError: bad token [REDACTED]" in output and TG_TOKEN not in output

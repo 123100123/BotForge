@@ -141,3 +141,35 @@ def test_backoff_doubles_with_jitter_up_to_the_cap(rng: Callable[[], float], exp
     assert [backoff.next() for _ in expected] == expected
     backoff.reset()
     assert backoff.next() == expected[0]
+
+
+@pytest.mark.parametrize(
+    ("value", "expected"),
+    [
+        (3, 3.0),
+        (2.5, 2.5),
+        (0, 0.0),
+        (1e9, 1e9),
+        (float("inf"), None),
+        (float("nan"), None),
+        (-5, None),
+        ("10", None),
+        (True, None),
+        (None, None),
+    ],
+)
+def test_retry_after_is_a_finite_non_negative_number_or_nothing(value: Any, expected: float | None) -> None:
+    assert client_module.parse_retry_after(value) == expected
+
+
+@pytest.mark.parametrize("raw", ["Infinity", "NaN", "-Infinity", "-3", '"7"'])
+async def test_an_unusable_retry_after_in_the_body_is_dropped(raw: str, no_sleep: list[float]) -> None:
+    body = (
+        '{"ok": false, "error_code": 429, "description": "Too Many Requests", '
+        f'"parameters": {{"retry_after": {raw}}}}}'
+    )
+    stub = Stub(httpx.Response(429, content=body.encode()))
+    with pytest.raises(TelegramError) as raised:
+        await stub.client().get_updates(offset=None, timeout=25, allowed_updates=ALLOWED_UPDATES)
+    assert raised.value.error_code == 429 and raised.value.retry_after is None
+    assert no_sleep == []
