@@ -7,18 +7,24 @@ Inputs are only the event (including ``event.now``), the spec and the store. Rou
   text, session              engine.on_text of the session's capability (gone -> drop session, menu)
   callback menu:home         main menu (clears any session)
   callback menu:open:<item>  engine.open(cap, item.view) (clears any session)
-  callback <cap>:own:<r.k>   owner-only -> engine.owner_action(record_id, k)
+  callback <cap>:own:<r.k>   staff/managers -> engine.owner_action(record_id, k)
   callback <cap>:<act>:<arg> engine.on_callback; a non-form action (not ans/skip/stop) first
                              clears the actor's session, so a form abandoned by navigating away
                              never captures later text
-  admin <cap>:cancel:<id>    owner-only -> engine.owner_action(id, "cancel")   Outcome.action cancel
-  admin <cap>:own:<id>.<k>   owner-only -> engine.owner_action(id, k)          Outcome.action owner_action
+  admin <cap>:cancel:<id>    staff/managers -> engine.owner_action(id, "cancel")   Outcome.action cancel
+  admin <cap>:own:<id>.<k>   staff/managers -> engine.owner_action(id, k)          Outcome.action owner_action
 
 Malformed or stale data (bad format, unknown menu item or capability, action not valid for the
 capability type) gets a short Persian "no longer available" reply plus the main menu and never
 raises. A capability type whose engine module does not exist yet gets a "not available yet" reply.
-Non-owners attempting an owner action get ``Outcome(result="rejected", reason="not_allowed")``.
 Every event upserts the acting user first.
+
+Owner actions (roles, roadmap: Roles): who may run them is ``roles.can_run_owner_actions``, decided
+on ``actor.effective_role`` (the owner is a manager): staff and managers on a customer-facing
+capability (``audience="everyone"``), managers only on an internal one (``audience`` staff or
+managers, whose submitters are staff). Anyone else gets ``Outcome(result="rejected",
+reason="not_allowed")`` and never reaches the engine. Customers are refused before the capability is
+even looked up, as before roles existed.
 
 Capability gating (Business OS): a capability that is disabled (``enabled=False``) or whose
 ``audience`` does not allow the actor (``ctx.capability_available``) is treated exactly like a
@@ -33,6 +39,7 @@ callbacks route normally. Admin events are unaffected.
 from typing import Literal
 
 from app.botspec.models import AnyCapability, BotSpec
+from app.roles import TEAM_ROLES, can_run_owner_actions
 from app.runtime.callbacks import (
     ACT_CANCEL,
     ACT_HOME,
@@ -165,7 +172,7 @@ class BotRuntime:
         outcome_action: Literal["cancel", "owner_action"] = (
             "cancel" if action == ACT_CANCEL else "owner_action"
         )
-        if not ctx.actor.is_owner:
+        if ctx.actor.effective_role not in TEAM_ROLES:  # customers: refused before any lookup
             ctx.reject(cap_key, outcome_action, "not_allowed", common.NOT_ALLOWED)
             return
         cap = ctx.spec.capability(cap_key)
@@ -178,11 +185,12 @@ class BotRuntime:
         await self._owner_action(ctx, cap, action, arg)
 
     async def _owner_action(self, ctx: Ctx, cap: AnyCapability, action: str, arg: str) -> None:
-        """Shared path for Telegram ``own`` buttons and web-admin events."""
+        """Shared path for Telegram ``own`` buttons and web-admin events: the one authorization
+        check for owner actions (``roles.can_run_owner_actions``)."""
         outcome_action: Literal["cancel", "owner_action"] = (
             "cancel" if action == ACT_CANCEL else "owner_action"
         )
-        if not ctx.actor.is_owner:
+        if not can_run_owner_actions(cap, ctx.actor):
             ctx.reject(cap, outcome_action, "not_allowed", common.NOT_ALLOWED)
             return
         if action == ACT_CANCEL:

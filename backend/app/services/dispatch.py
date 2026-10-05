@@ -6,7 +6,11 @@ locking, transactions and message delivery are identical for every caller.
 Order of operations, and why it matters:
 
 1. take the bot's advisory lock (events for one bot are processed one at a time) and re-read the
-   bot; a live Telegram event's ``actor.is_owner`` is set from the owner link read here;
+   bot; a live Telegram event's ``actor.is_owner`` is set from the owner link read here, and its
+   ``actor.role`` from ``bot_users.role`` read here too (whatever the caller put in the event), so
+   both are decided at the same moment and no role change lands in the middle of an event (role
+   writes take the same lock, see ``app/roles/service.py``). Sandbox events keep the role the
+   simulator persona carries; ``admin`` events keep their actor (the authenticated web owner);
 2. run ``BotRuntime.handle`` against ``PgStore`` in the caller's session;
 3. COMMIT;
 4. only then, for ``env="live"``, deliver messages through Telegram.
@@ -33,10 +37,11 @@ from dataclasses import dataclass
 from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.botspec.models import BotSpec
+from app.botspec.models import BotSpec, Role
 from app.db.models import Bot
 from app.integrations.telegram.adapter import TelegramOrigin, render_text, send_out_message
 from app.integrations.telegram.client import TelegramApi, TelegramError, TelegramProvider, default_provider
+from app.roles.service import get_role
 from app.runtime.contracts import RuntimeEvent, RuntimeResponse
 from app.runtime.pg_store import PgStore, advisory_lock
 from app.runtime.runtime import BotRuntime
@@ -78,6 +83,7 @@ async def dispatch(
     owner_actor_id = current.owner_actor_id if live else SANDBOX_OWNER
     if live and event.kind != "admin":
         event = _with_owner_flag(event, owner_actor_id)
+        event = _with_role(event, await get_role(session, current.id, "live", event.actor.id))
     # Plain values: a rollback or commit may expire the ORM object, and async lazy loads fail.
     target = _Target(current.id, current.tg_token_enc, current.tg_last_error)
     store = PgStore(session, current.id, event.env, owner_actor_id=owner_actor_id)
@@ -106,6 +112,17 @@ def _with_owner_flag(event: RuntimeEvent, owner_actor_id: str | None) -> Runtime
     if is_owner == event.actor.is_owner:
         return event
     return event.model_copy(update={"actor": event.actor.model_copy(update={"is_owner": is_owner})})
+
+
+def _with_role(event: RuntimeEvent, role: Role) -> RuntimeEvent:
+    """A Telegram event whose ``actor.role`` is the stored role read under the bot's lock.
+
+    The role in a Telegram event is never trusted: the adapter leaves the default, and anything
+    else a caller put there is replaced. The owner stays a manager through ``is_owner``.
+    """
+    if event.actor.role == role:
+        return event
+    return event.model_copy(update={"actor": event.actor.model_copy(update={"role": role})})
 
 
 @dataclass

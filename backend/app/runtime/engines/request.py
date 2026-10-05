@@ -5,7 +5,12 @@ Data model: requests are records of collection ``cap.key`` with ``actor_id`` (cu
 ``cap.item_resource``, when set) and ``data`` = cleaned form values.
 
 Navigation (drivers locate buttons by parsed callback action/arg, never by label):
-  open main            intro; ``new`` button; ``mine`` button; home
+  open main            intro; ``new`` button; ``mine`` button; home. For an actor who may run the
+                       capability's owner actions (``roles.can_run_owner_actions``: staff and
+                       managers, the owner included) the staff queue instead: the newest
+                       ``QUEUE_LIMIT`` requests waiting for an owner action (a status some owner
+                       action starts from), each with one ``own:<id>.<action key>`` button per
+                       action allowed from its status, then the same ``new``/``mine``/home rows
   ``new[:<page>]``     with ``item_resource``: paginated items, one ``pick:<item id>`` each;
                        without: starts the form directly
   ``pick:<item id>``   starts the form, the item id is kept in the form ``data``
@@ -17,7 +22,8 @@ Navigation (drivers locate buttons by parsed callback action/arg, never by label
 
 Owner action buttons always follow the record's *current* status; a stale button gets a
 ``not_allowed`` rejection naming the current status (never a crash). The runtime has already
-checked ``actor.is_owner`` before ``owner_action`` is reached.
+checked ``roles.can_run_owner_actions`` before ``owner_action`` is reached. Notifications of new
+requests still go to the owner only (``notify_owner``); staff see them in the queue.
 
 All times come from ``ctx.now``. Like the booking engine it is not safe against two events for the
 same bot running concurrently: the adapter must serialize them.
@@ -27,6 +33,7 @@ from typing import Any, ClassVar
 
 from app.botspec.models import FieldDef, OwnerAction, RequestCapability, Resource
 from app.botspec.text_keys import fill_text
+from app.roles import can_run_owner_actions
 from app.runtime import formatting, forms, listing
 from app.runtime.callbacks import (
     ACT_MINE,
@@ -45,6 +52,16 @@ from app.runtime.texts import request as tx
 
 Rows = list[list[Button]]
 
+# Staff queue (roles). Its fixed strings live here rather than in runtime/texts/request.py, which
+# another work package owns; like those constants they are not overridable.
+QUEUE_LIMIT = 5  # requests shown, newest first; the web admin lists every request
+QUEUE_VALUE_CHARS = 80  # each form value is cut to this length in the queue
+QUEUE_HEADER = "{title}\nدرخواست‌های در انتظار رسیدگی:"
+QUEUE_EMPTY = "{title}\nدرخواستی در انتظار رسیدگی نیست."
+QUEUE_DETAIL_LINE = "   {label}: {value}"
+QUEUE_MORE = "… و {count} درخواست دیگر (فهرست کامل در پنل مدیریت)."
+QUEUE_BUTTON = "{action} (کد {id})"
+
 
 def _fill(template: str, **values: object) -> str:
     return fill_text(template, {k: str(v) for k, v in values.items()})
@@ -62,6 +79,8 @@ class RequestEngine(EngineBase):
     async def open(self, ctx: Ctx, cap: RequestCapability, view: str) -> None:
         if view == "mine":
             await self._mine(ctx, cap)
+        elif can_run_owner_actions(cap, ctx.actor):
+            await self._queue(ctx, cap)
         else:
             self._main(ctx, cap)
 
@@ -191,8 +210,9 @@ class RequestEngine(EngineBase):
         return [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
 
     @staticmethod
-    def _owner_rows(cap: RequestCapability, request: Record) -> Rows:
-        """One button per owner action allowed from the request's current status."""
+    def _owner_rows(cap: RequestCapability, request: Record, numbered: bool = False) -> Rows:
+        """One button per owner action allowed from the request's current status. ``numbered``
+        (the staff queue, which lists several requests) puts the request's code in the label."""
         rows: Rows = []
         for act in cap.owner_actions:
             if request.status not in act.from_statuses:
@@ -201,7 +221,12 @@ class RequestEngine(EngineBase):
                 data = make_callback(cap.key, ACT_OWN, f"{request.id}.{act.key}")
             except CallbackError:  # too long for Telegram; the web admin can still apply it
                 continue
-            rows.append([Button(label=_owner_label(act), data=data)])
+            label = (
+                listing.truncate(_fill(QUEUE_BUTTON, action=act.label, id=_ref(request.id)))
+                if numbered
+                else _owner_label(act)
+            )
+            rows.append([Button(label=label, data=data)])
         return rows
 
     # --- views -------------------------------------------------------------------------------
@@ -210,6 +235,51 @@ class RequestEngine(EngineBase):
         ctx.reply(
             _fill(tx.MAIN_INTRO, title=cap.title), [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
         )
+
+    async def _queue(self, ctx: Ctx, cap: RequestCapability) -> None:
+        """The main view for staff and managers: requests waiting for an owner action (their status
+        is one some owner action starts from), newest first, each with its action buttons, above
+        the usual entries. Only the newest ``QUEUE_LIMIT`` are listed; a line counts the rest."""
+        entries = [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
+        pending = sorted({status for act in cap.owner_actions for status in act.from_statuses})
+        requests = (
+            await ctx.store.list_records(cap.key, status_in=pending, order_by="-id", limit=QUEUE_LIMIT)
+            if pending
+            else []
+        )
+        if not requests:
+            ctx.reply(_fill(QUEUE_EMPTY, title=cap.title), entries)
+            return
+        lines = [_fill(QUEUE_HEADER, title=cap.title)]
+        rows: Rows = []
+        for r in requests:
+            lines.append(await self._queue_entry(ctx, cap, r))
+            rows += self._owner_rows(cap, r, numbered=True)
+        total = await ctx.store.count_records(cap.key, status_in=pending)
+        if total > len(requests):
+            lines.append(_fill(QUEUE_MORE, count=formatting.to_persian_digits(total - len(requests))))
+        ctx.reply("\n".join(lines), rows + entries)
+
+    async def _queue_entry(self, ctx: Ctx, cap: RequestCapability, request: Record) -> str:
+        """One queued request: the line ``mine`` uses, then its form values (each on one line, cut
+        short)."""
+        item = ""
+        if request.item_id is not None:
+            found = await self._get_item(ctx, cap, request.item_id)
+            item = _fill(tx.MINE_ITEM, item=self._item_title(ctx, cap, found, request.item_id))
+        lines = [
+            _fill(
+                tx.MINE_LINE,
+                id=_ref(request.id),
+                item=item,
+                status=self._status_label(cap, request.status),
+                when=formatting.format_jalali_date(request.created_at, ctx.tz),
+            )
+        ]
+        for f in cap.form_fields:
+            value = listing.truncate(" ".join(ctx.fmt(f, request.data.get(f.key)).split()), QUEUE_VALUE_CHARS)
+            lines.append(_fill(QUEUE_DETAIL_LINE, label=f.label, value=value))
+        return "\n".join(lines)
 
     async def _new(self, ctx: Ctx, cap: RequestCapability, page: int) -> None:
         if cap.item_resource is None:
