@@ -1,5 +1,8 @@
 # BotForge — Implementation Roadmap
 
+**One bot. Your entire business. Built and maintained by AI.**
+یک ربات. تمام کسب‌وکار شما. ساخته و نگهداری‌شده با هوش مصنوعی.
+
 > **This document is the project's implementation source of truth.**
 >
 > Before making a major architectural or scope change:
@@ -14,13 +17,15 @@
 >
 > Two kinds of statement appear below. **Fixed competition constraints** cannot be changed by us. Everything else is a **current design decision** and can be changed through the process above.
 
-Last updated: 2026-10-05 (Day 3 of 7).
+Last updated: 2026-10-06 (Day 4 of 7).
 
 ---
 
 ## Current Status
 
 **Start here.** This section is the handoff between working sessions. It says what is done, what is unproven, and what to do next. Whoever ends a session updates it.
+
+**Business OS expansion in progress (2026-10-06).** The product direction is now **BotForge: AI Business OS for Telegram** (see [Rebrand / Business OS Expansion](#rebrand--business-os-expansion)). The work runs on branch `business-os`, created off `main`. **`main` stays the proven fallback demo**; it is untouched and still has 39 commits that are not pushed. Live status, owners, dependencies and gaps per unit are on the [Expansion Execution Board](#expansion-execution-board): Wave 0 (C0 to C3, contracts) is in progress; waves 1 to 3 are todo. The open deploy work below (local rehearsal, push, deploy, Gates B, D and E) is **still open and still comes first for the demo**: the expansion does not replace it, and nothing on `business-os` is proven live.
 
 As of 2026-10-05 (end of the first Linux session), on local branch `main` of `github.com/123100123/BotForge`. Everything below is merged into `main`; it has **not** been pushed yet.
 
@@ -102,6 +107,321 @@ As of 2026-10-05 (end of the first Linux session), on local branch `main` of `gi
 3. **Headless LLM:** log in to Claude Code once. The `claude-agent-sdk` package (group `headless`) bundles the CLI, so `claude` does not need to be on PATH. Set `LLM_PROVIDER=claude_cli` for local runs and evals.
 4. **Agent orchestration:** in Claude Code, ask it to install conductor by following `conductor/install/AGENT-INSTALL.md`, then restart Claude Code. It installs globally under `~/.claude/`, and needs Python 3.9 or newer and Claude Code 2.1.284 or newer. On this machine the main model is `opus`; Fable 5.1 (`/model best`) is only for highly sensitive jobs.
 5. **Local stack:** follow the README "Local setup" section for a native run. For the production-parity Docker stack, follow `deploy/LOCAL-REHEARSAL.md`. On a restricted network, Docker Hub images come through `docker.arvancloud.ir`, pulled and re-tagged or set as a daemon registry mirror. Containers reach the host proxy through `host.docker.internal:10808`.
+
+---
+
+## Rebrand / Business OS Expansion
+
+Added 2026-10-06 (Day 4 of 7) on the integration branch `business-os`. This section group is the architecture of the approved new direction, **BotForge: AI Business OS for Telegram**. It extends the V1 architecture described in the rest of this document and does not replace it: BotSpec, engines, revisions and the "zero LLM at runtime" rule stay as they are. Where an older section says something this group changes, the old text is kept and marked "Superseded 2026-10-06 (Business OS expansion)". Execution state is tracked in the [Expansion Execution Board](#expansion-execution-board); decisions are in the [Decision Log](#decision-log) rows tagged `(Business OS)`.
+
+### Product Definition
+
+- **BotForge is an AI agent that builds and maintains a modular Business OS for the owner's Telegram bot.** The owner describes how the business works; the agent selects and configures capabilities (orders, bookings and events, forms and approvals, reports, spreadsheet analysis, team, notifications) and keeps them current as the business changes.
+- **The website is the Business Control Center.** The owner sees the state of the business (Overview, Reports), turns capabilities on and off (Capability Center), edits data, tests in the simulator, reviews versions, manages the team and asks the Copilot questions or asks for changes.
+- **Telegram is the operational interface.** Customers order, book, RSVP and submit requests; staff handle queues, approvals and daily spreadsheet reports; managers read reports and approve work from a Telegram manager panel. All of it is buttons and short forms.
+- **Reuse over invention.** The goal is the maximum business features from the minimum number of reusable primitives, reusing the spec/runtime/revision architecture, with minimal new infrastructure and minimal new tests. Events are a booking preset, forms and approvals are the `request` type, reports are one aggregation vocabulary, and most "new" capabilities are registry entries over existing engines.
+- **Unchanged guarantees:** the live bot makes zero LLM calls for routine operations; every change is a revision (patch, compatibility check, scenarios, draft, activate); the owner approves what goes live; all module failures are structured and Persian, never a generic 500.
+
+### Hackathon Alignment
+
+- **One official problem, unchanged.** An owner explains what they need and gets a usable Telegram bot, which the agent later modifies from a sentence. The Business OS is the same problem with a richer catalog of capabilities the agent can compose; it is not a second product.
+- **One central agentic workflow:** the owner describes the business → the agent selects and configures capabilities → the owner asks for a revision ("add events", "require manager approval for leave") → the bot behaves differently, after tests and approval. Everything else (Capability Center toggles, Copilot, reports, spreadsheet analysis) either feeds this workflow or reads its results.
+- **The agent stays the heart of the product.** Toggles that need judgment return a `handoff_prompt` and go through the same agent run; deterministic toggles reuse the revision pipeline. The agent catalog prompt is generated from the capability registry, so the agent and the UI cannot disagree about what exists.
+- **Routine operations cost zero LLM calls.** Orders, RSVPs, reminders, reports, scheduled digests and spreadsheet reruns are deterministic. LLM use is limited to building and revising the bot, creating an `AnalysisProfile` once per spreadsheet signature, the optional fast-tier narrative, and the owner's Copilot questions.
+- **Fallback.** `main` stays the proven fallback demo (workshop bot, create and modify flows). The expansion lives on `business-os` and is merged only when it passes the same gates. The open deploy work in Current Status stays first.
+
+### Rebranding & pitch copy
+
+Product name stays BotForge (O6). Tagline: **One bot. Your entire business. Built and maintained by AI.** Persian (used in the UI): **یک ربات. تمام کسب‌وکار شما. ساخته و نگهداری‌شده با هوش مصنوعی.**
+
+| Slot | English | Persian (UI) |
+|---|---|---|
+| Hero | Run your business from Telegram. | کسب‌وکارتان را از تلگرام اداره کنید. |
+| Sub | Tell BotForge how your business works. Its AI agent builds and maintains a custom Telegram Business OS for customers, staff, operations, commerce and reporting. | به BotForge بگویید کسب‌وکارتان چگونه کار می‌کند. ایجنت هوش مصنوعی آن یک سیستم‌عامل کسب‌وکار اختصاصی در تلگرام می‌سازد و نگهداری می‌کند: برای مشتریان، کارکنان، عملیات، فروش و گزارش‌گیری. |
+| Supporting | Orders. Bookings. Events. Reports. Workflows. One bot, configured around your business. | سفارش‌ها. رزروها. رویدادها. گزارش‌ها. گردش‌کارها. یک ربات، پیکربندی‌شده بر اساس کسب‌وکار شما. |
+
+- The English lines are the owner's brief, verbatim. The Persian lines are the proposed wording; W1-FE-LAND may polish them once in the landing copy (`frontend/app/page.tsx` and its components), and that version is then reused by the README and the demo script. Do not re-translate them elsewhere.
+- **The UI stays Persian, right-to-left only** (K17 reaffirmed for the Control Center). Bot texts inside Telegram stay Persian too. No language switcher.
+- A public landing page at `/` replaces today's `redirect("/bots")`; the auth guard stays in `app/bots/layout.tsx`.
+- Naming in the UI: "Business Control Center" for the web app, "Capability" for a switchable module, "Copilot" for the owner assistant. The README opening pitch is updated to match.
+
+### Capability Architecture & Registry
+
+- **A capability is a switchable unit of business behavior.** A new package `backend/app/capabilities/` holds a declarative list of `CapabilityDef`:
+
+| Field | Meaning |
+|---|---|
+| `id`, `name_fa`, `description_fa` | Stable key and the Persian copy shown in the Capability Center |
+| `category` | One of `commerce`, `operations`, `team`, `intelligence`, `customer` |
+| `requires`, `requires_any`, `conflicts` | Dependency edges (all of / at least one of / mutually exclusive) |
+| `kind` | `spec` (a BotSpec capability type or preset) or `module` (a non-Telegram module stored in `bot_modules`) |
+| `spec_type` / `preset` or module id | What the capability maps to |
+| `config_schema` | Derived from the pydantic JSON schema of the capability model or module config |
+| `metrics` | The reporting query specs the capability contributes (see Reporting Engine) |
+| `roles` | Which roles may use it (customer, staff, manager) |
+| `default_ops(spec)` | Returns the `PatchOp` list that enables it with sensible defaults, or `None` when judgment is needed |
+| `handoff_prompt` | Prompt sent to the agent when `default_ops` is `None` |
+
+- **The enabled set is derived, never stored twice:** a `spec` capability is enabled when the active spec contains it with `enabled: true`; a `module` capability is enabled when `bot_modules` has an enabled row for it.
+- Initial registry: `info`, `catalog`, `booking`, `events` (booking preset), `orders`, `forms` and `approvals` (request templates), `reports`, `spreadsheets` (analyst), `team`, `notifications`, `announcements`, `scheduled_reports`, `copilot`. Payments is listed as `deferred`, not toggleable.
+- The agent's catalog prompt section is generated from the registry (W2-AGENT) so the registry is the single description of what the agent may build.
+- API: see [Business OS API changes](#api-changes). Code: `backend/app/capabilities/` (owner W1-REG).
+
+### Capability dependencies & toggle flow
+
+- **Resolution is deterministic.** Enabling X computes the transitive `requires`, checks `requires_any` and `conflicts`, and returns the ordered list of capabilities to enable. Disabling X lists the dependents that would stop working. No LLM is involved.
+- **Dry-run preview.** `POST /bots/{id}/capabilities/{cap}/enable|disable?dry_run=true` returns the resolved plan (what turns on or off, the patch ops, expected menu changes, affected scenarios) without writing anything. The frontend shows it before the owner confirms.
+- **Apply pipeline** (`backend/app/revisions/toggle.py`): `apply_patch` → `check_compat` (a copy of the ten-line `live_stats` helper in `agent/repository.py`) → **supersede the scenarios that touch the disabled or restricted capabilities and `derive_scenarios`** (otherwise stale scenarios would block every toggle) → `run_scenarios` → `create_draft` → `activate`. A toggle is therefore an ordinary revision with its own history, diff and rollback.
+- **Judgment cases.** When `default_ops` returns `None` (for example "orders" needs a catalog resource with a price field the owner has not defined), the response carries the capability's `handoff_prompt`; the frontend calls the existing `createRun(botId, message)` so the agent asks the owner what it needs. The Capability Center button reads "configure with Copilot".
+- **Module toggles** do not touch the spec: they write `bot_modules(bot_id, module, enabled, config)` and take effect immediately; `PATCH .../capabilities/{cap}/config` validates against `config_schema`.
+- **Honouring `enabled` and `audience`:** every capability model gains `enabled` and `audience` (everyone, staff, managers). Menus hide disabled and forbidden capabilities; a stale or forbidden callback is answered with the normal stale reply; admin events bypass the filter; the validator skips `capability_unreachable` for disabled capabilities and counts only enabled ones toward `menu_too_long`; `derive` skips disabled capabilities and drives restricted ones as the owner.
+
+### UI / navigation
+
+The workspace becomes a sidebar shell with eight sections (Persian labels in the UI):
+
+| Section | Content |
+|---|---|
+| Overview | KPIs from the reports API, attention items (pending approvals, low stock, schema changes), setup progress |
+| Copilot | Two modes: "ask about my business" (new Copilot endpoint) and "change my bot" (the existing agent run) |
+| Capabilities | Capability Center rendered from the registry API: categories, enabled dots, dependency preview on toggle, "configure with Copilot" handoff |
+| Data | Existing data admin plus orders, enabled/disabled badge, stock editing, staff queue views |
+| Reports | Per-capability reports and charts (small hand-written SVG; no new dependency), spreadsheet analyst (upload, profile, runs, schema-changed UX) |
+| Simulator | Existing simulator; personas now include `staff` and `manager` |
+| Versions | Revision list and diff, with the former Tests tab folded in |
+| Settings | Telegram, Team (staff link, members), Groups, Announcements, Schedules |
+
+- Routes: public landing at `/`; `/login`, `/signup`, `/bots`; `/bots/[id]` hosts the shell. `WorkspaceTab` moves to `components/app/workspace.ts`.
+- **Mock mode:** every new `Api` method needs a mock in `lib/mock/api.ts` (typed against `Api`, so a missing mock fails `next build`). Read `node_modules/next/dist/docs` before frontend work (`frontend/AGENTS.md`).
+- The existing Frontend section lists the V1 tabs; the Control Center supersedes that tab list.
+
+### Reporting Engine
+
+- **One aggregation vocabulary.** A query spec is `measure` (count, sum, avg, min, max of a field), `group_by` (a field, `status`, `day` or `week`), `filters` (`status_in`, `equals`, time range) and `top_n`.
+- **One pure-Python evaluator** (`backend/app/runtime/aggregate.py`) depending only on `botspec`, so engines may import it. Rows come from `Store.list_records` (capped near 20k rows) or from spreadsheet rows. **SQL push-down is the documented scaling boundary**, not built now.
+- `backend/app/reporting/` maps each capability type to its metric query specs; `api/reports.py` serves them.
+
+| Type | Metrics (all as query specs) |
+|---|---|
+| orders | order count, revenue, average order value, orders by day, top products (from `<cap>.lines`), orders by status |
+| booking and events | booking count, cancel rate, capacity use, RSVP breakdown, by category and by day |
+| request | open count, resolved count, average resolution time, by status |
+| spreadsheets | runs, anomalies, profile metrics |
+
+- **One vocabulary serves everything:** Overview KPIs, the Reports page, the Telegram manager panel, scheduled reports, Copilot tools and `AnalysisProfile` metrics. No second metrics language exists.
+
+### Spreadsheet Intelligence
+
+- **Upload:** raw-body `PUT /uploads/bots/{bot_id}?filename=` (no multipart: `python-multipart` is not in the production image). `security/body_limit.py` exempts the `/uploads/` prefix and enforces its own caps: 5 MB, 50k rows, 100 columns, plus a zip total-size guard. `get_owned_bot` and the CSRF check run before streaming (the pattern in `api/webhook.py`).
+- **Storage and parsing:** a `FileStorage` protocol with `LocalFileStorage(UPLOAD_DIR)` and a compose volume. `openpyxl` read-only for xlsx (`uv add openpyxl`; a stdlib zip and xml fallback if the network blocks it) and stdlib `csv`.
+- **Inspection** is deterministic: sheets, columns, inferred types, sample rows, describe statistics.
+- **`AnalysisProfile`:** one `LLMClient.structured` call (strong tier) turns the inspection plus the owner's description into a validated profile: expected columns, metrics as query specs, checks (for example z-score outliers) and outputs. Stored per `(bot_id, signature)`.
+- **Reruns are deterministic:** a later file with a matching signature runs the profile with no LLM and stores `analysis_runs.result {metrics, anomalies, narrative?}`. A mismatch returns a structured `schema_changed` error listing missing and new columns; the UI shows it with a "revise profile" action. An optional fast-tier narrative may be added.
+- **Staff daily report:** a profile flagged `daily_report`; "who has not submitted" is staff minus the runs of today. Staff can send the file as a Telegram document (W2-TG).
+
+### Event Management
+
+- **Events are a booking preset, not a new type** (`BookingCapability.preset = "events"`). The booking engine and its capacity, waitlist and cancellation rules are reused unchanged.
+- **New booking fields:** `reminder_hours_before` (int or null) and `category_field` (a choice field on the resource).
+- **RSVP "going" = `book`; cancel = the existing "mine" flow.** Category filter and subscriptions are encoded in existing action arguments, because `tests/unit/botspec/test_runtime_testing_contracts.py` pins the booking action set exactly. No new booking actions.
+- **Subscriptions** (a customer follows a category) are records; the broadcast and reminder generators read them.
+- **Reminders** are outbox rows from the notifications generator, deduped by `rem:<booking_id>:<start_iso>` so a rescheduled event re-triggers them.
+- **Group card:** `render_group_card()` is a pure booking-engine function. Publishing an event enqueues an outbox row to the group; the card carries only `book:<item>`. Group callbacks follow the Telegram groups rules below.
+
+### Commerce
+
+- **New type `orders`** (`OrdersCapability`): `resource` (the catalog items), `price_field` (integer), optional `stock_field`, `checkout_fields`, `statuses` / `initial_status` / `owner_actions` (same shape as `request`) and notify flags. Actions `add`, `cart`, `dec`, `chk` are added for `orders` only.
+- **Cart** is one `"<cap>.cart"` record per actor, because the session is cleared on navigation (`runtime/runtime.py`).
+- **Checkout** writes the order record plus flat `"<cap>.lines"` records (for top-product reporting), snapshots the unit price, sets `payment_status="unpaid"`, decrements stock and (on cancel) restocks. `ReasonCode` gains `out_of_stock`.
+- **Order status and payment status are separate fields.** Order status follows the owner's `statuses`; `payment_status` stays `unpaid` until a payment provider exists.
+- **Stock edits** through the Data API run under the existing `advisory_lock`, so a PATCH cannot race a checkout.
+- Data tab shows orders with line items; the owner moves status with `owner_actions`, which notifies the customer through the usual path.
+
+### Payments
+
+- **DEFERRED. No payment code ships in this expansion.** Orders carry `payment_status="unpaid"` and nothing else.
+- **Provider boundary:** when payments are built, they sit behind a `PaymentProvider` interface (create payment, verify callback, refund) in its own package. Zarinpal would be the first adapter.
+- **BotForge never handles card data.** The customer pays on the provider's page; only provider references and status are stored.
+- The Capability Center lists Payments as deferred so the story is honest, and the agent records any request for it under `Requirements.unsupported`.
+
+### Forms & Approvals
+
+- **No new type.** Forms, workflows and approvals are the existing `request` type: statuses plus `OwnerAction` already model approve and reject.
+- **Registry templates** (`default_ops`): leave request, expense claim, feedback, complaint, survey. Each is a `request` capability with fields, statuses and owner actions prefilled.
+- **Audience gating:** `audience="staff"` or `"managers"` restricts who sees the form or the approval queue; an approval template is typically submitted by staff and decided by managers.
+- Staff work from a queue view in the request engine; the manager sees pending approvals on the Overview, in the Telegram manager panel and through the Copilot tool `list_pending_approvals`.
+
+### Roles
+
+- **Three roles:** `customer` (default), `staff`, `manager`. `Actor.role` is a new contract field; **effective role = manager if `is_owner`**, so the owner is the manager without extra setup.
+- **Storage:** `bot_users.role`, read under the bot's lock in `services/dispatch.py` beside the owner flag, so it is decided at the same moment.
+- **Joining:** `bots.staff_link_code` is a multi-use code, rotatable and revocable from Settings (Team). `/start staff_<code>` is handled in `api/webhook.py` next to the owner link. The owner link rules stay as they are (single use, never replaces an owner).
+- **Simulator:** a `staff` persona beside the existing personas, so staff-only capabilities are testable.
+- Role-gated menus come from `audience`; notifications stay owner-only until the notification units land.
+- Security-sensitive: the staff link, role assignment and role reads go to a `security-executor` (W1-ROLES, I3).
+
+### Manager Copilot
+
+- **Owner-facing assistant** (`backend/app/copilot/`, `api/copilot.py`): `LLMClient.tool_loop` on the fast tier with bounded tools `get_business_summary`, `get_report(capability, metric, period, group_by)`, `compare_periods`, `list_pending_approvals`, `get_spreadsheet_report` and `who_submitted`. Read-only: it never edits records or specs; changes go through the agent run.
+- **Stateless:** `POST /bots/{id}/copilot/messages` with the client sending the last N turns; a daily cap in the existing `AGENT_*` style.
+- **Telegram manager panel:** a deterministic panel reached by `menu:open:_mgr` and `_rep.<metric>` (menu keys cannot start with `_`, so these cannot collide and need no contract change). Managers see KPIs and pending approvals with no LLM.
+- The Copilot screen's second mode, "change my bot", calls the existing agent run API.
+
+### Notifications & scheduler
+
+- **Outbox:** table `outbound_messages` (bot_id, env, chat_id, text, buttons, `dedupe_key` unique per bot, `not_before`, status, attempts, last_error).
+- **Ticker:** one in-process task in the lifespan, behind `NOTIFICATIONS_TICKER=on|off` (default off; on in the compose file). It claims rows with `FOR UPDATE SKIP LOCKED`, applies a global and a per-chat throttle, backs off on 429, and logs its own errors, never to `bots.tg_last_error`.
+- **Generators** (`generators/*.py`, auto-discovered) only insert outbox rows: event reminders, announcement broadcasts (targeted by role, subscription or all customers) and scheduled reports. Idempotent dedupe keys: `rem:<booking_id>:<start_iso>`, `rep:<key>:<date>`.
+- **Generators never mutate records.** Time-based state is computed on read, as booking already does.
+- This replaces the old "Scheduler / worker: none in V1" rule; see Background Jobs. Scaling beyond one process: see Scaling boundaries.
+
+### Scheduled Reports
+
+- `GET/PUT /bots/{id}/schedules` configures a report (which metrics, period, recipients by role, time of day, enabled).
+- A `scheduled_reports` generator renders the metrics through the same evaluator and enqueues one outbox row per recipient with key `rep:<key>:<date>`, so a restart never double-sends.
+- Delivery goes to managers (owner by default) in Telegram; the Settings > Schedules screen edits the configuration. Owned by W2-SCHED together with the manager panel.
+
+### Telegram groups & documents
+
+- **Groups:** `ALLOWED_UPDATES` gains `my_chat_member`, handled in `webhook._process` before `parse_update`, and recorded in `bot_chats`. `RuntimeEvent.chat_type` is `private` or `group`.
+- **Group callbacks are allowed with rules:** edits go to `origin.chat_id`; a non-edit reply becomes an `answerCallbackQuery` toast (the client gains a `text` parameter, and the answer is sent after the runtime runs); group menu and stale handling are no-ops; actions that need a form answer with the toast "message me privately".
+- **Publishing an event to a group** renders the card with the pure booking function and enqueues an outbox row (`api/groups.py`: list groups, publish).
+- **Documents:** `ParsedUpdate.document` is honoured for staff and managers only; `getFile` downloads it into the same spreadsheet service as the web upload.
+- Owner: W2-TG (security-executor), because it touches `adapter.py`, `client.py`, `webhook.py` and `dispatch.py`.
+
+### Data model additions
+
+All in a **single migration 0005**, written up front by C2 (downgrade is clean):
+
+| Change | Detail |
+|---|---|
+| `bot_users.role` | text, default `customer` |
+| `bots.staff_link_code` | nullable; multi-use, rotatable |
+| `outbound_messages` | the outbox (see Notifications) |
+| `bot_chats` | Telegram groups the bot is in (chat id, title, type, status) |
+| `bot_modules` | `(bot_id, module, enabled, config)` for non-Telegram modules |
+| `announcements` | owner broadcasts: audience, text, schedule, status |
+| `uploaded_files` | file metadata for uploads (name, size, storage key, uploader) |
+| `analysis_profiles` | AnalysisProfile per bot, unique `(bot_id, signature)` |
+| `analysis_runs` | run results per profile and file |
+| index | `records(bot_id, env, collection, created_at)` for report scans |
+
+New settings: `NOTIFICATIONS_TICKER`, `UPLOAD_DIR`, upload limits. See the Database Schema section for the existing tables.
+
+### API changes
+
+New routers (auto-discovered by `main.py`). All REST models live in one new `backend/app/schemas/business.py` (owned by C2) so frontend types are copied from one place.
+
+| Group | Endpoints |
+|---|---|
+| Capabilities | `GET /bots/{id}/capabilities`, `POST /bots/{id}/capabilities/{cap}/enable\|disable?dry_run`, `PATCH /bots/{id}/capabilities/{cap}/config` |
+| Reports | `GET /bots/{id}/reports/overview?period`, `GET /bots/{id}/reports/{cap_key}?period` |
+| Uploads | `PUT /uploads/bots/{id}?filename=` (raw body) |
+| Analysis | `GET/POST /bots/{id}/analysis/profiles`, `POST /bots/{id}/analysis/profiles/{pid}/run`, `GET /bots/{id}/analysis/runs` |
+| Copilot | `POST /bots/{id}/copilot/messages` |
+| Team | `GET/POST /bots/{id}/team` (staff link rotate and revoke, members) |
+| Groups | `GET /bots/{id}/groups`, `POST /bots/{id}/groups/{chat}/publish` |
+| Announcements | `POST /bots/{id}/announcements` |
+| Schedules | `GET/PUT /bots/{id}/schedules` |
+
+Existing change: Data API `CollectionOut.enabled`; orders collections appear in `GET /bots/{id}/data`. Every route keeps the cookie, CSRF and ownership rules; new public routes need a deliberate allowlist entry (none are planned).
+
+### BotSpec changes
+
+Additive; **`spec_version` stays 1**; existing specs and the golden examples stay valid.
+
+- Every capability model gains `enabled: bool = True` and `audience: Literal["everyone","staff","managers"] = "everyone"`.
+- `BookingCapability` gains `preset`, `reminder_hours_before`, `category_field` (see Event Management).
+- New type `orders` (`OrdersCapability`) with actions `add`, `cart`, `dec`, `chk`; `request` may grow actions; booking, info, catalog and menu action sets stay pinned.
+- Contracts: `Actor.role` (`customer` | `staff` | `manager`, default `customer`) and `RuntimeEvent.chat_type`; `ReasonCode.out_of_stock`.
+- **Per-type sites a new type must extend** (exhaustive, so each is a checklist item for C1 and its dependents): `botspec/models.py`, `outline.py` (a Literal that currently crashes on an unknown type), `validate.py`, `compat.py`, `text_keys.py` (and the exact-set test), `runtime/callbacks.py`, `runtime/engines/__init__.py`, `runtime/texts/orders.py`, `api/data.py`, `api/data_actions.py`, `testing/drivers.py`, `testing/derive.py`, `agent/checks.py`, `agent/prompts/catalog.md`; frontend `lib/types.ts`, `components/agent/labels.ts` (an exhaustive Record, so the build fails if missing), `components/data/{data-tab,record-table}.tsx`, `lib/mock/{tabs,simulator}.ts`.
+- **Frozen-file rationale:** these files are contract files (WP0). The change is additive, justified in the Decision Log, and every dependent package was checked. **Test pins:** `test_validate.py` pins the exact `TEXT_KEYS` set (updated to include `orders`) and `test_runtime_testing_contracts.py` pins the booking/info/catalog/menu action sets (left unchanged, which is why events use arguments). New tests: `tests/unit/botspec/test_capability_flags.py` and `tests/unit/runtime/test_gating.py`.
+
+### Implementation order
+
+Work runs in waves of parallel role agents, each wave one `execute-plan` workflow; every hot file has exactly one owner at a time (see the board and WP12 to WP20).
+
+| Wave | Units | Purpose |
+|---|---|---|
+| 0, contracts | C0 roadmap, C1 spec + runtime contracts, C2 persistence + schemas + deps, C3 frontend contracts + shell | Lay down every shared contract so wave 1 never touches the same file |
+| 1, features | W1-REG, W1-REP, W1-ORD, W1-ROLES, W1-NOTIF, W1-FE-CC, W1-EVT, W1-SHEET, W1-FE-LAND | Registry and toggles, reporting, orders, roles, outbox, events, uploads, Control Center and landing |
+| 2, dependents | W2-TG, W2-PROF, W2-COP, W2-SCHED, W2-AGENT, W2-FE-AN, W2-FE-COP, W2-FE-TEAM | Groups, analyst profiles, Copilot, scheduled reports, agent prompts, remaining UI |
+| 3, integrate | I1 backend suite, I2 frontend types vs `schemas/business.py`, I3 security pass, I4 README and roadmap; then a `verifier` on the end-to-end story | Integration and proof |
+
+End-to-end story used for verification: enable Events from the Capability Center (dependency preview, new active revision) → owner creates an event → customer RSVPs in the simulator → Reports shows the RSVP breakdown → upload an xlsx → profile created → second upload runs deterministically → modified file gives `schema_changed` → Copilot answers through tools → ticker (enabled in a test) enqueues a deduped reminder → orders: browse, add, cart, checkout, owner status action, order report.
+
+### Scope cuts
+
+- **Cut now:** payments (deferred, see Payments); multi-admin organizations; a language switcher; any provider code.
+- **Priority order, nothing pre-cut:** units proceed in the order above until time runs out. Anything not finished is recorded on the board with its gap, not hidden.
+- **Cut first if time is short (by demo value):** Telegram groups and documents (W2-TG), scheduled reports and manager panel (W2-SCHED), Data Analyst UI (W2-FE-AN), staff and team screens (W2-FE-TEAM), then orders. The registry, toggle flow, events and reports are the core of the demo story and are cut last.
+- The existing Fallback Plan and Feature Freeze Policy still apply; `main` is the fallback.
+
+### Risks
+
+1. **Frozen pins** (exact `TEXT_KEYS` set, pinned action sets, the `outline.py` Literal): handled in C1 with Decision Log entries.
+2. **Toggle blocked by stale scenarios:** the toggle supersedes and re-derives them.
+3. **openpyxl missing from the lock or blocked network:** stdlib fallback; CSV works from day one.
+4. **Hot-file conflicts across worktrees:** single-owner table; Wave 0 pre-creates stubs so later units only add files or edit files they alone own.
+5. **Ticker in tests or Telegram flooding:** default off, throttled, logs its own errors.
+6. **Base product still unproven live** (Gates B, D, E open; no real Telegram, no VPS): expansion stays on `business-os`; `main` is untouched; Current Status keeps the deploy steps first.
+7. **Overnight scope:** the board tracks per-unit status and gaps so the next session continues immediately.
+8. **Truncated brief:** the owner's original message was cut at 50k characters (sections 60 and later missing); a missing requirement may surface later and must go through this roadmap.
+
+### Scaling boundaries
+
+Documented, **not built**; each is the next step when traffic outgrows one process.
+
+- **Webhook-first:** webhook mode for production; polling stays the outbound-only alternative for restricted networks.
+- **Stateless API:** the API process holds no session state (cookie sessions in Postgres, Copilot stateless), so it can scale horizontally once the ticker and pollers are moved out.
+- **Job queue and worker:** the in-process ticker becomes a separate worker, using the same outbox claim (`SKIP LOCKED`), so no data change is needed.
+- **Object storage:** `FileStorage` gets an S3-compatible adapter instead of `LocalFileStorage`.
+- **SQL aggregation:** the query-spec evaluator gets a SQL push-down for large collections, replacing the ~20k row Python scan.
+
+---
+
+## Expansion Execution Board
+
+Live tracker for the Business OS expansion. **Update a unit's status and gaps in the same commit that changes it.** Status values: `todo`, `in progress`, `done`, `blocked`. Plan source: `/home/anon/.claude/plans/pasted-content-id-dd9a-you-are-idempotent-crescent.md` (a local planning note; this board is the durable copy). Hot files have one owner per wave; the ownership table is in Work Packages WP12 to WP20. Backend commands run from `backend/`, frontend from `frontend/`.
+
+Common backend verification: `uv run pytest -q && uv run ruff check app tests scripts alembic`. Common frontend verification: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build`.
+
+### Wave 0: contracts (parallel, disjoint files)
+
+- [ ] **C0** Roadmap rewrite · role: `executor` · status: in progress · depends on: none · files: `IMPLEMENTATION_ROADMAP.md`, `README.md` (pitch only) · verify: `grep -c 'Business OS' IMPLEMENTATION_ROADMAP.md` is at least 10 and the board lists every unit · gaps: none known; I4 refreshes Current Status at the end.
+- [ ] **C1** Spec and runtime contracts · role: `senior-executor` · status: in progress · depends on: none · files: `botspec/{models,validate,outline,compat,diff,text_keys}.py`, `runtime/{contracts,callbacks,ctx,runtime}.py`, `runtime/engines/__init__.py`, `testing/derive.py`, `runtime/texts/orders.py` skeleton, `tests/unit/botspec/{test_validate,test_capability_flags}.py`, `tests/unit/runtime/test_gating.py` · verify: `uv run pytest -q tests/unit && uv run ruff check app tests scripts alembic` · gaps: orders engine itself is W1-ORD; the `orders` driver and derive templates land with W1-ORD.
+- [ ] **C2** Persistence, schemas, dependencies · role: `senior-executor` · status: in progress · depends on: none · files: `db/models.py`, `alembic/versions/0005_*`, `config.py`, `pyproject.toml`/`uv.lock`, `deploy/*compose*`, `deploy/.env*.example`, `app/schemas/business.py` · verify: `uv run pytest -q tests/integration` (migration up and down) · gaps: `openpyxl` may fall back to the stdlib reader if the network blocks `uv add`.
+- [ ] **C3** Frontend contracts and shell · role: `executor` · status: in progress · depends on: none · files: `lib/types.ts`, `lib/api.ts`, `lib/mock/api.ts` and stub mocks, `components/agent/labels.ts`, `agent-tab.tsx`, `app/bots/[id]/page.tsx`, `components/app/workspace.ts`, sidebar shell, landing route stub, section stubs `components/{overview,capabilities,reports,analyst,copilot}/*-tab.tsx` · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: types are copied by hand from `schemas/business.py`; I2 checks them.
+
+### Wave 1: features (parallel, priority order)
+
+- [ ] **W1-REG** Capability registry, toggle flow, `api/capabilities.py` · role: `senior-executor` · status: todo · depends on: C1, C2 · files: `backend/app/capabilities/`, `backend/app/revisions/toggle.py`, `backend/app/api/capabilities.py`, tests · verify: `uv run pytest -q tests/unit tests/integration && uv run ruff check app tests scripts alembic` · gaps: none yet.
+- [ ] **W1-REP** Aggregate evaluator, reporting, `api/reports.py` · role: `executor` · status: todo · depends on: C1, C2 · files: `backend/app/runtime/aggregate.py`, `backend/app/reporting/`, `backend/app/api/reports.py`, tests · verify: `uv run pytest -q tests/unit tests/integration && uv run ruff check app tests scripts alembic` · gaps: Python evaluator only; SQL push-down deferred.
+- [ ] **W1-ORD** Orders engine, texts, derive templates, Data API and actions visibility, stock PATCH under `advisory_lock` · role: `senior-executor` · status: todo · depends on: C1, C2 · files: `runtime/engines/orders.py`, `runtime/texts/orders.py`, `api/data.py`, `api/data_actions.py`, `testing/__init__.py`, orders driver and derive templates through the hooks C1 leaves, tests · verify: `uv run pytest -q tests/unit tests/golden tests/integration` · gaps: payments deferred (`payment_status` stays `unpaid`).
+- [ ] **W1-ROLES** Roles, staff link, dispatch role read, request staff queue, simulator persona, `api/team.py` · role: `security-executor` · status: todo · depends on: C1, C2 · files: `backend/app/roles/`, `services/dispatch.py`, `api/team.py`, `runtime/engines/request.py`, `simulator/service.py`, tests · verify: `uv run pytest -q tests/unit tests/integration` · gaps: `/start staff_<code>` webhook wiring is W2-TG.
+- [ ] **W1-NOTIF** Outbox, ticker, generators (reminders, broadcast), `api/announcements.py`, lifespan wiring · role: `senior-executor` · status: todo · depends on: C2 · files: `backend/app/notifications/` (including `generators/`), `api/announcements.py`, `main.py`, tests · verify: `uv run pytest -q tests/unit tests/integration` (ticker enabled only inside the test) · gaps: scheduled-report generator is W2-SCHED; notifications to staff are not part of this unit.
+- [ ] **W1-FE-CC** Capability Center, Overview, Reports, charts · role: `executor` · status: todo · depends on: C3 · files: `frontend/components/{capabilities,overview,reports}/`, small SVG chart components · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: runs against mocks until the backend routers land.
+- [ ] **W1-EVT** Events preset in the booking engine: categories, subscriptions, `render_group_card()`, group toast, `testing/events_derive.py` · role: `executor` · status: todo · depends on: C1 · files: `runtime/engines/booking.py`, `runtime/texts/booking.py`, `testing/events_derive.py`, tests · verify: `uv run pytest -q tests/unit tests/golden` · gaps: group publishing is W2-TG plus W1-NOTIF.
+- [ ] **W1-SHEET** Storage, reader, inspect, `api/uploads.py`, body-limit exemption, validation · role: `security-executor` · status: todo · depends on: C2 · files: `backend/app/spreadsheets/`, `api/uploads.py`, `security/body_limit.py`, tests · verify: `uv run pytest -q tests/unit tests/integration` · gaps: profiles and runs are W2-PROF; Telegram document ingestion is W2-TG.
+- [ ] **W1-FE-LAND** Landing, rebrand copy, Data tab orders and enabled badge, mock tabs · role: `executor` · status: todo · depends on: C3 · files: `frontend/app/page.tsx` and landing components, `components/data/{data-tab,record-table}.tsx`, `lib/mock/{tabs,simulator}.ts` · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: Persian pitch wording is written here once and reused elsewhere.
+
+### Wave 2: dependents (parallel)
+
+- [ ] **W2-TG** Groups, `my_chat_member`, toasts, document ingestion, staff deep link wiring · role: `security-executor` · status: todo · depends on: W1-ROLES, W1-EVT, W1-NOTIF, W1-SHEET · files: `integrations/telegram/{adapter,client}.py`, `api/webhook.py`, `services/dispatch.py`, `api/groups.py`, tests · verify: `uv run pytest -q tests/unit tests/integration` · gaps: only fake-client tests, as everywhere else in the Telegram path.
+- [ ] **W2-PROF** AnalysisProfile creation (LLM), deterministic runs, schema diff, narrative, `api/analysis.py` · role: `executor` · status: todo · depends on: W1-SHEET, W1-REP · files: `backend/app/spreadsheets/` (profiles, runs), `api/analysis.py`, tests with `FakeLLM` · verify: `uv run pytest -q tests/unit tests/integration` · gaps: never run against the real LLM.
+- [ ] **W2-COP** Copilot tools and `api/copilot.py` · role: `executor` · status: todo · depends on: W1-REP; W2-PROF (soft) · files: `backend/app/copilot/`, `api/copilot.py`, tests with `FakeLLM` · verify: `uv run pytest -q tests/unit tests/integration` · gaps: tool-bound review in I3; never run against the real LLM.
+- [ ] **W2-SCHED** Scheduled reports generator and Telegram manager panel `runtime/manager.py` · role: `executor` · status: todo · depends on: W1-NOTIF, W1-REP · files: `notifications/generators/scheduled_reports.py`, `runtime/manager.py`, `api/schedules.py`, tests · verify: `uv run pytest -q tests/unit tests/integration` · gaps: none yet.
+- [ ] **W2-AGENT** Prompts generated from the registry, orders/events/audience knowledge, checks · role: `executor` · status: todo · depends on: W1-REG, W1-ORD · files: `agent/prompts/*`, `agent/checks.py`, tests · verify: `uv run pytest -q tests/unit/agent && uv run ruff check app tests scripts alembic` · gaps: prompt quality is unproven on the real LLM (eval scripts exist, not run for the new capabilities).
+- [ ] **W2-FE-AN** Data Analyst UI (upload, profile, runs, schema-changed UX) · role: `executor` · status: todo · depends on: C3 · files: `frontend/components/analyst/` · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: none yet.
+- [ ] **W2-FE-COP** Copilot two-mode screen · role: `executor` · status: todo · depends on: C3 · files: `frontend/components/copilot/` · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: none yet.
+- [ ] **W2-FE-TEAM** Settings: Team, Groups, Announcements, Schedules; staff persona in the simulator · role: `executor` · status: todo · depends on: C3 · files: `frontend/components/settings/`, simulator persona list · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` · gaps: none yet.
+
+### Wave 3: integrate and verify
+
+- [ ] **I1** Full backend suite and ruff; fix integration breaks · role: `senior-executor` · status: todo · depends on: all wave 1 and 2 backend units · files: any, minimal fixes · verify: `uv run pytest -q && uv run ruff check app tests scripts alembic` (no deleted or weakened tests) · gaps: none yet.
+- [ ] **I2** Frontend types against `schemas/business.py`; real and mock builds · role: `executor` · status: todo · depends on: C3, all frontend units · files: `frontend/lib/types.ts`, `lib/api.ts`, `lib/mock/` · verify: `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build`, then a real-mode `npm run build` · gaps: none yet.
+- [ ] **I3** Security pass: uploads, staff link, group callbacks, documents, Copilot tool bounds · role: `security-executor` · status: todo · depends on: W1-SHEET, W1-ROLES, W2-TG, W2-COP · files: findings only, fixes in the owning files · verify: a verifier-confirmed list of checks, plus the backend suite · gaps: none yet.
+- [ ] **I4** README, roadmap Current Status, board and gaps · role: `mech-executor` · status: todo · depends on: I1, I2, I3 · files: `README.md`, `IMPLEMENTATION_ROADMAP.md` · verify: `grep -c 'Business OS' IMPLEMENTATION_ROADMAP.md` and board statuses match reality · gaps: none yet. Then a `verifier` on the end-to-end story.
 
 ---
 
@@ -211,6 +531,8 @@ The video shows one scenario done well, then one short second scenario.
 - Organizations, teams, roles; languages other than Persian; platforms other than Telegram.
 - The agent editing live business records.
 
+*Superseded 2026-10-06 (Business OS expansion) for roles (customer, staff, manager), multi-item carts and scheduled reminders: the expansion adds them. Payments stay out of scope (deferred). See [Rebrand / Business OS Expansion](#rebrand--business-os-expansion) and [Scope cuts](#scope-cuts).*
+
 ---
 
 ## Key Product Decisions
@@ -274,9 +596,13 @@ The video shows one scenario done well, then one short second scenario.
 
 Cross-cutting: main menu, Persian text overrides, owner and user notifications on capability events.
 
+**Business OS expansion (2026-10-06):** the catalog grows with the `orders` type (cart and checkout), the booking `events` preset, forms and approvals as `request` templates, reports, spreadsheet analysis, roles and notifications, all described by a capability registry. See Business OS Expansion → [Capability Architecture & Registry](#capability-architecture--registry), [Commerce](#commerce), [Event Management](#event-management) and [Forms & Approvals](#forms--approvals).
+
 ## Unsupported Capabilities
 
 Payments; carts with multiple items; arbitrary rules beyond the typed parameters; integrations and external APIs; file or photo uploads; broadcast messaging; free-text or AI chat inside the bot; recurring schedule generation (the owner adds each item); multi-admin roles; languages other than Persian.
+
+**Superseded 2026-10-06 (Business OS expansion), in part:** carts with multiple items, file uploads (spreadsheets), broadcast messaging, recurring reminders and roles (customer, staff, manager) are now supported by the expansion; this was reversed because the new product direction is a modular Business OS. **Still unsupported: payments** (deferred behind a provider boundary), arbitrary rules, external integrations, free-text or AI chat inside the bot, languages other than Persian. See Business OS Expansion → [Payments](#payments) and [Scope cuts](#scope-cuts).
 
 When the owner asks for one of these, the agent records it under `Requirements.unsupported` with a reason and the closest supported alternative, and tells the owner plainly.
 
@@ -1090,7 +1416,7 @@ Workspace tabs:
 
 SSE is read with `fetch` and a stream reader so the `Authorization` header can be sent. On reconnect the client passes the last event id and the server replays from `agent_events`.
 
-Frontend effort is capped: no landing page, no theming, no animations beyond the timeline, no mobile-specific layout work beyond not breaking.
+~~Frontend effort is capped: no landing page, no theming, no animations beyond the timeline, no mobile-specific layout work beyond not breaking.~~ **Superseded 2026-10-06 (Business OS expansion):** the web app becomes the Business Control Center, with a sidebar shell, a public landing page at `/`, a Capability Center, Overview, Reports and Copilot screens. Theming and animations stay minimal; the UI stays Persian RTL. The route and tab lists above describe V1; see Business OS Expansion → [UI / navigation](#ui--navigation) for the new navigation.
 
 ---
 
@@ -1124,6 +1450,8 @@ All routes except the webhook, the health check, `POST /auth/signup` and `POST /
 | Data | `GET /bots/{id}/data`, `GET /bots/{id}/data/{collection}`, `POST /bots/{id}/data/{collection}`, `PATCH /bots/{id}/data/{collection}/{record_id}`, `DELETE /bots/{id}/data/{collection}/{record_id}`, `POST /bots/{id}/data/{collection}/{record_id}/actions/{action}` |
 | Telegram | `POST /bots/{id}/telegram/connect` `{token}`, `DELETE /bots/{id}/telegram`, `GET /bots/{id}/telegram` (status, username, links) |
 | Webhook | `POST /tg/{bot_id}` (public; secret header) |
+
+**Business OS expansion (2026-10-06):** new routers for capabilities, reports, uploads, analysis, Copilot, team, groups, announcements and schedules; all REST models in `app/schemas/business.py`. See Business OS Expansion → [API changes](#api-changes).
 
 Errors use `{"error": {"code", "message"}}` with Persian `message` for anything the owner can see. Path parameters are named `bot_id`, `run_id`, `revision_id`, `record_id`.
 
@@ -1169,6 +1497,8 @@ Isolation: every runtime query is filtered by `bot_id` and `env` inside `PgStore
 
 Users and login sessions live in `users` and `auth_sessions`; there is no external auth service.
 
+**Business OS expansion (2026-10-06):** migration 0005 adds `bot_users.role`, `bots.staff_link_code`, `outbound_messages`, `bot_chats`, `bot_modules`, `announcements`, `uploaded_files`, `analysis_profiles`, `analysis_runs` and a records index. See Business OS Expansion → [Data model additions](#data-model-additions).
+
 ---
 
 ## Background Jobs
@@ -1176,6 +1506,8 @@ Users and login sessions live in `users` and `auth_sessions`; there is no extern
 - **Agent execution:** an asyncio task in the API process, started by `POST /bots/{id}/runs` and by resume endpoints. State and events are persisted after every step. On startup, runs left in `running` are marked `interrupted`.
 - **Scheduler / worker:** none in V1.
 - **Reminders (NICE TO HAVE):** an in-process loop every 60 seconds that finds bookings whose item starts within the reminder window and have no reminder effect recorded. Not started unless everything else is done.
+
+**Business OS expansion (2026-10-06):** an in-process notifications ticker and generators (reminders, broadcasts, scheduled reports) are added behind `NOTIFICATIONS_TICKER`, which supersedes "Scheduler / worker: none" and the reminders note above. See Business OS Expansion → [Notifications & scheduler](#notifications--scheduler) and [Scaling boundaries](#scaling-boundaries).
 
 The backend runs as one process with one worker. Do not scale it horizontally in V1.
 
@@ -1322,6 +1654,8 @@ examples/
 conductor/                     # orchestration tooling; not part of the product; do not modify
 ```
 
+**Business OS expansion (2026-10-06)** adds backend packages `capabilities/`, `reporting/`, `roles/`, `notifications/` (with `generators/`), `spreadsheets/`, `copilot/` and `schemas/business.py`; `runtime/aggregate.py` and `runtime/manager.py`; `revisions/toggle.py`; routers `capabilities`, `reports`, `uploads`, `analysis`, `copilot`, `team`, `groups`, `announcements`, `schedules`; frontend `components/{app,overview,capabilities,reports,analyst,copilot}/` and a landing page at `app/page.tsx`. See Business OS Expansion → [Implementation order](#implementation-order) and the WP12 to WP20 rows in Work Packages.
+
 ---
 
 ## Interface Contracts
@@ -1420,6 +1754,17 @@ Roles are the conductor roles installed in `~/.claude/agents/`. Verification com
 | **WP9** | Next.js scaffold, RTL layout, login and signup pages against the backend's auth endpoints, API client, SSE reader, bots list, workspace shell, Agent tab | `executor` | `frontend/` | WP0 (types); mock data until WP6 | Login works; Agent tab renders a recorded event stream | `npm run build` and `npm run lint` in `frontend/` |
 | **WP10** | Simulator, Tests, Data, Versions, Settings tabs | `executor` | `frontend/` | WP9, backend endpoints | Each tab works against the deployed backend | `npm run build`; manual checklist in [Definition of Done](#definition-of-done) |
 | **WP11** | Dockerfiles, VPS deployment (Docker Compose, Caddy, env wiring, nightly backup), webhook re-registration script, demo seed script, end-to-end golden test, demo checklist; Render and Vercel config kept as the fallback | `executor`; `mech-executor` for docs | `backend/Dockerfile`, `deploy/`, `frontend/Dockerfile`, `backend/scripts/reregister_webhooks.py`, `render.yaml`, `frontend/vercel.json`, `backend/scripts/seed_demo.py`, `README.md` | Gate D | Public deployment on the VPS with HTTPS; seeded demo account; `docker compose up -d --build` brings up all four services; nightly backup and documented restore; hostname change handled by `reregister_webhooks.py` | Gate E checklist; `docker compose config` valid; `reregister_webhooks.py` tested with a fake Telegram client |
+| **WP12** | Capabilities and toggle (Business OS): `CapabilityDef` registry, derived enabled set, deterministic dependency resolution with dry-run, toggle pipeline (patch, compat, supersede and re-derive scenarios, scenarios, draft, activate), `bot_modules` toggles and config, capabilities API; later, agent prompts generated from the registry and orders/events/audience checks (W1-REG, W2-AGENT) | `senior-executor` (W1-REG); `executor` (W2-AGENT) | `backend/app/capabilities/`, `backend/app/revisions/toggle.py`, `backend/app/api/capabilities.py`, `backend/app/agent/prompts/`, `backend/app/agent/checks.py`, matching tests | C1, C2 (W1-REG); W1-REG, W1-ORD (W2-AGENT) | Toggle yields a tested, activated revision; handoff prompt for judgment cases; the agent catalog comes from the registry | `uv run pytest -q tests/unit tests/integration` |
+| **WP13** | Reporting (Business OS): pure-Python aggregation evaluator, per-type metric query specs, overview and per-capability report endpoints (W1-REP) | `executor` | `backend/app/runtime/aggregate.py`, `backend/app/reporting/`, `backend/app/api/reports.py`, matching tests | C1, C2 | One evaluator serves every report; results bounded to the row cap | `uv run pytest -q tests/unit tests/integration` |
+| **WP14** | Orders engine and events preset (Business OS): `orders` engine, texts, driver and derive templates, stock under `advisory_lock`, Data API orders visibility and actions; booking `events` preset with categories, subscriptions, `render_group_card()` and `testing/events_derive.py` (W1-ORD, W1-EVT) | `senior-executor` (orders); `executor` (events) | `backend/app/runtime/engines/orders.py`, `backend/app/runtime/texts/orders.py`, `backend/app/api/{data,data_actions}.py`, `backend/app/testing/__init__.py`, `backend/app/runtime/engines/booking.py`, `backend/app/runtime/texts/booking.py`, `backend/app/testing/events_derive.py`, matching tests | C1, C2 | Browse, add, cart, checkout, owner status action; events RSVP, cancel, category filter, subscriptions; derived scenarios pass | `uv run pytest -q tests/unit tests/golden tests/integration` |
+| **WP15** | Roles and team (Business OS): role storage and read under the bot lock, staff link code, request staff queue, simulator persona, team API; the staff deep link wiring in the webhook follows in WP19 (W1-ROLES) | `security-executor` | `backend/app/roles/`, `backend/app/services/dispatch.py` (shared with WP19 across waves), `backend/app/api/team.py`, `backend/app/runtime/engines/request.py`, `backend/app/simulator/service.py`, matching tests | C1, C2 | Role decided under the lock; staff link rotates and revokes; staff persona works | `uv run pytest -q tests/unit tests/integration` |
+| **WP16** | Notifications (Business OS): outbox, ticker behind `NOTIFICATIONS_TICKER`, auto-discovered generators (reminders, broadcast), announcements API, lifespan wiring; later, the scheduled-reports generator and the Telegram manager panel (W1-NOTIF, W2-SCHED) | `senior-executor` (W1-NOTIF); `executor` (W2-SCHED) | `backend/app/notifications/`, `backend/app/api/{announcements,schedules}.py`, `backend/app/main.py`, `backend/app/runtime/manager.py`, matching tests | C2 (W1-NOTIF); W1-NOTIF, W1-REP (W2-SCHED) | Deduped, throttled delivery; generators never mutate records; manager panel works with no LLM | `uv run pytest -q tests/unit tests/integration` |
+| **WP17** | Spreadsheets and analysis (Business OS): file storage, reader, inspection, raw-body upload with its own limits and body-limit exemption (W1-SHEET); `AnalysisProfile` creation, deterministic runs, schema-changed errors, narrative, analysis API (W2-PROF) | `security-executor` (W1-SHEET); `executor` (W2-PROF) | `backend/app/spreadsheets/`, `backend/app/api/{uploads,analysis}.py`, `backend/app/security/body_limit.py`, matching tests | C2 (W1-SHEET); W1-SHEET, W1-REP (W2-PROF) | Upload, inspect, profile, rerun; limits enforced; `schema_changed` lists columns | `uv run pytest -q tests/unit tests/integration` |
+| **WP18** | Manager Copilot (Business OS): bounded read-only tools, fast-tier tool loop, stateless messages endpoint with daily cap (W2-COP) | `executor` | `backend/app/copilot/`, `backend/app/api/copilot.py`, matching tests | W1-REP; W2-PROF (soft) | Copilot answers through tools with `FakeLLM`; tool bounds enforced | `uv run pytest -q tests/unit tests/integration` |
+| **WP19** | Telegram groups and documents (Business OS): `my_chat_member`, `bot_chats`, group callback rules and toasts, publish to group, document ingestion, staff deep link (W2-TG) | `security-executor` | `backend/app/integrations/telegram/{adapter,client}.py`, `backend/app/api/{webhook,groups}.py`, `backend/app/services/dispatch.py`, matching tests | WP15, WP14 (events), WP16, WP17 | Group callbacks edit or toast correctly; documents reach the spreadsheet service for staff and managers only | `uv run pytest -q tests/unit tests/integration` |
+| **WP20** | Frontend Business Control Center (Business OS): contracts, API client and mocks, sidebar shell, landing page, Capability Center, Overview, Reports, Data Analyst, Copilot, Settings (Team, Groups, Announcements, Schedules) (C3, W1-FE-CC, W1-FE-LAND, W2-FE-AN, W2-FE-COP, W2-FE-TEAM) | `executor` | `frontend/` (hot files `lib/{types,api}.ts`, `lib/mock/api.ts`, `components/agent/labels.ts` owned by C3 and edited by one unit at a time) | WP9, WP10; backend routers for live data | Every screen works in mock mode and builds in real mode | `npm run lint && NEXT_PUBLIC_MOCK=1 npm run build` in `frontend/` |
+
+**Business OS expansion (2026-10-06):** WP12 to WP20 map the new areas to allowed paths. Wave 0 units (C0 roadmap and README pitch, C1 spec and runtime contracts, C2 persistence, schemas and dependencies, C3 frontend contracts and shell) own the shared hot files first, under the Decision Log entry for the frozen-file changes; later units only add files or edit files they alone own. Hot-file owners: `botspec/{models,validate,outline,compat,diff,text_keys}.py`, `runtime/{contracts,callbacks,ctx,runtime}.py`, `engines/__init__.py`, `testing/derive.py`: C1. `db/models.py`, migration 0005, `config.py`, `pyproject.toml`, `deploy/` compose and env, `schemas/business.py`: C2. `services/dispatch.py`: W1-ROLES then W2-TG. `api/data.py`, `api/data_actions.py`, `testing/__init__.py`: W1-ORD. `engines/booking.py`, `texts/booking.py`: W1-EVT. `main.py`: W1-NOTIF. `security/body_limit.py`: W1-SHEET. `adapter.py`, `client.py`, `webhook.py`: W2-TG. `agent/prompts/*`, `agent/checks.py`: W2-AGENT. Frontend `lib/{types,api}.ts`, `lib/mock/api.ts`, `labels.ts`, shell: C3. Board: [Expansion Execution Board](#expansion-execution-board).
 
 Two packages never edit the same file in the same batch. Shared wiring is avoided by design: `main.py` auto-includes routers, the engine registry imports by type name, and each engine has its own texts module. If an engine needs a text key that is missing from `botspec/text_keys.py`, adding it is an additive contract change made by that engine's package and noted in the Change Log.
 
@@ -1618,6 +1963,21 @@ Not part of the hackathon build.
 | 2026-10-05 | Own authentication in the backend (email and password, argon2id, server-side sessions in an HttpOnly cookie, CSRF header); Supabase removed | Owner's decision: no external auth service; everything runs on the one server | Active |
 | 2026-10-05 | Restricted-network deployment (the VPS is in Iran): Docker registry mirror on the host, optional outbound proxy (OUTBOUND_HTTP(S)_PROXY) for the backend and Caddy, optional PyPI and npm mirrors as build args, `uv` installed from PyPI (ghcr.io blocked), and the LLM reached through an Anthropic-compatible mirror via ANTHROPIC_BASE_URL. The mirror must pass the spike and one golden eval before it is relied on | The owner's VPS is in Iran; Docker Hub, ghcr.io and api.anthropic.com are unreachable directly | Active |
 | 2026-10-05 | Telegram polling mode (`TELEGRAM_MODE=polling`) as an outbound-only alternative to webhooks; same dispatch path; offset persisted per bot | Inbound connections from Telegram are blocked in Iran (dev machine and VPS); outbound works through a proxy | Active |
+| 2026-10-06 | New product direction: **BotForge, AI Business OS for Telegram**. The agent builds and maintains a modular Business OS; the web app becomes the Business Control Center; Telegram is the operational interface for customers, staff and managers. Same official problem and central workflow; zero LLM for routine operations | Owner's approved direction; maximum business features from the minimum number of reusable primitives, reusing the spec, runtime and revision architecture (Business OS) | Active |
+| 2026-10-06 | Frozen contract files are changed **additively** (`spec_version` stays 1): `botspec/{models,validate,outline,compat,diff,text_keys}.py` (capability flags `enabled`/`audience`, booking preset fields, `orders` type, per-type sites), `runtime/{contracts,callbacks}.py` (`Actor.role`, `RuntimeEvent.chat_type`, `ReasonCode.out_of_stock`, orders actions). `runtime/store.py`, `testing/scenario.py`, `agent/requirements.py` and `examples/` stay unchanged unless a unit proves otherwise (its own entry then). Existing specs and examples stay valid; every dependent package is checked | The Business OS cannot be expressed without the new fields and type; additive changes keep the golden specs and the pinned action sets valid (Business OS) | Active |
+| 2026-10-06 | **Events are a booking preset** (`BookingCapability.preset="events"`, plus `reminder_hours_before` and `category_field`), not a new capability type. RSVP "going" = `book`; category filter and subscriptions travel in existing action arguments | Reuses the capacity, waitlist and cancellation engine; `test_runtime_testing_contracts.py` pins the booking action set exactly (Business OS) | Active |
+| 2026-10-06 | Non-Telegram modules (reports, spreadsheets, team, notifications, Copilot) live in the `bot_modules` table, not in BotSpec; spec capabilities and modules together define the enabled set, derived by the registry | BotSpec is the contract for what the bot does in Telegram; web-side modules must not grow the frozen contract or be versioned as bot behavior (Business OS) | Active |
+| 2026-10-06 | **One pure-Python aggregation evaluator** (`runtime/aggregate.py`, query spec of measure, group_by, filters, top_n) over `Store` rows, capped near 20k rows, serves reports, manager panel, scheduled reports, Copilot and `AnalysisProfile`. SQL push-down is deferred and documented as the scaling boundary | One vocabulary, no second metrics language, no new infrastructure; hackathon-scale data (Business OS) | Active |
+| 2026-10-06 | **Notifications outbox plus an in-process ticker** behind `NOTIFICATIONS_TICKER=on\|off` (default off, on in compose); `FOR UPDATE SKIP LOCKED`, throttles, own error log; generators only insert deduped rows (`rem:<booking_id>:<start_iso>`, `rep:<key>:<date>`) and never mutate records. Supersedes "Scheduler / worker: none in V1" | Reminders, broadcasts and scheduled reports need delivery that survives restarts without a worker process; default off keeps tests and local runs safe from Telegram flooding (Business OS) | Active |
+| 2026-10-06 | **Raw-body spreadsheet upload** (`PUT /uploads/bots/{id}?filename=`, no multipart) with its own caps (5 MB, 50k rows, 100 columns, zip size guard) and an `/uploads/` prefix exemption in `security/body_limit.py`; auth and CSRF run before streaming; `openpyxl` read-only with a stdlib zip and xml fallback, stdlib `csv` | `python-multipart` is not in the production image; a restricted network may block `uv add openpyxl`; CSV must work on day one (Business OS) | Active |
+| 2026-10-06 | **Payments are deferred.** Orders carry `payment_status="unpaid"` and no provider code exists. When built: a `PaymentProvider` interface boundary, Zarinpal as the first adapter, and BotForge never handles card data | Owner's decision for this session; keeps scope and risk down while the order flow is proven (Business OS) | Active |
+| 2026-10-06 | **Persian only, RTL only** reaffirmed for the Business Control Center and the landing page; Telegram bot texts stay Persian | Owner's answer on 2026-10-06; K17 stands (Business OS) | Active |
+| 2026-10-06 | The old statement "Frontend effort is capped: no landing page, no theming" is superseded: a public landing page at `/`, a sidebar shell and the Control Center screens are built | The product is now the Control Center, so the pitch and navigation are part of the deliverable (Business OS) | Superseded 2026-10-06 (Business OS expansion): replaces the V1 frontend cap |
+| 2026-10-06 | Integration branch **`business-os`** off `main`; all worktrees branch from it; `main` stays the proven fallback demo (39 commits unpushed, never reset or rebased); the deploy work in Current Status stays first; no push unless asked | The base product is unproven live (Gates B, D, E open); the expansion must not endanger the fallback (Business OS) | Active |
+| 2026-10-06 | The exact-set `TEXT_KEYS` test (`tests/unit/botspec/test_validate.py`) is updated to include `orders`; the booking, info, catalog and menu action-set pins in `test_runtime_testing_contracts.py` are **not** weakened (request and orders may grow) | The pin exists to force a conscious decision; the new type is that decision (Business OS) | Active |
+| 2026-10-06 | Execution runs as **waves of parallel role agents** (`execute-plan`: wave 0 contracts, wave 1 features, wave 2 dependents, wave 3 integrate and verify), each hot file with exactly one owner at a time; every unit commits on its own worktree branch and the `integrator` merges | Parallelism without merge conflicts; the Wave 0 units pre-create the contracts and stubs (Business OS) | Active |
+| 2026-10-06 | Defaults taken without further questions: staff join through a revocable multi-use deep link (`bots.staff_link_code`); the owner is the manager (effective role = manager if `is_owner`); the first payment provider would be Zarinpal; every new module fails soft with structured errors, never a generic 500 | Keeps the build moving; each is cheap to revisit (Business OS) | Active |
+| 2026-10-06 | The Copilot and the Telegram manager panel are read-only on business records; changes go through the agent run and the revision pipeline; the manager panel uses `menu:open:_mgr` and `_rep.<metric>` (menu keys cannot start with `_`, so no contract change) | Keeps "the agent changes the bot through revisions" as the single change path (Business OS) | Active |
 
 ---
 
@@ -1638,3 +1998,4 @@ Not part of the hackathon build.
 | 2026-10-05 | Own authentication replaces Supabase Auth: `users` and `auth_sessions` tables, `/auth/*` endpoints, `bf_session` cookie with CSRF header, `backend/scripts/create_user.py`; `scripts/dev_token.py` is replaced by sessions created through the API or `create_user.py`; the frontend's Supabase client is removed. Updated K14, System Architecture, Security, Database Schema, Backend API, Frontend, Cost Strategy, Repository Structure, WP4, WP9, Demo Preparation Checklist and Current Status. |
 | 2026-10-05 | Self-hosting work merged: the Docker Compose stack (`deploy/`, with a local override), own authentication, the webhook re-registration script (`backend/scripts/reregister_webhooks.py`), the `httpx` runtime dependency fix, and `FORWARDED_ALLOW_IPS` pinned to Caddy. Follow-ups: `httpx[socks]` and `httpx2[socks]` so the backend and scripts work behind a SOCKS `ALL_PROXY`; re-registration keeps queued Telegram updates (`set_webhook(drop_pending_updates=False)`; connect still drops); restricted-network Decision Log entry; `deploy/LOCAL-REHEARSAL.md`. |
 | 2026-10-05 | Telegram polling mode (`TELEGRAM_MODE=polling`, default `webhook`): `app/integrations/telegram/poller.py` (supervisor plus one `getUpdates` long-poll task per connected bot), the webhook's post-authentication handling extracted as `process_update` and shared by both modes, `bots.tg_poll_offset` (migration 0004), connect without `setWebhook` or a public URL in polling mode, `reregister_webhooks.py` a no-op in polling mode; the local Docker override runs in polling mode and `deploy/LOCAL-REHEARSAL.md` no longer needs a tunnel. Updated Telegram Integration, Database Schema and Current Status. |
+| 2026-10-06 | **Business OS expansion.** Roadmap rewritten for the new direction (BotForge, AI Business OS for Telegram): new section group [Rebrand / Business OS Expansion](#rebrand--business-os-expansion) (product, hackathon alignment, pitch copy, capability registry and toggle flow, navigation, reporting, spreadsheets, events, commerce, payments deferred, forms, roles, Copilot, notifications, scheduled reports, groups and documents, data model, API, BotSpec changes, order, scope cuts, risks, scaling boundaries); [Expansion Execution Board](#expansion-execution-board) with all units; WP12 to WP20; fifteen Decision Log rows; pointers added to Scope, Supported and Unsupported Capabilities, Frontend, Backend API, Database Schema, Background Jobs and Repository Structure; the old frontend cap is marked superseded; README pitch updated. Wave 0 (C0 to C3) lays down the shared contracts on branch `business-os`: frozen contract files change additively (see the Decision Log), migration 0005, `schemas/business.py`, frontend types, mocks and shell. No product code beyond Wave 0 exists yet; nothing is proven live. |
