@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.integrations.telegram import poller as telegram_poller
+from app.notifications import ticker as notification_ticker
 from app.security.body_limit import BodyLimitMiddleware
 from app.security.rate_limit import AuthRateLimits
 from app.security.redact import install_log_redaction
@@ -111,6 +112,24 @@ def start_telegram_poller() -> telegram_poller.TelegramPoller | None:
     return poller
 
 
+def start_notification_ticker() -> notification_ticker.NotificationTicker | None:
+    """The notification ticker when ``NOTIFICATIONS_TICKER`` is on (None otherwise, the default).
+    A failure to start is logged; the rest of the app keeps serving."""
+    settings = get_settings()
+    if not settings.NOTIFICATIONS_TICKER:
+        return None
+    if not database_configured():
+        log.error("NOTIFICATIONS_TICKER needs DATABASE_URL; notifications are not sent")
+        return None
+    try:
+        ticker = notification_ticker.start_ticker(get_sessionmaker(), settings=settings)
+    except Exception as exc:
+        log.error("could not start the notification ticker (%s)", type(exc).__name__)
+        return None
+    log.info("notification ticker started (every %ss)", settings.NOTIFICATIONS_TICK_SECONDS)
+    return ticker
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if database_configured():
@@ -122,9 +141,13 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             log.exception("could not mark interrupted agent runs")
     poller = start_telegram_poller()
     app.state.telegram_poller = poller
+    ticker = start_notification_ticker()
+    app.state.notification_ticker = ticker
     try:
         yield
     finally:
+        if ticker is not None:
+            await ticker.stop()
         if poller is not None:
             await poller.stop()
         await dispose_engine()
