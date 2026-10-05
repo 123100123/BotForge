@@ -19,10 +19,17 @@ class Settings(BaseSettings):
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     # Owner accounts and login sessions (app/security/). The session cookie is Secure unless
-    # AUTH_COOKIE_SECURE is false, which is meant only for plain-http local development.
+    # AUTH_COOKIE_SECURE is false, which is meant only for plain-http local development. A session ends
+    # AUTH_SESSION_TTL_HOURS after it was last renewed, and AUTH_SESSION_MAX_AGE_DAYS after it was
+    # created however active it is (renewal never extends it past that).
     AUTH_COOKIE_SECURE: bool = True
     AUTH_ALLOW_SIGNUP: bool = True
     AUTH_SESSION_TTL_HOURS: int = Field(default=168, ge=1, le=24 * 366)
+    AUTH_SESSION_MAX_AGE_DAYS: int = Field(default=30, ge=1, le=366)
+
+    # FastAPI's /docs, /redoc and /openapi.json map every route and are served without a login, so they
+    # are off unless enabled. Enable them only for local development, never on a public server.
+    API_DOCS_ENABLED: bool = False
 
     ANTHROPIC_API_KEY: str | None = None
     LLM_MODEL_STRONG: str | None = None

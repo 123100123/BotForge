@@ -56,6 +56,7 @@ services:
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_ALLOW_SIGNUP: ${AUTH_ALLOW_SIGNUP:-true}
       AUTH_SESSION_TTL_HOURS: ${AUTH_SESSION_TTL_HOURS:-168}
+      AUTH_SESSION_MAX_AGE_DAYS: ${AUTH_SESSION_MAX_AGE_DAYS:-30}
       # The rate limiter keys on the client IP. Uvicorn takes it from X-Forwarded-For only for
       # connections from these addresses (read from this variable; the Dockerfile CMD passes no
       # --forwarded-allow-ips). It is Caddy's fixed address on the network below, never "*": the
@@ -70,6 +71,8 @@ services:
       LLM_MODEL_STRONG: ${LLM_MODEL_STRONG:-}
       LLM_MODEL_FAST: ${LLM_MODEL_FAST:-}
       LOG_LLM_BODIES: ${LOG_LLM_BODIES:-false}
+      # The API docs and schema are public when on: keep false on the server (local development only).
+      API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       AGENT_DAILY_RUN_CAP: ${AGENT_DAILY_RUN_CAP:-30}
       AGENT_RUNS_PER_MINUTE: ${AGENT_RUNS_PER_MINUTE:-5}
       # Optional outbound proxy (Telegram, the LLM API). The internal names always bypass it.

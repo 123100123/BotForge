@@ -41,6 +41,7 @@ from app.security.sessions import (
     clear_session_cookie,
     create_session,
     delete_session,
+    new_session_lifetime,
     purge_expired_sessions,
     set_session_cookie,
 )
@@ -108,7 +109,7 @@ async def _new_session(db: AsyncSession, request: Request, response: Response, u
     token = await create_session(db, user.id)
     out = AuthOut(user=UserOut(id=user.id, email=user.email))
     await db.commit()  # before responding: get_session's own commit runs after the response
-    set_session_cookie(response, token)
+    set_session_cookie(response, token, new_session_lifetime())  # the new session's whole life
     response.headers.update(NO_STORE)
     return out
 

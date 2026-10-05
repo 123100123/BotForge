@@ -16,7 +16,7 @@ import pytest
 import pytest_asyncio
 from argon2 import PasswordHasher
 from fastapi import FastAPI
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
 from app.api.auth import INVALID_CREDENTIALS
 from app.config import get_settings
@@ -25,11 +25,12 @@ from app.main import create_app
 from app.security import accounts, passwords
 from app.security.accounts import create_user
 from app.security.rate_limit import AUTH_ATTEMPTS_PER_ADDRESS, AUTH_WINDOW_SECONDS, LOGIN_ATTEMPTS_PER_EMAIL
-from app.security.sessions import SESSION_COOKIE, create_session, token_digest
+from app.security.sessions import SESSION_COOKIE, create_session, resolve_session, token_digest
 from tests.integration.helpers import SessionFactory, make_client, use_test_database
 
 PASSWORD = "correct horse battery"
 WEEK = 168 * 3600
+MAX_AGE = timedelta(days=30)  # AUTH_SESSION_MAX_AGE_DAYS default
 
 Configure = Callable[..., None]
 
@@ -107,6 +108,15 @@ async def sessions_of(session_factory: SessionFactory, user_id: uuid.UUID | str)
     stmt = select(AuthSession).where(AuthSession.user_id == uuid.UUID(str(user_id)))
     async with session_factory() as session:
         return list((await session.execute(stmt)).scalars())
+
+
+async def backdate(session_factory: SessionFactory, token: str, **values: datetime) -> None:
+    """Overwrite timestamps of the session of ``token`` (e.g. a row the uncapped renewal left)."""
+    async with session_factory() as session:
+        await session.execute(
+            update(AuthSession).where(AuthSession.token_hash == token_digest(token)).values(**values)
+        )
+        await session.commit()
 
 
 # --------------------------------------------------------------------------- signup, login, logout, /me
@@ -484,6 +494,117 @@ async def test_session_ttl_and_cookie_flags_follow_the_settings(
     assert abs((row.expires_at - row.created_at) - timedelta(hours=2)) < timedelta(seconds=1)
     cleared = session_cookie(await plain.post("/auth/logout"))
     assert cleared is not None and "secure" not in cleared
+
+
+async def test_a_session_at_its_maximum_age_is_rejected_even_if_recently_used(
+    browser: Callable[..., httpx.AsyncClient], session_factory: SessionFactory
+) -> None:
+    """30 days after login a session ends however active it is, even when its stored expiry still lies
+    ahead (a row the uncapped renewal wrote, or one written under a larger AUTH_SESSION_MAX_AGE_DAYS)."""
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        user = await create_user(session, new_email(), PASSWORD)
+        token = await create_session(session, user.id, now=now - MAX_AGE)
+        await session.commit()
+    await backdate(
+        session_factory, token, last_seen_at=now - timedelta(minutes=5), expires_at=now + timedelta(days=7)
+    )
+    c = browser()
+    c.cookies.set(SESSION_COOKIE, token, domain="botforge.test")
+    response = await c.get("/me")
+    assert response.status_code == 401
+    assert response.json()["error"]["code"] == "invalid_session"
+    assert session_cookie(response) is None
+    assert await sessions_of(session_factory, user.id) == []  # deleted when presented
+
+
+async def test_the_maximum_age_is_exact(session_factory: SessionFactory) -> None:
+    """One microsecond before created_at + 30 days the session works; at that instant it is gone."""
+    created = datetime(2026, 9, 1, 12, 0, tzinfo=UTC)
+    bound = created + MAX_AGE
+    async with session_factory() as session:
+        user = await create_user(session, new_email(), PASSWORD)
+        token = await create_session(session, user.id, now=created)
+        await session.commit()
+    recently = bound - timedelta(minutes=5)
+    await backdate(session_factory, token, last_seen_at=recently, expires_at=bound + timedelta(days=7))
+    async with session_factory() as session:
+        before = await resolve_session(session, token, now=bound - timedelta(microseconds=1))
+        assert before.user is not None and before.user.id == user.id
+        assert not before.wrote and before.refresh_max_age is None  # used 5 minutes ago: no renewal due
+        at = await resolve_session(session, token, now=bound)
+        assert at.user is None and at.wrote and at.refresh_max_age is None
+        await session.commit()
+    assert await sessions_of(session_factory, user.id) == []
+
+
+async def test_renewal_never_extends_a_session_past_its_maximum_age(
+    browser: Callable[..., httpx.AsyncClient], session_factory: SessionFactory
+) -> None:
+    """Twelve hours short of 30 days, renewal moves the expiry to created_at + 30 days instead of a week
+    ahead, and the re-sent cookie lasts only what is left. The row starts as the uncapped renewal left it
+    (renewed two hours ago, expiring 166 hours from now), so the cap also pulls such an expiry in."""
+    now = datetime.now(UTC)
+    left = timedelta(hours=12)
+    async with session_factory() as session:
+        user = await create_user(session, new_email(), PASSWORD)
+        token = await create_session(session, user.id, now=now - (MAX_AGE - left))
+        await session.commit()
+    await backdate(
+        session_factory, token, last_seen_at=now - timedelta(hours=2), expires_at=now + timedelta(hours=166)
+    )
+    c = browser()
+    c.cookies.set(SESSION_COOKIE, token, domain="botforge.test")
+    renewed = await c.get("/me")
+    assert renewed.status_code == 200
+    (row,) = await sessions_of(session_factory, user.id)
+    assert row.last_seen_at > now - timedelta(hours=1)  # renewed by this request
+    assert row.expires_at == row.created_at + MAX_AGE == now + left
+    cookie = session_cookie(renewed)
+    assert cookie is not None and cookie["value"] == token
+    # What was left when the server renewed it (at most the 12 hours), not the 168-hour TTL.
+    assert left.total_seconds() - 60 < int(cookie["max-age"]) <= left.total_seconds()
+
+    # Renewals that are due later keep the capped expiry and shorten the cookie accordingly.
+    await backdate(session_factory, token, last_seen_at=now - timedelta(hours=2))
+    again = await c.get("/me")
+    (row,) = await sessions_of(session_factory, user.id)
+    assert again.status_code == 200 and row.expires_at == now + left
+    again_cookie = session_cookie(again)
+    assert again_cookie is not None and int(again_cookie["max-age"]) <= left.total_seconds()
+
+
+async def test_a_new_session_and_its_cookie_end_within_the_maximum_age(
+    browser: Callable[..., httpx.AsyncClient], configure: Configure, session_factory: SessionFactory
+) -> None:
+    configure(AUTH_SESSION_MAX_AGE_DAYS="1")  # shorter than the 168-hour TTL
+    email = new_email()
+    signed_up = await signup(browser(), email)
+    logged_in = await login(browser(), email)
+    for response in (signed_up, logged_in):
+        assert response.status_code in (200, 201), response.text
+        cookie = session_cookie(response)
+        assert cookie is not None and cookie["max-age"] == str(24 * 3600)
+    rows = await sessions_of(session_factory, signed_up.json()["user"]["id"])
+    assert len(rows) == 2
+    assert all(row.expires_at - row.created_at == timedelta(days=1) for row in rows)
+
+
+async def test_login_purges_sessions_past_the_maximum_age(
+    browser: Callable[..., httpx.AsyncClient], session_factory: SessionFactory
+) -> None:
+    email = new_email()
+    now = datetime.now(UTC)
+    async with session_factory() as session:
+        user = await create_user(session, email, PASSWORD)
+        too_old = await create_session(session, user.id, now=now - MAX_AGE - timedelta(days=1))
+        live = await create_session(session, user.id, now=now - timedelta(days=1))
+        await session.commit()
+    await backdate(session_factory, too_old, expires_at=now + timedelta(days=3))
+    c = browser()
+    assert (await login(c, email)).status_code == 200
+    digests = {row.token_hash for row in await sessions_of(session_factory, user.id)}
+    assert digests == {token_digest(live), token_digest(c.cookies[SESSION_COOKIE])}
 
 
 # --------------------------------------------------------------------------- CSRF and ownership

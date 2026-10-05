@@ -9,6 +9,7 @@ from typing import Any
 
 import httpx
 import pytest
+from pydantic import ValidationError
 
 import app.api as api_package
 from app.api.deps import CurrentUser, get_current_user
@@ -63,6 +64,19 @@ def test_settings_import_cleanly_without_env() -> None:
     assert settings.DATABASE_URL is None
     assert settings.async_database_url is None
     assert settings.FRONTEND_ORIGIN
+
+
+def test_security_settings_defaults_and_bounds(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in ("API_DOCS_ENABLED", "AUTH_SESSION_MAX_AGE_DAYS"):
+        monkeypatch.delenv(name, raising=False)
+    defaults = Settings(_env_file=None)
+    assert defaults.API_DOCS_ENABLED is False  # the API docs are opt-in (local development only)
+    assert defaults.AUTH_SESSION_MAX_AGE_DAYS == 30
+    for days in (1, 366):
+        assert days == Settings(_env_file=None, AUTH_SESSION_MAX_AGE_DAYS=days).AUTH_SESSION_MAX_AGE_DAYS
+    for days in (0, -1, 367):
+        with pytest.raises(ValidationError):
+            Settings(_env_file=None, AUTH_SESSION_MAX_AGE_DAYS=days)
 
 
 def test_database_url_is_rewritten_for_asyncpg() -> None:
@@ -153,18 +167,28 @@ async def test_error_body_when_database_is_not_configured() -> None:
 # auth routes are how a session is obtained (and ended).
 PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}", "/auth/signup", "/auth/login", "/auth/logout"}
 STATE_CHANGING = {"post", "put", "patch", "delete"}
+# FastAPI's own docs pages and schema: outside the schema, public whenever served, and a map of every
+# route. They exist only with API_DOCS_ENABLED (local development).
+DOCS_ROUTES = ("/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json")
 
 
-async def test_every_api_route_requires_authentication() -> None:
+async def test_every_api_route_requires_authentication(monkeypatch: pytest.MonkeyPatch) -> None:
     """Regression guard: a route added without ``get_current_user`` (directly or through an ownership
     dependency) fails here, before any database access. Public routes belong in PUBLIC_ROUTES.
 
     Routes are enumerated from the OpenAPI schema (included routers are not flattened into
     ``app.routes`` in this FastAPI version), so ``include_in_schema=False`` routes are not covered.
+    FastAPI's docs routes are such routes: with API_DOCS_ENABLED false (the default) they must not exist.
     """
+    monkeypatch.setenv("API_DOCS_ENABLED", "false")
+    get_settings.cache_clear()
     app = create_app()
     checked = 0
     async with make_client(app) as client:
+        for path in DOCS_ROUTES:
+            response = await client.get(path)
+            assert response.status_code == 404, (path, response.status_code)
+            assert response.json()["error"]["code"] == "http_404"
         for template, operations in app.openapi()["paths"].items():
             if template in PUBLIC_ROUTES:
                 continue
@@ -175,6 +199,17 @@ async def test_every_api_route_requires_authentication() -> None:
                 assert response.json()["error"]["code"] == "auth_required"
                 checked += 1
     assert checked >= 11  # /me, the bot routes and the data routes
+
+
+async def test_api_docs_are_served_when_enabled(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The opt-in for local development works (so the 404s above come from the setting)."""
+    monkeypatch.setenv("API_DOCS_ENABLED", "true")
+    get_settings.cache_clear()
+    async with make_client(create_app()) as client:
+        for path in DOCS_ROUTES:
+            assert (await client.get(path)).status_code == 200, path
+        schema = (await client.get("/openapi.json")).json()
+    assert {"/me", "/bots", "/auth/login"} <= set(schema["paths"])
 
 
 async def test_every_state_changing_route_requires_the_csrf_header() -> None:
