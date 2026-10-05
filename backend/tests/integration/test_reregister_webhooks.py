@@ -26,7 +26,7 @@ from app.integrations.telegram.client import FakeTelegramClient, TelegramClient,
 from app.integrations.telegram.onboarding import OnboardingError, webhook_url
 from app.revisions.service import activate, create_draft
 from app.security.crypto import encrypt_token, generate_webhook_secret
-from tests.integration.helpers import BACKEND, SessionFactory
+from tests.integration.helpers import BACKEND, SessionFactory, user_id
 from tests.integration.tg_helpers import new_token
 
 NEW_BASE = "https://203-0-113-7.sslip.io"
@@ -114,10 +114,11 @@ async def seed(
     ``spec`` is given. A disconnected bot has neither."""
     tg_id, token = new_token()
     secret = generate_webhook_secret()
+    owner = await user_id(db, "rereg-owner")  # owners are real accounts now
     async with db() as session:
         bot = Bot(
             id=bot_id or uuid.uuid4(),
-            owner_id="rereg-owner",
+            owner_id=owner,
             name="ربات",
             status="draft",
             owner_actor_id=owner_actor_id,
