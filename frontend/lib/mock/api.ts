@@ -1,4 +1,5 @@
 import type { Api } from "@/lib/api";
+import { mockLogin, mockLogout, mockMe, mockSignup } from "@/lib/mock/auth";
 import * as engine from "@/lib/mock/engine";
 import * as tabs from "@/lib/mock/tabs";
 
@@ -12,7 +13,10 @@ async function call<T>(fn: () => T): Promise<T> {
 
 /** Mock implementation of the API client. Agent runs, bots and the workspace tabs are backed by fixtures. */
 export const mockApi: Api = {
-  me: () => call(() => ({ id: "mock-user", email: "demo@botforge.test" })),
+  me: () => call(() => mockMe()),
+  login: (email) => call(() => mockLogin(email)),
+  signup: (email, password) => call(() => mockSignup(email, password)),
+  logout: () => call(() => mockLogout()),
 
   listBots: () => call(() => engine.listBots()),
   createBot: (name) => call(() => engine.createBot(name)),
