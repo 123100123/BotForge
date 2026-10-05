@@ -191,7 +191,7 @@ async def test_cors_allows_only_the_frontend_origin(monkeypatch: pytest.MonkeyPa
 
 
 async def test_cors_accepts_several_comma_separated_origins(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("FRONTEND_ORIGIN", " https://app.example.com , https://preview.example.com ,, ")
+    monkeypatch.setenv("FRONTEND_ORIGIN", " https://app.example.com/ , https://preview.example.com ,, / ")
     get_settings.cache_clear()
     try:
         assert get_settings().frontend_origins == ["https://app.example.com", "https://preview.example.com"]

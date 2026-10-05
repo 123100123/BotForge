@@ -37,8 +37,9 @@ class Settings(BaseSettings):
 
     @property
     def frontend_origins(self) -> list[str]:
-        """``FRONTEND_ORIGIN`` split on commas, whitespace stripped, empty entries dropped."""
-        return [origin for part in self.FRONTEND_ORIGIN.split(",") if (origin := part.strip())]
+        """``FRONTEND_ORIGIN`` split on commas, whitespace and trailing slashes
+        stripped (browsers send ``Origin`` without one), empty entries dropped."""
+        return [origin for part in self.FRONTEND_ORIGIN.split(",") if (origin := part.strip().rstrip("/"))]
 
     @property
     def async_database_url(self) -> str | None:
