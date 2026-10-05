@@ -575,6 +575,8 @@ export interface DataCollection {
   label: string;
   label_plural: string;
   writable: boolean;
+  /** False when the capability behind the collection is switched off (records stay browsable). */
+  enabled?: boolean;
   /** resource: its fields; booking/request: the form fields */
   fields: FieldDef[];
   system_columns: SystemColumn[];

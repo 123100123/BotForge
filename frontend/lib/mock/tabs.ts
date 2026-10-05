@@ -16,6 +16,7 @@ import type {
   DataOverview,
   DataRecord,
   FieldDef,
+  OrdersCapability,
   RecordsPage,
   RequestCapability,
   RevisionDetail,
@@ -124,6 +125,34 @@ function activeSpec(botId: string): BotSpec {
   return specOf(rev);
 }
 
+/** The mock specs have no orders capability, so a demo one keeps the orders views exercised. */
+const DEMO_ORDERS_KEY = "orders";
+const DEMO_ORDERS = {
+  key: DEMO_ORDERS_KEY,
+  label: "سفارش‌ها",
+  checkout_fields: [
+    { key: "phone", label: "تلفن", type: "phone", required: true, choices: null, default: null },
+    { key: "address", label: "نشانی", type: "long_text", required: false, choices: null, default: null },
+  ] as FieldDef[],
+  statuses: [
+    { key: "placed", label: "ثبت‌شده" },
+    { key: "confirmed", label: "تأیید شده" },
+    { key: "shipped", label: "ارسال شد" },
+    { key: "cancelled", label: "لغو شده" },
+  ],
+  owner_actions: [
+    { key: "confirm", label: "تأیید سفارش", from_statuses: ["placed"], to_status: "confirmed" },
+    { key: "ship", label: "ارسال شد", from_statuses: ["confirmed"], to_status: "shipped" },
+    { key: "cancel", label: "لغو سفارش", from_statuses: ["placed", "confirmed"], to_status: "cancelled" },
+  ],
+};
+
+/** The active orders capability, or the demo definition when the spec has none. */
+function ordersDef(spec: BotSpec): Pick<OrdersCapability, "key" | "label" | "checkout_fields" | "statuses" | "owner_actions"> & { enabled: boolean } {
+  const cap = spec.capabilities.find((c): c is OrdersCapability => c.type === "orders");
+  return cap ?? { ...DEMO_ORDERS, enabled: true };
+}
+
 function collectionsOf(spec: BotSpec): DataCollection[] {
   const out: DataCollection[] = spec.resources.map((r) => ({
     key: r.key,
@@ -144,6 +173,7 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
         label: cap.title,
         label_plural: cap.title,
         writable: false,
+        enabled: cap.enabled,
         fields: cap.form_fields,
         system_columns: SYSTEM_COLUMNS,
         resource: cap.resource,
@@ -163,6 +193,7 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
         label: cap.title,
         label_plural: cap.title,
         writable: false,
+        enabled: cap.enabled,
         fields: cap.form_fields,
         system_columns: SYSTEM_COLUMNS.filter((c) => cap.item_resource !== null || c.key !== "item_id"),
         resource: cap.item_resource,
@@ -172,6 +203,20 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
       });
     }
   }
+  const orders = ordersDef(spec);
+  out.push({
+    key: orders.key,
+    kind: "orders",
+    label: orders.label,
+    label_plural: orders.label,
+    writable: false,
+    enabled: orders.enabled,
+    fields: orders.checkout_fields,
+    system_columns: SYSTEM_COLUMNS.filter((c) => c.key !== "item_id"),
+    timezone: spec.bot.timezone,
+    statuses: orders.statuses,
+    actions: orders.owner_actions.map((a) => ({ key: a.key, label: a.label, from_statuses: a.from_statuses })),
+  });
   return out;
 }
 
@@ -182,6 +227,56 @@ export function getDataOverview(botId: string): DataOverview {
 function recordsOf(botId: string): DataRecord[] {
   const d = getDb();
   return (d.records[botId] ??= []);
+}
+
+/** Two sample orders for the demo orders collection, added once per bot (the fixtures have none). */
+function seedDemoOrders(botId: string): void {
+  const d = getDb();
+  const records = recordsOf(botId);
+  if (records.some((r) => r.collection === DEMO_ORDERS_KEY)) return;
+  const ago = (ms: number) => new Date(Date.now() - ms).toISOString();
+  const samples: { actor: string; status: string; at: string; data: Record<string, unknown> }[] = [
+    {
+      actor: "5012345701",
+      status: "placed",
+      at: ago(40 * 60_000),
+      data: {
+        items: [
+          { item_id: 1, title: "فیلتر روغن", qty: 2, unit_price: 250_000 },
+          { item_id: 2, title: "لنت ترمز", qty: 1, unit_price: 600_000 },
+        ],
+        total: 1_100_000,
+        payment_status: "unpaid",
+        phone: "09121234567",
+        address: "تهران، خیابان ولیعصر، پلاک ۱۲",
+      },
+    },
+    {
+      actor: "6001001",
+      status: "confirmed",
+      at: ago(26 * 3_600_000),
+      data: {
+        items: [{ item_id: 3, title: "شمع موتور", qty: 4, unit_price: 162_500 }],
+        total: 650_000,
+        payment_status: "paid",
+        phone: "09351112233",
+        address: "",
+      },
+    },
+  ];
+  for (const sample of samples) {
+    d.recordSeq += 1;
+    records.push({
+      id: d.recordSeq,
+      collection: DEMO_ORDERS_KEY,
+      data: sample.data,
+      status: sample.status,
+      actor_id: sample.actor,
+      item_id: null,
+      created_at: sample.at,
+      updated_at: sample.at,
+    });
+  }
 }
 
 function findCollection(botId: string, key: string): DataCollection {
@@ -220,8 +315,9 @@ function decorate(botId: string, spec: BotSpec, record: DataRecord): DataRecord 
 }
 
 export function listRecords(botId: string, collection: string, page?: { limit?: number; offset?: number }): RecordsPage {
-  findCollection(botId, collection);
+  const col = findCollection(botId, collection);
   const spec = activeSpec(botId);
+  if (col.kind === "orders" && !spec.capabilities.some((c) => c.type === "orders")) seedDemoOrders(botId);
   const limit = page?.limit ?? 50;
   const offset = page?.offset ?? 0;
   const all = recordsOf(botId)
@@ -406,6 +502,23 @@ export function runRecordAction(botId: string, collection: string, recordId: num
       ok: true,
       outcome: { capability: cap.key, action: "owner_action", result: "ok", reason: null, record_id: recordId },
       message: `وضعیت درخواست به «${label}» تغییر کرد و به مشتری در تلگرام اطلاع داده شد.`,
+    };
+  }
+  if (col.kind === "orders") {
+    const def = ordersDef(spec);
+    const act = def.owner_actions.find((a) => a.key === action);
+    if (!act) throw new ApiError("action_not_found", "این اقدام پیدا نشد.", 404);
+    if (!record.status || !act.from_statuses.includes(record.status)) {
+      return rejected(def.key, "owner_action", "not_allowed", "این اقدام برای وضعیت فعلی سفارش ممکن نیست.");
+    }
+    record.status = act.to_status;
+    record.updated_at = new Date().toISOString();
+    persist();
+    const label = def.statuses.find((s) => s.key === act.to_status)?.label ?? act.to_status;
+    return {
+      ok: true,
+      outcome: { capability: def.key, action: "owner_action", result: "ok", reason: null, record_id: recordId },
+      message: `وضعیت سفارش به «${label}» تغییر کرد و به مشتری در تلگرام اطلاع داده شد.`,
     };
   }
   throw new ApiError(ERROR_CODES.readOnlyCollection, "این مجموعه اقدامی ندارد.", 405);

@@ -65,7 +65,7 @@ export default function BotsPage() {
             <BotIcon className="size-10 text-muted-foreground" />
             <h2 className="text-base font-semibold">هنوز رباتی نساخته‌اید</h2>
             <p className="max-w-sm text-sm leading-7 text-muted-foreground">
-              یک ربات بسازید و کسب‌وکارتان را برای ایجنت توضیح دهید؛ بقیه را او انجام می‌دهد.
+              کسب‌وکارتان را توضیح دهید؛ دستیار، سیستم‌عامل تلگرامی آن را می‌سازد و نگهداری می‌کند.
             </p>
             <NewBotDialog>
               <Button>
