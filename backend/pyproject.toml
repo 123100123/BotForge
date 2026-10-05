@@ -15,7 +15,11 @@ dependencies = [
     "cryptography>=44.0.1",
     "anthropic>=1.11.0",
     "argon2-cffi>=23.1.0",
-    "httpx",  # app/integrations/telegram/client.py; anthropic no longer pulls it in (it uses httpx2)
+    # app/integrations/telegram/client.py. The [socks] extras are needed when ALL_PROXY=socks5h://...
+    # is set; without socksio the client cannot even be built.
+    "httpx[socks]",
+    # anthropic uses httpx2, which has its own socks extra (anthropic itself offers none).
+    "httpx2[socks]",
 ]
 
 [dependency-groups]
