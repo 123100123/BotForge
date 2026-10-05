@@ -1,8 +1,10 @@
-"""Owner actions on booking and request records from the web admin.
+"""Owner actions on booking, request and orders records from the web admin.
 
 ``POST /bots/{bot_id}/data/{collection}/{record_id}/actions/{action}`` builds an ``admin`` runtime
 event (live, actor = the owner) and runs it through ``dispatch``: the same path as a Telegram owner
-button, so a cancel that promotes a waitlisted customer notifies that customer in Telegram.
+button, so a cancel that promotes a waitlisted customer notifies that customer in Telegram, and an
+order status change notifies the customer. Request and orders actions are the capability's
+``owner_actions`` keys (callback ``own:<record_id>.<key>``); booking has only ``cancel``.
 """
 
 from datetime import UTC, datetime
@@ -13,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.data import RecordId
 from app.api.deps import get_owned_bot
-from app.botspec.models import BookingCapability, BotSpec, RequestCapability
+from app.botspec.models import BookingCapability, BotSpec, OrdersCapability, RequestCapability
 from app.db.models import Bot
 from app.db.session import get_session
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
@@ -46,9 +48,10 @@ def callback_for(spec: BotSpec, collection: str, record_id: int, action: str) ->
         if action != ACT_CANCEL:
             raise _err(400, "invalid_action", "برای رزرو فقط عمل «لغو» وجود دارد.")
         return make_callback(cap.key, ACT_CANCEL, str(record_id))
-    if isinstance(cap, RequestCapability):
+    if isinstance(cap, RequestCapability | OrdersCapability):
         if action not in {a.key for a in cap.owner_actions}:
-            raise _err(400, "invalid_action", "این عمل برای این درخواست تعریف نشده است.")
+            noun = "درخواست" if isinstance(cap, RequestCapability) else "سفارش"
+            raise _err(400, "invalid_action", f"این عمل برای این {noun} تعریف نشده است.")
         return make_callback(cap.key, ACT_OWN, f"{record_id}.{action}")
     raise _err(404, "collection_not_found", "برای این مجموعه عملی تعریف نشده است.")
 

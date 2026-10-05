@@ -1,8 +1,17 @@
 """Data admin: collections of the ACTIVE revision, live records, resource-record CRUD.
 
-Resource collections (owner-managed items) are writable here. Booking and request collections are
-read-only in this module; their action endpoint belongs to a later work package. All record access
-goes through ``PgStore`` bound to ``env="live"``.
+Resource collections (owner-managed items) are writable here. Booking, request and orders
+collections are read-only in this module; their owner actions run through ``data_actions``. All
+record access goes through ``PgStore`` bound to ``env="live"``.
+
+Orders (kind ``orders``): the order collection ``<key>`` is listed with the synthetic columns
+``items_summary`` (computed per row, never stored), ``total`` and ``payment_status`` followed by the
+checkout fields. The helper collections ``<key>.cart`` and ``<key>.lines`` are not listed and stay
+404 like every other unknown collection. Every capability collection carries ``enabled`` from the
+capability (resources: always True).
+
+Resource updates and deletes take the bot's advisory lock, the same lock ``dispatch``
+holds while an event runs, so a stock edit from the web can never interleave with a checkout.
 """
 
 from datetime import UTC, datetime
@@ -15,7 +24,15 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_bot
-from app.botspec.models import BookingCapability, BotSpec, FieldDef, RequestCapability, Resource
+from app.botspec.models import (
+    BookingCapability,
+    BotSpec,
+    FieldDef,
+    FieldType,
+    OrdersCapability,
+    RequestCapability,
+    Resource,
+)
 from app.botspec.records import validate_record_detailed
 from app.db.models import Bot, BotUser, Revision
 from app.db.session import get_session
@@ -37,6 +54,15 @@ BOOKING_STATUSES = [
     ("cancelled", "لغو شده"),
 ]
 BOOKING_CANCEL_LABEL = "لغو ثبت‌نام"
+
+# Synthetic order columns (data keys of every order record, plus the computed items summary).
+ITEMS_SUMMARY = "items_summary"
+ORDER_COLUMNS = [
+    FieldDef(key=ITEMS_SUMMARY, label="اقلام", type=FieldType.long_text, required=False),
+    FieldDef(key="total", label="جمع کل (تومان)", type=FieldType.integer, required=False),
+    FieldDef(key="payment_status", label="وضعیت پرداخت", type=FieldType.text, required=False),
+]
+ORDER_SYSTEM_KEYS = {"items", *(f.key for f in ORDER_COLUMNS)}
 
 SYSTEM_COLUMNS = {
     "actor_id": "کاربر",
@@ -71,17 +97,18 @@ class ActionDefOut(BaseModel):
 
 class CollectionOut(BaseModel):
     key: str
-    kind: str  # resource | booking | request
+    kind: str  # resource | booking | request | orders
     label: str
     label_plural: str
     writable: bool
-    fields: list[FieldDef]  # resource: its fields; booking/request: the form fields
+    fields: list[FieldDef]  # resource: its fields; booking/request: form fields; orders: see module doc
     system_columns: list[SystemColumn]
     title_field: str | None = None  # resource only
     resource: str | None = None  # booking: bookable resource; request: item_resource
     timezone: str = "Asia/Tehran"
-    statuses: list[StatusOut] = []  # booking / request only
-    actions: list[ActionDefOut] = []  # owner actions; booking / request only
+    statuses: list[StatusOut] = []  # booking / request / orders only
+    actions: list[ActionDefOut] = []  # owner actions; booking / request / orders only
+    enabled: bool = True  # the capability's flag; always True for resources
 
 
 class DataOut(BaseModel):
@@ -97,7 +124,7 @@ class RecordOut(BaseModel):
     item_id: int | None
     created_at: datetime
     updated_at: datetime
-    actor_name: str | None = None  # booking / request: the customer's display name
+    actor_name: str | None = None  # booking / request / orders: the customer's display name
     item_title: str | None = None  # booking / request with an item: the item's title-field value
 
 
@@ -162,6 +189,7 @@ def _collections(spec: BotSpec) -> list[CollectionOut]:
                     system_columns=_system_columns(True),
                     resource=cap.resource,
                     timezone=spec.bot.timezone,
+                    enabled=cap.enabled,
                     statuses=[StatusOut(key=k, label=label) for k, label in BOOKING_STATUSES],
                     actions=[
                         ActionDefOut(
@@ -182,14 +210,49 @@ def _collections(spec: BotSpec) -> list[CollectionOut]:
                     system_columns=_system_columns(cap.item_resource is not None),
                     resource=cap.item_resource,
                     timezone=spec.bot.timezone,
+                    enabled=cap.enabled,
                     statuses=[StatusOut(key=st.key, label=st.label) for st in cap.statuses],
-                    actions=[
-                        ActionDefOut(key=a.key, label=a.label, from_statuses=list(a.from_statuses))
-                        for a in cap.owner_actions
+                    actions=_owner_actions(cap),
+                )
+            )
+        elif isinstance(cap, OrdersCapability):
+            out.append(
+                CollectionOut(
+                    key=cap.key,
+                    kind="orders",
+                    label=cap.title,
+                    label_plural=cap.title,
+                    writable=False,
+                    # A checkout field named like a system key is shadowed by it in the stored data.
+                    fields=[
+                        *ORDER_COLUMNS,
+                        *(f for f in cap.checkout_fields if f.key not in ORDER_SYSTEM_KEYS),
                     ],
+                    system_columns=_system_columns(False),
+                    resource=cap.resource,
+                    timezone=spec.bot.timezone,
+                    enabled=cap.enabled,
+                    statuses=[StatusOut(key=st.key, label=st.label) for st in cap.statuses],
+                    actions=_owner_actions(cap),
                 )
             )
     return out
+
+
+def _owner_actions(cap: RequestCapability | OrdersCapability) -> list[ActionDefOut]:
+    return [
+        ActionDefOut(key=a.key, label=a.label, from_statuses=list(a.from_statuses)) for a in cap.owner_actions
+    ]
+
+
+def _items_summary(record: Record) -> str:
+    """``"قهوه × 2، کیک × 1"`` from an order's item snapshots (empty when there are none)."""
+    items = record.data.get("items")
+    parts = []
+    for entry in items if isinstance(items, list) else []:
+        if isinstance(entry, dict):
+            parts.append(f"{entry.get('title') or entry.get('item_id') or '؟'} × {entry.get('qty', '؟')}")
+    return "، ".join(parts)
 
 
 def _find(spec: BotSpec, collection: str) -> CollectionOut:
@@ -224,13 +287,17 @@ def _invalid(errors: list[tuple[str | None, str]]) -> JSONResponse:
 async def _enrich(
     session: AsyncSession, bot: Bot, spec: BotSpec, collection: str, records: list[Record]
 ) -> list[RecordOut]:
-    """Records as API rows. Booking / request rows get ``actor_name`` and ``item_title``, resolved
-    with one query each for the whole page (display names from ``bot_users``; item titles from one
-    list of the item resource), so there is no per-row lookup."""
+    """Records as API rows. Booking / request / orders rows get ``actor_name`` and booking / request
+    rows ``item_title``, resolved with one query each for the whole page (display names from
+    ``bot_users``; item titles from one list of the item resource), so there is no per-row lookup.
+    Order rows also get the computed ``items_summary`` in their (response-only) ``data``."""
     out = [_record_out(r) for r in records]
     cap = spec.capability(collection)
-    if not records or not isinstance(cap, BookingCapability | RequestCapability):
+    if not records or not isinstance(cap, BookingCapability | RequestCapability | OrdersCapability):
         return out
+    if isinstance(cap, OrdersCapability):
+        for row, record in zip(out, records, strict=True):
+            row.data = {**row.data, ITEMS_SUMMARY: _items_summary(record)}
     actor_ids = {r.actor_id for r in records if r.actor_id}
     names: dict[str, str] = {}
     if actor_ids:
@@ -241,7 +308,12 @@ async def _enrich(
         )
         names = {actor_id: name for actor_id, name in rows.all()}
     titles: dict[int, str | None] = {}
-    resource_key = cap.resource if isinstance(cap, BookingCapability) else cap.item_resource
+    if isinstance(cap, BookingCapability):
+        resource_key: str | None = cap.resource
+    elif isinstance(cap, RequestCapability):
+        resource_key = cap.item_resource
+    else:
+        resource_key = None  # order records carry no item_id; their items are summarised instead
     resource = spec.resource(resource_key) if resource_key else None
     if resource is not None and any(r.item_id is not None for r in records):
         items = await PgStore(session, bot.id, "live", bot.owner_actor_id).list_records(resource.key)
@@ -309,6 +381,8 @@ async def update_record(
     session: AsyncSession = Depends(get_session),
 ) -> RecordOut | JSONResponse:
     resource = _resource(await _active_spec(session, bot), collection)
+    # Same lock as dispatch: a stock edit cannot interleave with a checkout's read-modify-write.
+    await advisory_lock(session, bot.id)
     store = PgStore(session, bot.id, "live", bot.owner_actor_id)
     existing = await store.get_record(collection, record_id)
     if existing is None:
