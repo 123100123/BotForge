@@ -3,6 +3,8 @@
 ``connect`` verifies the token with ``getMe``, refuses a Telegram bot that another BotForge bot
 already uses, stores the token Fernet-encrypted, generates the per-bot webhook secret and registers
 ``{PUBLIC_BASE_URL}/tg/{bot_id}``. Nothing here returns or logs the token or the secret.
+``scripts/reregister_webhooks.py`` moves registered webhooks to a new ``PUBLIC_BASE_URL`` with the
+same ``webhook_url`` and ``status_after_connect``, keeping each bot's secret and owner link.
 
 Owner link. The owner's Telegram account is linked by opening ``t.me/<bot>?start=owner_<code>``
 (handled by the webhook). A code links an owner only while none is linked: it establishes the owner
@@ -18,6 +20,7 @@ failure the session is rolled back, so a failed ``setWebhook`` leaves the bot ex
 import logging
 import re
 import secrets
+import uuid
 from dataclasses import dataclass
 
 from sqlalchemy import select
@@ -104,18 +107,32 @@ def _reset_owner_link(bot: Bot, code: str | None) -> None:
     flag_modified(bot, "owner_link_code")
 
 
-def _status_after_connect(bot: Bot) -> str:
+def status_after_connect(bot: Bot) -> str:
+    """The status of a bot whose webhook was just registered: a paused bot stays paused, otherwise
+    it is live with an active revision and draft without one. ``scripts/reregister_webhooks.py``
+    applies the same rule when it moves a webhook to a new host."""
     if bot.status == "paused":
         return "paused"
     return "live" if bot.active_revision_id is not None else "draft"
 
 
-def _webhook_url(public_base_url: str, bot: Bot) -> str:
+def webhook_base_url(public_base_url: str) -> str:
+    """``PUBLIC_BASE_URL`` without surrounding whitespace and trailing slashes.
+
+    ``OnboardingError`` (503, ``public_url_missing``) unless it is an https URL whose host is not
+    localhost: Telegram delivers updates only to a public https address.
+    """
     base = (public_base_url or "").strip().rstrip("/")
     host = base.removeprefix("https://").split("/", 1)[0].split(":", 1)[0].lower()
     if not base.startswith("https://") or host in ("", "localhost", "127.0.0.1", "0.0.0.0"):
         raise OnboardingError(503, "public_url_missing", texts.PUBLIC_URL_MISSING)
-    return f"{base}/tg/{bot.id}"
+    return base
+
+
+def webhook_url(public_base_url: str, bot_id: uuid.UUID | str) -> str:
+    """``{PUBLIC_BASE_URL}/tg/{bot_id}``: where Telegram posts the bot's updates (``app.api.webhook``).
+    Checked like ``webhook_base_url``."""
+    return f"{webhook_base_url(public_base_url)}/tg/{bot_id}"
 
 
 def _telegram_failure(exc: TelegramError, *, invalid_token_possible: bool = False) -> OnboardingError:
@@ -132,7 +149,7 @@ async def connect(
     token = token.strip()
     if not TOKEN_FORMAT.fullmatch(token):
         raise OnboardingError(400, "invalid_token", texts.INVALID_TOKEN)
-    url = _webhook_url(public_base_url, bot)
+    url = webhook_url(public_base_url, bot.id)
     client = provider(token)
     try:
         me = await client.get_me()
@@ -160,7 +177,7 @@ async def connect(
     bot.tg_username = username
     bot.tg_webhook_secret = generate_webhook_secret()
     bot.tg_last_error = None
-    bot.status = _status_after_connect(bot)
+    bot.status = status_after_connect(bot)
     # Every connect starts a new owner link: the owner is unlinked and a fresh single-use code is
     # armed (the Settings page shows it). This is how the owner links again, or links another
     # Telegram account, and it revokes a code that leaked before it was used.
