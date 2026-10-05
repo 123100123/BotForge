@@ -25,7 +25,7 @@ export function initialMockBots(): Bot[] {
       active_revision_id: "rev_sepehr_3",
       active_revision_number: 3,
       tg_username: "sepehr_workshops_bot",
-      owner_link_code: "sepehr-demo-code",
+      owner_link_code: null, // used when the owner linked; the backend keeps no code armed after a link
       owner_linked: true,
       created_at: iso(5 * DAY),
     },

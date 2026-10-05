@@ -95,7 +95,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
               open={confirmOpen}
               onOpenChange={setConfirmOpen}
               title="قطع اتصال از تلگرام"
-              description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد. داده‌ها و نسخه‌های ربات حفظ می‌شود و می‌توانید دوباره وصل کنید."
+              description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد و حساب تلگرام مدیر هم از ربات جدا می‌شود. داده‌ها و نسخه‌های ربات حفظ می‌شود. پس از اتصال دوباره، پیوند تازهٔ دریافت اعلان‌ها را در تلگرام باز کنید."
               confirmLabel="قطع اتصال"
               destructive
               onConfirm={async () => onChanged(await api.disconnectTelegram(botId))}

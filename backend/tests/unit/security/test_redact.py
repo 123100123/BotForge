@@ -3,6 +3,7 @@
 import io
 import logging
 import sys
+import time
 from collections.abc import Iterator
 
 import pytest
@@ -13,6 +14,7 @@ from app.security.redact import REDACTED, RedactingFilter, install_log_redaction
 from tests.unit.security.tokens import mint, new_secret
 
 TG_TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
+TG_SECRET = "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"  # 35 characters, like a real token's secret part
 JWT = mint(new_secret(), "HS256")
 
 
@@ -60,6 +62,71 @@ def test_jwts() -> None:
 )
 def test_ordinary_text_is_untouched(text: str) -> None:
     assert redact(text) == text
+
+
+@pytest.mark.parametrize(
+    "token",
+    [
+        f"123456789 : {TG_SECRET}",
+        f"123456789: {TG_SECRET}",
+        f"123456789 :{TG_SECRET}",
+        f"123456789   :   {TG_SECRET}",
+        f"123456789\t:\t{TG_SECRET}",
+        f"123456789\u00a0:\u00a0{TG_SECRET}",  # no-break spaces
+        f"123456789\u200f:\u200e{TG_SECRET}",  # RLM / LRM, as typed into Persian text
+        f"123456789\u2067 : \u2069{TG_SECRET}",  # bidi isolates
+        f"۱۲۳۴۵۶۷۸۹ : {TG_SECRET}",  # Persian digits in the bot id
+    ],
+)
+def test_telegram_tokens_with_whitespace_around_the_colon(token: str) -> None:
+    assert redact(token) == REDACTED
+    assert redact(f"توکن ربات من {token} است.") == f"توکن ربات من {REDACTED} است."
+    assert redact(f"my token is {token}, thanks") == f"my token is {REDACTED}, thanks"
+
+
+@pytest.mark.parametrize(
+    "text",
+    [
+        "ساعت 10 : 30 شروع می‌شود",
+        "کلاس از ساعت ۱۰ : ۳۰ تا ۱۲:۰۰ است",
+        "The workshop starts at 10 : 30 and ends at 12:00.",
+        "12 : 30 : 45",
+        "شماره تماس: 09121234567",
+        "09121234567 : با این شماره تماس بگیرید",
+        "+98 912 123 4567 : call me after 18:00",
+        "Call 09121234567 : ask for Sara",
+        "کد سفارش 1234567 : ABC-123",
+        "order 20261005 : shipped to Tehran",
+        "1234567 : " + "مدیر " * 10,
+    ],
+)
+def test_numbers_and_spaced_colons_in_ordinary_text_are_untouched(text: str) -> None:
+    assert redact(text) == text
+
+
+def test_spaced_tokens_in_a_log_message_or_argument() -> None:
+    spaced = f"123456789 : {TG_SECRET}"
+    rec = filtered(record("owner wrote: %s", f"توکن {spaced}"))
+    assert rec.getMessage() == f"owner wrote: توکن {REDACTED}"
+    assert filtered(record(f"token {spaced} rejected")).getMessage() == f"token {REDACTED} rejected"
+
+
+def test_a_spaced_token_split_across_access_line_arguments_keeps_the_line() -> None:
+    # A crafted request (method "1234567", target ":AAAA…") formats like a spaced token. Only
+    # whitespace-free patterns may collapse a record's arguments; uvicorn unpacks all five.
+    formatter = AccessFormatter('%(client_addr)s - "%(request_line)s" %(status_code)s', use_colors=False)
+    target = ":" + "A" * 35
+    rec = filtered(record('%s - "%s %s HTTP/%s" %d', "127.0.0.1:5000", "1234567", target, "1.1", 400))
+    assert isinstance(rec.args, tuple) and len(rec.args) == 5
+    assert formatter.format(rec) == f'127.0.0.1:5000 - "1234567 {target} HTTP/1.1" 400 Bad Request'
+
+
+def test_long_digit_runs_are_scanned_in_linear_time() -> None:
+    # The unanchored token pattern retried every suffix of a digit run: 32k digits took seconds.
+    started = time.perf_counter()
+    for text in ("7" * 200_000, ("1234567" + " " * 40) * 4_000):
+        assert redact(text) == text
+    assert time.perf_counter() - started < 2.0
 
 
 def test_string_args_are_redacted_and_the_args_shape_is_kept() -> None:

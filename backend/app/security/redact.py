@@ -23,7 +23,20 @@ _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE)
 # JWS compact serialization: a base64url header starting with '{"' ("eyJ"), payload, signature.
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
 # Telegram bot token "<bot id>:<secret>", also inside /bot<token>/ URLs and with the colon encoded.
-_TELEGRAM_TOKEN = re.compile(r"\d{6,}(?::|%3[Aa])[A-Za-z0-9_-]{30,}")
+# The match starts where the digit run starts and the quantifiers are possessive, so a long run of
+# digits costs linear time (the unanchored form was quadratic: 32k digits took seconds).
+_BOT_ID = r"(?<!\d)\d{6,}+"
+_COLON = r"(?::|%3[Aa])"
+_SECRET = r"[A-Za-z0-9_-]{30,}"
+# What may sit around the colon when a token is typed or pasted into a sentence ("123456789 : AAH…"):
+# horizontal spaces and invisible marks (zero-width characters and the bidi controls common in
+# Persian text). Never a line break, so two lines are never joined into a token.
+_GAP = r"[ \t\u00a0\u1680\u2000-\u200f\u202a-\u202f\u205f\u2060\u2066-\u2069\u3000\ufeff\u061c]*+"
+_TELEGRAM_TOKEN = re.compile(_BOT_ID + _GAP + _COLON + _GAP + _SECRET)
+# The same without gaps, for a formatted log message (see RedactingFilter): there a gap could join
+# two arguments into a "token", e.g. a crafted request whose uvicorn access line reads
+# '"1234567 :AAAA… HTTP/1.1"', and collapsing those arguments breaks uvicorn's access formatter.
+_TELEGRAM_TOKEN_COMPACT = re.compile(_BOT_ID + _COLON + _SECRET)
 
 _formatter = logging.Formatter()
 
@@ -90,11 +103,12 @@ class RedactingFilter(logging.Filter):
             record.args = _stringified_args(record.args)
         else:
             # A JWT or bot token assembled from several pieces only shows in the formatted message;
-            # then the record is collapsed to that message. Only these whitespace-free patterns are
-            # checked here: the Bearer pattern spans whitespace and would match across arguments
-            # (uvicorn's access line '"BEARER /x HTTP/1.1"'), and collapsing those arguments breaks
-            # uvicorn's access formatter, so it is applied to each piece above instead.
-            if _JWT.search(message) or _TELEGRAM_TOKEN.search(message):
+            # then the record is collapsed to that message. Only whitespace-free patterns are
+            # checked here: the Bearer pattern and the spaced form of a bot token ("123456789 : AAH…")
+            # span whitespace and would match across arguments (uvicorn's access line
+            # '"BEARER /x HTTP/1.1"'), and collapsing those arguments breaks uvicorn's access
+            # formatter, so they are applied to each piece above instead.
+            if _JWT.search(message) or _TELEGRAM_TOKEN_COMPACT.search(message):
                 record.msg, record.args = redact(message), ()
         if record.exc_info and not record.exc_text:
             try:

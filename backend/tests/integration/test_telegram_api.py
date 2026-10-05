@@ -220,11 +220,18 @@ async def test_disconnect_clears_everything_and_deletes_the_webhook(
 ) -> None:
     bot_id, _ = await make_bot("alice")
     assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+    async with session_factory() as session:  # the owner has linked their Telegram account
+        linked = await session.get(Bot, bot_id)
+        assert linked is not None
+        linked.owner_actor_id = "900"
+        await session.commit()
     response = await tg_client.delete(f"/bots/{bot_id}/telegram", headers=ALICE)
     assert response.status_code == 200 and response.json()["connected"] is False
     assert response.json()["username"] is None and response.json()["bot_link"] is None
+    assert response.json()["owner_linked"] is False and response.json()["owner_link"] is None
     row = await stored(session_factory, bot_id)
     assert (row.tg_token_enc, row.tg_webhook_secret, row.tg_username, row.tg_bot_id) == (None,) * 4
+    assert (row.owner_actor_id, row.owner_link_code) == (None, None)  # unlinked, code revoked
     assert row.status == "draft"
     assert len(fake_tg.calls_to("deleteWebhook")) == 1
 

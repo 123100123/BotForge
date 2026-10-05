@@ -4,6 +4,13 @@
 already uses, stores the token Fernet-encrypted, generates the per-bot webhook secret and registers
 ``{PUBLIC_BASE_URL}/tg/{bot_id}``. Nothing here returns or logs the token or the secret.
 
+Owner link. The owner's Telegram account is linked by opening ``t.me/<bot>?start=owner_<code>``
+(handled by the webhook). A code links an owner only while none is linked: it establishes the owner
+and never replaces one (``armed_owner_code``). Every successful ``connect`` unlinks the owner and
+arms a fresh single-use code; ``disconnect`` unlinks the owner and revokes the code. Changing the
+linked Telegram account is therefore always "disconnect, reconnect, open the new link", and a code
+that leaked earlier is dead after either action.
+
 The caller's session is the unit of work: ``connect`` and ``disconnect`` commit on success. On any
 failure the session is rolled back, so a failed ``setWebhook`` leaves the bot exactly as it was.
 """
@@ -16,6 +23,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.attributes import flag_modified
 
 from app.db.models import Bot
 from app.integrations.telegram import texts
@@ -55,21 +63,45 @@ class TelegramStatus:
     last_error: str | None
 
 
+def armed_owner_code(bot: Bot) -> str | None:
+    """The owner-link code that links an owner right now, or ``None``.
+
+    Only while no owner is linked: a code establishes the owner, it never replaces one. The webhook
+    accepts exactly this code and ``status_of`` shows exactly this code, so the Settings page never
+    hides a usable link and never shows a dead one.
+    """
+    if bot.owner_actor_id is not None or not bot.owner_link_code:
+        return None
+    return bot.owner_link_code
+
+
 def status_of(bot: Bot) -> TelegramStatus:
     connected = bot.tg_token_enc is not None
     username = bot.tg_username if connected else None
+    code = armed_owner_code(bot)
     return TelegramStatus(
         connected=connected,
         username=username,
         bot_link=f"https://t.me/{username}" if username else None,
         owner_linked=bot.owner_actor_id is not None,
-        owner_link=(
-            f"https://t.me/{username}?start=owner_{bot.owner_link_code}"
-            if username and bot.owner_link_code
-            else None
-        ),
+        owner_link=f"https://t.me/{username}?start=owner_{code}" if username and code else None,
         last_error=bot.tg_last_error,
     )
+
+
+def _reset_owner_link(bot: Bot, code: str | None) -> None:
+    """Unlink the owner and arm ``code`` (``None``: arm nothing).
+
+    Both columns are written even when they look unchanged. ``bot`` was read at the start of the
+    request, and the webhook may have linked an owner since; without ``flag_modified`` the ORM would
+    leave out a column whose value it believes unchanged, and that owner would stay linked. With
+    the webhook's compare-and-set this makes connect and disconnect win over a link they race with,
+    without holding the bot's lock across the Telegram calls.
+    """
+    bot.owner_actor_id = None
+    bot.owner_link_code = code
+    flag_modified(bot, "owner_actor_id")
+    flag_modified(bot, "owner_link_code")
 
 
 def _status_after_connect(bot: Bot) -> str:
@@ -129,9 +161,10 @@ async def connect(
     bot.tg_webhook_secret = generate_webhook_secret()
     bot.tg_last_error = None
     bot.status = _status_after_connect(bot)
-    # A fresh single-use owner link on every connect: this is how the owner gets a new one after a
-    # link was consumed, and reconnecting revokes a link that leaked before it was used.
-    bot.owner_link_code = secrets.token_urlsafe(12)
+    # Every connect starts a new owner link: the owner is unlinked and a fresh single-use code is
+    # armed (the Settings page shows it). This is how the owner links again, or links another
+    # Telegram account, and it revokes a code that leaked before it was used.
+    _reset_owner_link(bot, secrets.token_urlsafe(12))
     try:
         await session.flush()
     except IntegrityError:  # lost a race for the same Telegram bot id
@@ -150,6 +183,7 @@ async def connect(
 
 
 async def disconnect(session: AsyncSession, bot: Bot, provider: TelegramProvider) -> None:
+    """Forget the token and the webhook, unlink the owner and revoke any owner-link code."""
     if bot.tg_token_enc:
         await drop_webhook(bot.tg_token_enc, provider)
     bot.tg_token_enc = None
@@ -159,6 +193,7 @@ async def disconnect(session: AsyncSession, bot: Bot, provider: TelegramProvider
     bot.tg_last_error = None
     if bot.status != "paused":
         bot.status = "draft"
+    _reset_owner_link(bot, None)
     await session.commit()
 
 
