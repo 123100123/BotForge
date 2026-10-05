@@ -32,6 +32,9 @@ services:
       # Only used for webhooks, which polling mode does not register.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost}
       LLM_PROVIDER: claude_cli
+      # The uploads volume (UPLOAD_DIR=/data/uploads) and the notification ticker (NOTIFICATIONS_TICKER,
+      # default true) come from docker-compose.yml unchanged; set NOTIFICATIONS_TICKER=false in
+      # .env.local to rehearse without sending any Telegram notifications.
       # `claude setup-token` prints it. The SDK passes the container environment through to the CLI.
       CLAUDE_CODE_OAUTH_TOKEN: ${CLAUDE_CODE_OAUTH_TOKEN:-}
       # The container user has no home directory; the CLI wants a writable one.

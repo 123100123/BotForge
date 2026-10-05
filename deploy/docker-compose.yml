@@ -4,9 +4,10 @@
 # Only Caddy publishes ports (80, 443). The database, backend and frontend are reachable only on the
 # internal network, so a wrong firewall rule cannot expose them.
 #
-# The backend stays ONE container with ONE uvicorn worker: agent runs, rate limits and the Telegram
-# webhook handler (or, with TELEGRAM_MODE=polling, the Telegram poller) live in that process. Never add
-# `deploy.replicas` or `--scale backend=2`: two pollers for one bot make Telegram refuse both (409).
+# The backend stays ONE container with ONE uvicorn worker: agent runs, rate limits, the notification
+# ticker and the Telegram webhook handler (or, with TELEGRAM_MODE=polling, the Telegram poller) live in
+# that process. Never add `deploy.replicas` or `--scale backend=2`: two pollers for one bot make Telegram
+# refuse both (409), and uploads live on a volume only this container mounts.
 
 name: botforge
 
@@ -48,6 +49,8 @@ services:
     depends_on:
       db:
         condition: service_healthy
+      uploads-init:
+        condition: service_completed_successfully
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
       # The hostname is configured once (SITE_HOST); the browser talks to the site origin only.
@@ -79,6 +82,17 @@ services:
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}
       AGENT_DAILY_RUN_CAP: ${AGENT_DAILY_RUN_CAP:-30}
       AGENT_RUNS_PER_MINUTE: ${AGENT_RUNS_PER_MINUTE:-5}
+      COPILOT_DAILY_CAP: ${COPILOT_DAILY_CAP:-50}
+      # Notification ticker (reminders, announcements, scheduled reports). It runs inside this single
+      # backend process, which is one more reason never to run a second backend replica.
+      NOTIFICATIONS_TICKER: ${NOTIFICATIONS_TICKER:-true}
+      NOTIFICATIONS_TICK_SECONDS: ${NOTIFICATIONS_TICK_SECONDS:-20}
+      NOTIFICATIONS_SEND_RATE_PER_SECOND: ${NOTIFICATIONS_SEND_RATE_PER_SECOND:-15}
+      # Spreadsheet uploads live on the `uploads` volume below (fixed path: it must match the mount).
+      UPLOAD_DIR: /data/uploads
+      UPLOAD_MAX_BYTES: ${UPLOAD_MAX_BYTES:-5242880}
+      SPREADSHEET_MAX_ROWS: ${SPREADSHEET_MAX_ROWS:-50000}
+      SPREADSHEET_MAX_COLUMNS: ${SPREADSHEET_MAX_COLUMNS:-100}
       # Optional outbound proxy (Telegram, the LLM API). The internal names always bypass it.
       HTTP_PROXY: ${OUTBOUND_HTTP_PROXY:-}
       HTTPS_PROXY: ${OUTBOUND_HTTPS_PROXY:-}
@@ -88,7 +102,21 @@ services:
     volumes:
       # The golden spec for scripts/load_spec.py (the image holds only app/, alembic/ and scripts/).
       - ../examples:/examples:ro
+      # Uploaded spreadsheets (UPLOAD_DIR). Keep this volume: analysis runs point at these files.
+      - uploads:/data/uploads
     networks: [internal]
+
+  # One-shot: a new named volume is owned by root, but the backend runs as uid 10001 (backend/Dockerfile,
+  # user "botforge"), so hand the uploads volume to that user before the backend starts. Idempotent.
+  # Reuses the Postgres image, which is pulled anyway (no extra download on restricted networks).
+  uploads-init:
+    image: postgres:16-alpine
+    entrypoint: ["chown", "10001:10001", "/data/uploads"]
+    user: "0"
+    restart: "no"
+    network_mode: none
+    volumes:
+      - uploads:/data/uploads
 
   frontend:
     build:
@@ -143,5 +171,6 @@ networks:
 
 volumes:
   pgdata:
+  uploads:
   caddy_data:
   caddy_config:
