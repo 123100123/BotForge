@@ -70,7 +70,9 @@ export function AuthForm({ mode }: { mode: Mode }) {
       <CardHeader>
         <CardTitle className="text-lg">{isLogin ? "ورود به بات‌فورج" : "ساخت حساب کاربری"}</CardTitle>
         <CardDescription>
-          {isLogin ? "برای مدیریت رباتتان وارد شوید." : "با ایمیل و گذرواژه ثبت‌نام کنید."}
+          {isLogin
+            ? "برای مدیریت مرکز کنترل کسب‌وکارتان وارد شوید."
+            : "با ایمیل و گذرواژه ثبت‌نام کنید و مرکز کنترل کسب‌وکارتان را بسازید."}
         </CardDescription>
       </CardHeader>
       <CardContent>

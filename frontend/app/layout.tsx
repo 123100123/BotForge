@@ -12,8 +12,9 @@ const vazirmatn = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "بات‌فورج",
-  description: "ساخت و ویرایش ربات تلگرام با گفتگو به زبان فارسی",
+  title: "BotForge — سیستم‌عامل کسب‌وکار در تلگرام",
+  description:
+    "به BotForge بگویید کسب‌وکارتان چگونه کار می‌کند. ایجنت هوش مصنوعی آن یک سیستم‌عامل کسب‌وکار اختصاصی در تلگرام می‌سازد و نگهداری می‌کند: برای مشتریان، کارکنان، عملیات، فروش و گزارش‌گیری.",
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {

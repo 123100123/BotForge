@@ -1,5 +1,6 @@
 "use client";
 
+import { Badge } from "@/components/ui/badge";
 import { fa } from "@/lib/format";
 import { cn } from "@/lib/utils";
 import type { DataCollection } from "@/lib/types";
@@ -44,10 +45,17 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
                       active ? "bg-accent font-medium text-accent-foreground" : "hover:bg-muted",
                     )}
                   >
-                    <span className="truncate">{c.label_plural}</span>
-                    {counts[c.key] !== undefined && (
-                      <span className="rounded-full bg-muted px-2 text-xs text-muted-foreground">{fa(counts[c.key])}</span>
-                    )}
+                    <span className={cn("truncate", c.enabled === false && "text-muted-foreground")}>{c.label_plural}</span>
+                    <span className="flex shrink-0 items-center gap-1.5">
+                      {c.enabled === false && (
+                        <Badge variant="outline" className="px-2 py-0 text-muted-foreground">
+                          غیرفعال
+                        </Badge>
+                      )}
+                      {counts[c.key] !== undefined && (
+                        <span className="rounded-full bg-muted px-2 text-xs text-muted-foreground">{fa(counts[c.key])}</span>
+                      )}
+                    </span>
                   </button>
                 </li>
               );

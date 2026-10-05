@@ -159,7 +159,8 @@ function CollectionPanel({ botId, collection, tick, onChanged }: PanelProps) {
   }
 
   const titleOf = (r: DataRecord) => r.item_title ?? "این مورد";
-  const writable = collection.writable;
+  // Orders are placed by customers in Telegram; the web never creates them.
+  const writable = collection.writable && collection.kind !== "orders";
 
   return (
     <Card>

@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { fa, formatDateTime, toFaDigits } from "@/lib/format";
 import type { CollectionAction, DataCollection, DataRecord } from "@/lib/types";
 import { formatCell } from "./field-utils";
+import { OrdersTable } from "./orders-table";
 
 const BOOKING_STATUS_VARIANTS: Record<string, "success" | "warning" | "secondary"> = {
   confirmed: "success",
@@ -38,6 +39,7 @@ export function RecordTable({
   onAction,
 }: RecordTableProps) {
   const isResource = collection.kind === "resource";
+  const isOrders = collection.kind === "orders";
   const hasItem = collection.system_columns.some((c) => c.key === "item_id");
   const statuses = collection.statuses ?? [];
   const actions = collection.actions ?? [];
@@ -95,6 +97,9 @@ export function RecordTable({
 
   return (
     <div className="flex flex-col gap-3">
+      {isOrders ? (
+        <OrdersTable collection={collection} records={records} statusChip={statusChip} rowActions={rowActions} />
+      ) : (
       <div className="relative overflow-x-auto rounded-lg border">
         <table className="w-full min-w-max text-sm">
           <thead className="bg-muted/60 text-xs text-muted-foreground">
@@ -145,6 +150,7 @@ export function RecordTable({
           </tbody>
         </table>
       </div>
+      )}
 
       {total > limit && (
         <div className="flex items-center justify-between text-sm">
