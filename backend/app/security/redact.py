@@ -1,4 +1,5 @@
-"""Log redaction: Telegram bot tokens, ``Bearer`` credentials and JWTs never reach log output.
+"""Log redaction: Telegram bot tokens, session cookies, ``Bearer`` credentials and JWTs never reach
+log output.
 
 ``install_log_redaction()`` (called by ``create_app``) wraps the log-record factory, so
 ``RedactingFilter`` runs on every record of every logger at the moment the record is created. That
@@ -22,6 +23,9 @@ REDACTED = "[REDACTED]"
 _BEARER = re.compile(r"\b(bearer)\s+[A-Za-z0-9\-._~+/]+=*", re.IGNORECASE)
 # JWS compact serialization: a base64url header starting with '{"' ("eyJ"), payload, signature.
 _JWT = re.compile(r"eyJ[A-Za-z0-9_-]*\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]*")
+# The login session cookie ("bf_session=<token>", app.security.sessions), in a Cookie or Set-Cookie
+# header or a query string.
+_SESSION_COOKIE = re.compile(r"\b(bf_session=)[A-Za-z0-9_-]+")
 # Telegram bot token "<bot id>:<secret>", also inside /bot<token>/ URLs and with the colon encoded.
 # The match starts where the digit run starts and the quantifiers are possessive, so a long run of
 # digits costs linear time (the unanchored form was quadratic: 32k digits took seconds).
@@ -45,6 +49,7 @@ def redact(text: str) -> str:
     """``text`` with every token-shaped substring replaced by ``[REDACTED]``."""
     text = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
     text = _JWT.sub(REDACTED, text)
+    text = _SESSION_COOKIE.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
     return _TELEGRAM_TOKEN.sub(REDACTED, text)
 
 
@@ -102,13 +107,18 @@ class RedactingFilter(logging.Filter):
             # A malformed logging call: Handler.handleError later prints msg and args verbatim.
             record.args = _stringified_args(record.args)
         else:
-            # A JWT or bot token assembled from several pieces only shows in the formatted message;
+            # A JWT, session cookie or bot token assembled from several pieces only shows in the
+            # formatted message;
             # then the record is collapsed to that message. Only whitespace-free patterns are
             # checked here: the Bearer pattern and the spaced form of a bot token ("123456789 : AAH…")
             # span whitespace and would match across arguments (uvicorn's access line
             # '"BEARER /x HTTP/1.1"'), and collapsing those arguments breaks uvicorn's access
             # formatter, so they are applied to each piece above instead.
-            if _JWT.search(message) or _TELEGRAM_TOKEN_COMPACT.search(message):
+            if (
+                _JWT.search(message)
+                or _SESSION_COOKIE.search(message)
+                or _TELEGRAM_TOKEN_COMPACT.search(message)
+            ):
                 record.msg, record.args = redact(message), ()
         if record.exc_info and not record.exc_text:
             try:

@@ -15,12 +15,54 @@ class Base(DeclarativeBase):
     metadata = MetaData(schema=SCHEMA)
 
 
+class User(Base):
+    """An owner account. ``email`` is stored normalized (stripped, lowercased; see
+    ``app.security.accounts.normalize_email``), so the unique constraint is case-insensitive in effect."""
+
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("email", name="uq_users_email"),)
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    email: Mapped[str] = mapped_column(String, nullable=False)
+    password_hash: Mapped[str] = mapped_column(Text, nullable=False)  # argon2id (argon2-cffi)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class AuthSession(Base):
+    """A login session. The cookie carries a random token; only its SHA-256 hex digest is stored.
+
+    Not to be confused with ``sessions`` (``SessionRow``), the bots' conversation state."""
+
+    __tablename__ = "auth_sessions"
+    __table_args__ = (
+        UniqueConstraint("token_hash", name="uq_auth_sessions_token_hash"),
+        Index("ix_auth_sessions_user_id", "user_id"),
+        Index("ix_auth_sessions_expires_at", "expires_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    user_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE"), nullable=False
+    )
+    token_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
 class Bot(Base):
     __tablename__ = "bots"
     __table_args__ = (Index("ix_bots_owner_id", "owner_id"),)
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    owner_id: Mapped[str] = mapped_column(String, nullable=False)  # Supabase user id
+    # The owning account; deleting the user deletes their bots (and, through the bots, everything else).
+    owner_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(f"{SCHEMA}.users.id", ondelete="CASCADE", name="fk_bots_owner_user"),
+        nullable=False,
+    )
     name: Mapped[str] = mapped_column(String, nullable=False)
     status: Mapped[str] = mapped_column(String, nullable=False, default="draft")  # draft/live/paused
     # bots and revisions reference each other, hence use_alter

@@ -1,5 +1,7 @@
 """The owner-link predicate shared by the Settings status and the webhook. No database."""
 
+import uuid
+
 import pytest
 
 from app.db.models import Bot
@@ -10,7 +12,7 @@ LINK = "https://t.me/shop_bot?start=owner_c0de"
 
 def bot(*, connected: bool = True, owner: str | None = None, code: str | None = "c0de") -> Bot:
     return Bot(
-        owner_id="alice",
+        owner_id=uuid.uuid4(),
         name="ربات",
         tg_token_enc="ENCRYPTED" if connected else None,
         tg_username="shop_bot" if connected else None,

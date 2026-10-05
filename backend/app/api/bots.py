@@ -22,8 +22,8 @@ BotName = Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, 
 
 
 class MeOut(BaseModel):
-    id: str
-    email: str | None = None
+    id: uuid.UUID
+    email: str
 
 
 class BotCreate(BaseModel):

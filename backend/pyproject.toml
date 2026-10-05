@@ -12,9 +12,9 @@ dependencies = [
     "asyncpg",
     "alembic",
     "pydantic-settings",
-    "pyjwt[crypto]>=2.10.1",
     "cryptography>=44.0.1",
     "anthropic>=1.11.0",
+    "argon2-cffi>=23.1.0",
 ]
 
 [dependency-groups]

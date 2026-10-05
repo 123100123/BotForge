@@ -20,7 +20,7 @@ from app.revisions.service import (
     load_sample_data,
 )
 from app.runtime.pg_store import PgStore
-from tests.integration.helpers import NOW, SessionFactory
+from tests.integration.helpers import NOW, SessionFactory, user_id
 
 PASSING = {
     "total": 1,
@@ -39,8 +39,9 @@ FAILING = {
 
 
 async def new_bot(session_factory: SessionFactory, **fields: Any) -> uuid.UUID:
+    owner_id = await user_id(session_factory, "alice")
     async with session_factory() as session:
-        bot = Bot(owner_id="alice", name="b", **fields)
+        bot = Bot(owner_id=owner_id, name="b", **fields)
         session.add(bot)
         await session.commit()
         return bot.id

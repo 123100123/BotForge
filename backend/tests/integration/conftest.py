@@ -27,12 +27,14 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
 
+from app.api.deps import CurrentUser, get_current_user
 from app.config import get_settings, to_async_url
 from app.db.models import Bot
+from app.db.session import get_session
 from app.integrations.telegram.client import FakeTelegramClient, get_telegram_provider
 from app.main import create_app
 from app.revisions.service import activate, create_draft
-from tests.integration.helpers import BACKEND, REPO, SessionFactory, install_test_auth, make_client
+from tests.integration.helpers import BACKEND, REPO, SessionFactory, make_client, signed_in_client, user_id
 
 
 @pytest.fixture(scope="session")
@@ -96,11 +98,13 @@ MakeBot = Callable[..., Awaitable[tuple[uuid.UUID, uuid.UUID | None]]]
 
 @pytest_asyncio.fixture
 async def make_bot(session_factory: SessionFactory, golden_spec: dict[str, Any]) -> MakeBot:
-    """Create a bot (optionally with an active golden-spec revision). Returns (bot_id, revision_id)."""
+    """Create a bot (optionally with an active golden-spec revision) owned by the test account
+    ``<owner>@example.com`` (see ``helpers.ensure_user``). Returns (bot_id, revision_id)."""
 
     async def _make(
-        owner_id: str = "alice", *, name: str = "ربات", active: bool = True
+        owner: str = "alice", *, name: str = "ربات", active: bool = True
     ) -> tuple[uuid.UUID, uuid.UUID | None]:
+        owner_id = await user_id(session_factory, owner)  # committed first, in its own transaction
         async with session_factory() as session:
             bot = Bot(owner_id=owner_id, name=name)
             session.add(bot)
@@ -118,17 +122,26 @@ async def make_bot(session_factory: SessionFactory, golden_spec: dict[str, Any])
 
 @pytest_asyncio.fixture
 async def client(session_factory: SessionFactory) -> AsyncIterator[httpx.AsyncClient]:
-    app = create_app()
-    install_test_auth(app, session_factory)
-    async with make_client(app) as c:
+    """The full app on the test database; requests are signed in as ``X-Test-User`` (default
+    ``alice``) with real session cookies (see ``helpers.CookieAuth``)."""
+    async with signed_in_client(create_app(), session_factory) as c:
         yield c
 
 
 @pytest_asyncio.fixture
 async def nodb_client() -> AsyncIterator[httpx.AsyncClient]:
-    """App with stand-in auth and no database session at all."""
+    """App with no database at all, for request-shape tests: no database session, and, because
+    authentication needs the database, a fixed caller in place of ``get_current_user`` (test-only)."""
     app = create_app()
-    install_test_auth(app, None)
+
+    async def stand_in_user() -> CurrentUser:
+        return CurrentUser(id=uuid.UUID(int=1), email="alice@example.com")
+
+    async def no_session() -> AsyncIterator[None]:
+        yield None
+
+    app.dependency_overrides[get_current_user] = stand_in_user
+    app.dependency_overrides[get_session] = no_session
     async with make_client(app) as c:
         yield c
 
@@ -152,9 +165,8 @@ def fake_tg() -> FakeTelegramClient:
 async def tg_client(
     session_factory: SessionFactory, fake_tg: FakeTelegramClient, tg_env: None
 ) -> AsyncIterator[httpx.AsyncClient]:
-    """Full app with stand-in auth and the fake Telegram client injected."""
+    """Full app with cookie sessions (as ``client``) and the fake Telegram client injected."""
     app = create_app()
-    install_test_auth(app, session_factory)
     app.dependency_overrides[get_telegram_provider] = lambda: fake_tg.provider
-    async with make_client(app) as c:
+    async with signed_in_client(app, session_factory) as c:
         yield c

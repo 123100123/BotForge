@@ -13,7 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import Bot
 from app.runtime.pg_store import PgStore
-from tests.integration.helpers import NOW, SessionFactory
+from tests.integration.helpers import NOW, SessionFactory, user_id
 from tests.unit.runtime.store_contract import CONTRACT_CASES
 
 
@@ -21,11 +21,12 @@ from tests.unit.runtime.store_contract import CONTRACT_CASES
 async def make_store(session_factory: SessionFactory) -> AsyncIterator[Callable[[], Awaitable[PgStore]]]:
     """Factory of fresh stores, each bound to its own new bot and its own (never committed) session."""
     sessions: list[AsyncSession] = []
+    owner_id = await user_id(session_factory, "alice")  # committed: the store sessions never commit
 
     async def _make() -> PgStore:
         session = session_factory()
         sessions.append(session)
-        bot = Bot(owner_id="alice", name="contract")
+        bot = Bot(owner_id=owner_id, name="contract")
         session.add(bot)
         await session.flush()
         return PgStore(session, bot.id, "live", owner_actor_id="owner")
@@ -42,8 +43,9 @@ async def test_pg_store_contract(case: Any, make_store: Callable[[], Awaitable[P
 
 
 async def test_live_and_sandbox_of_one_bot_are_isolated(session_factory: SessionFactory) -> None:
+    owner_id = await user_id(session_factory, "alice")
     async with session_factory() as session:
-        bot = Bot(owner_id="alice", name="envs")
+        bot = Bot(owner_id=owner_id, name="envs")
         session.add(bot)
         await session.flush()
         live = PgStore(session, bot.id, "live", "900")

@@ -12,7 +12,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import Bot, RecordRow, TgUpdate
 from app.integrations.telegram import texts
 from app.integrations.telegram.client import FakeTelegramClient
-from tests.integration.helpers import SessionFactory
+from tests.integration.helpers import SessionFactory, user_id
 from tests.integration.tg_helpers import (
     ALICE,
     CAP,
@@ -98,8 +98,9 @@ async def test_unknown_bot_and_invalid_id_are_404(tg_client: httpx.AsyncClient, 
 async def test_a_bot_without_a_secret_rejects_everything(
     tg_client: httpx.AsyncClient, session_factory: SessionFactory
 ) -> None:
+    owner_id = await user_id(session_factory, "alice")
     async with session_factory() as session:
-        disconnected = Bot(owner_id="alice", name="x")
+        disconnected = Bot(owner_id=owner_id, name="x")
         session.add(disconnected)
         await session.commit()
         bot_id = disconnected.id

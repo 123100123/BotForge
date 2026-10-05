@@ -1,7 +1,12 @@
-"""Log redaction of Telegram tokens, Bearer credentials and JWTs."""
+"""Log redaction of Telegram tokens, session cookies, Bearer credentials and JWTs."""
 
+import base64
+import hashlib
+import hmac
 import io
+import json
 import logging
+import secrets
 import sys
 import time
 from collections.abc import Iterator
@@ -11,11 +16,25 @@ from uvicorn.logging import AccessFormatter
 
 from app.main import create_app
 from app.security.redact import REDACTED, RedactingFilter, install_log_redaction, redact
-from tests.unit.security.tokens import mint, new_secret
+from app.security.sessions import new_token
+
+
+def _b64(data: bytes) -> str:
+    return base64.urlsafe_b64encode(data).rstrip(b"=").decode()
+
+
+def _jwt() -> str:
+    """An HS256-signed JWT (built by hand; nothing here needs a JWT library)."""
+    header = _b64(json.dumps({"alg": "HS256", "typ": "JWT"}).encode())
+    payload = _b64(json.dumps({"sub": "8d1d0d5e-8c33-4a39-9a3e-1f0c2b7c9a11", "exp": 2000000000}).encode())
+    signature = hmac.new(secrets.token_bytes(32), f"{header}.{payload}".encode(), hashlib.sha256).digest()
+    return f"{header}.{payload}.{_b64(signature)}"
+
 
 TG_TOKEN = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsaw"
 TG_SECRET = "AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"  # 35 characters, like a real token's secret part
-JWT = mint(new_secret(), "HS256")
+JWT = _jwt()
+SESSION_TOKEN = new_token()
 
 
 def record(msg: object, *args: object, exc_info: object = None) -> logging.LogRecord:
@@ -42,6 +61,19 @@ def test_bearer_credentials_any_case() -> None:
         redact(f"headers={{'authorization': 'Bearer {JWT}'}}")
         == f"headers={{'authorization': 'Bearer {REDACTED}'}}"
     )
+
+
+def test_session_cookies() -> None:
+    cookie = f"cookie: bf_session={SESSION_TOKEN}; theme=dark"
+    assert redact(cookie) == f"cookie: bf_session={REDACTED}; theme=dark"
+    set_cookie = f"set-cookie: bf_session={SESSION_TOKEN}; HttpOnly; Max-Age=604800; Path=/"
+    assert redact(set_cookie) == f"set-cookie: bf_session={REDACTED}; HttpOnly; Max-Age=604800; Path=/"
+    assert redact(f"/x?bf_session={SESSION_TOKEN}") == f"/x?bf_session={REDACTED}"
+    assert redact('bf_session=""; Max-Age=0') == 'bf_session=""; Max-Age=0'  # a cleared cookie holds nothing
+    rec = filtered(record("headers=%s", {"cookie": f"bf_session={SESSION_TOKEN}"}))
+    assert SESSION_TOKEN not in rec.getMessage()
+    rec = filtered(record("%s%s", "bf_session=", SESSION_TOKEN))  # assembled from two arguments
+    assert SESSION_TOKEN not in rec.getMessage()
 
 
 def test_jwts() -> None:

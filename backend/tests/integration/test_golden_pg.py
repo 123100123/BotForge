@@ -20,7 +20,7 @@ from app.runtime.pg_store import PgStore
 from app.testing.derive import derive_scenarios
 from app.testing.runner import run_scenarios
 from app.testing.scenario import Scenario, ScenarioResult, TestReport
-from tests.integration.helpers import REPO, SessionFactory
+from tests.integration.helpers import REPO, SessionFactory, user_id
 
 EXAMPLES = REPO / "examples"
 
@@ -40,14 +40,16 @@ def golden() -> list[Scenario]:
 
 @pytest_asyncio.fixture
 async def session(session_factory: SessionFactory) -> AsyncIterator[AsyncSession]:
+    owner_id = await user_id(session_factory, "alice")
     async with session_factory() as s:
+        s.info["owner_id"] = owner_id
         yield s
         await s.rollback()
 
 
 def pg_store_factory(session: AsyncSession) -> Callable[[], Awaitable[PgStore]]:
     async def make() -> PgStore:
-        bot = Bot(owner_id="alice", name="scenario")
+        bot = Bot(owner_id=session.info["owner_id"], name="scenario")
         session.add(bot)
         await session.flush()
         return PgStore(session, bot.id, "sandbox", owner_actor_id="owner")

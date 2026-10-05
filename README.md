@@ -15,7 +15,7 @@ this README only covers running and deploying the project.
 |---|---|
 | `backend/app/` | FastAPI app: `api/` routes, `agent/` (LLM orchestration), `botspec/` (contracts), `runtime/` (bot engines, `PgStore`), `integrations/telegram/`, `simulator/`, `revisions/`, `testing/`, `security/`, `db/` |
 | `backend/alembic/` | Database migrations (schema `app`) |
-| `backend/scripts/` | Operator and dev tools: `load_spec.py`, `seed_demo.py`, `dev_db.py`, `dev_token.py`, `smoke_local.py`, `eval_golden.py` |
+| `backend/scripts/` | Operator and dev tools: `create_user.py`, `load_spec.py`, `seed_demo.py`, `dev_db.py`, `smoke_local.py`, `eval_golden.py` |
 | `backend/tests/` | `unit/`, `golden/`, `integration/` (needs Postgres) |
 | `backend/Dockerfile` | Production image (one container, one worker) |
 | `frontend/` | Next.js web app (Persian, RTL) |
@@ -77,14 +77,14 @@ Settings are read from the process environment or from `backend/.env` (git-ignor
 
 ```powershell
 $env:DATABASE_URL = '<from dev_db.py>'
-$env:SUPABASE_JWT_SECRET = 'local-dev-secret-at-least-32-characters-long'   # any 32+ chars, local only
+$env:AUTH_COOKIE_SECURE = 'false'   # plain-http local development only: the session cookie works over http
 $env:TOKEN_ENC_KEY = (uv run python -m app.security.crypto generate-key)
 $env:PUBLIC_BASE_URL = 'http://localhost:8000'
 $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 ```
 
-`ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. With
-`SUPABASE_JWKS_URL` unset the backend verifies HS256 tokens signed with `SUPABASE_JWT_SECRET`.
+`ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. Owners
+sign in with the backend's own accounts (email and password, a `bf_session` cookie); see Run the API.
 
 ### Running the agent against headless Claude Code
 
@@ -107,15 +107,19 @@ Reported costs are the notional API cost of the same tokens.
 ```powershell
 uv run alembic upgrade head
 uv run uvicorn app.main:app --reload --port 8000
-# in another shell, with the same SUPABASE_JWT_SECRET:
-uv run python scripts/dev_token.py          # prints a user id and a development-only token
-curl.exe -H "Authorization: Bearer <token>" http://localhost:8000/me
+# in another shell: sign up (or create the account with scripts/create_user.py, then log in);
+# the cookie jar keeps the session, and every POST/PATCH/DELETE needs the CSRF header
+curl.exe -c jar.txt -H "X-BotForge-CSRF: 1" -H "Content-Type: application/json" -d '{\"email\":\"me@example.com\",\"password\":\"at least 10 characters\"}' http://localhost:8000/auth/signup
+curl.exe -b jar.txt http://localhost:8000/me          # your user id
 ```
+
+`uv run python scripts/create_user.py --email me@example.com` creates an account (password prompt) or,
+with `--reset-password`, sets a new password and signs the account out everywhere.
 
 Load the golden spec into a bot for that user and seed the demo data:
 
 ```powershell
-curl.exe -X POST -H "Authorization: Bearer <token>" -H "Content-Type: application/json" -d '{\"name\":\"Demo\"}' http://localhost:8000/bots
+curl.exe -b jar.txt -H "X-BotForge-CSRF: 1" -H "Content-Type: application/json" -d '{\"name\":\"Demo\"}' http://localhost:8000/bots
 uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --owner-id <user id> --bot-id <bot id> --sample-data scripts/workshop.sample_data.json
 uv run python scripts/seed_demo.py --bot-id <bot id>            # --reset removes it again
 ```
@@ -129,12 +133,12 @@ uv run python scripts/smoke_local.py --local-defaults
 uv run python scripts/dev_db.py stop
 ```
 
-It needs no LLM, no Telegram and no Supabase: it mints its own tokens, drives the real ASGI app
-in-process (no port is opened; Telegram is the in-memory fake client) and prints PASS or FAIL per
-step (exit code 1 on any failure). It creates and deletes its own bot, and refuses a non-local
-`DATABASE_URL` unless `--allow-remote` is given. If `DATABASE_URL` is unset it uses the running dev
-database. `--local-defaults` fills in unset `SUPABASE_JWT_SECRET`, `TOKEN_ENC_KEY`, `PUBLIC_BASE_URL`
-and `FRONTEND_ORIGIN`; `SUPABASE_JWKS_URL` must be unset.
+It needs no LLM and no Telegram: it signs up two throw-away accounts through `/auth/signup` (each
+with its own cookie jar), drives the real ASGI app in-process (no port is opened; Telegram is the
+in-memory fake client) and prints PASS or FAIL per step (exit code 1 on any failure). It creates and
+deletes its own bot and accounts, and refuses a non-local `DATABASE_URL` unless `--allow-remote` is
+given. If `DATABASE_URL` is unset it uses the running dev database. `--local-defaults` fills in unset
+`TOKEN_ENC_KEY`, `PUBLIC_BASE_URL` and `FRONTEND_ORIGIN`.
 
 ### Frontend
 

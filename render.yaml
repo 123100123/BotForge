@@ -1,5 +1,6 @@
 # Render Blueprint for the BotForge backend (one web service, Docker).
-# The database is Supabase, so there is no database resource here. The frontend is a Vercel project.
+# The database is an external Postgres (DATABASE_URL), so there is no database resource here. The
+# frontend is a Vercel project.
 #
 # The service must stay always-on and single-instance: agent runs, rate limits and the Telegram
 # webhook handler live in one process. Use a paid plan that does not sleep (a free instance spins
@@ -17,16 +18,16 @@ services:
     healthCheckPath: /healthz
     autoDeploy: false          # deploy deliberately from the dashboard
     envVars:
-      # --- database (Supabase Postgres) ---
-      - key: DATABASE_URL            # Supabase "Connect" -> connection string. Session pooler (port 5432) or direct.
+      # --- database (Postgres) ---
+      - key: DATABASE_URL            # postgresql://... ; a session pooler or a direct connection, not a transaction pooler
         sync: false
-      # --- authentication (Supabase Auth) ---
-      - key: SUPABASE_URL            # https://<project-ref>.supabase.co ; also pins the token issuer
-        sync: false
-      - key: SUPABASE_JWKS_URL       # <SUPABASE_URL>/auth/v1/.well-known/jwks.json (asymmetric keys)
-        sync: false
-      - key: SUPABASE_JWT_SECRET     # legacy HS256 projects only; ignored when SUPABASE_JWKS_URL is set
-        sync: false
+      # --- authentication (own accounts; cookie sessions) ---
+      - key: AUTH_COOKIE_SECURE      # keep true: the session cookie is sent over https only
+        value: "true"
+      - key: AUTH_ALLOW_SIGNUP       # false: accounts only through scripts/create_user.py
+        value: "true"
+      - key: AUTH_SESSION_TTL_HOURS  # a session ends this long after it was last used
+        value: "168"
       # --- secrets ---
       - key: TOKEN_ENC_KEY           # python -m app.security.crypto generate-key ; losing it orphans stored bot tokens
         sync: false

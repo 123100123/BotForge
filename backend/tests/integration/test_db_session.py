@@ -11,6 +11,7 @@ from app.config import get_settings
 from app.db.models import Bot
 from app.db.session import dispose_engine, get_engine, get_sessionmaker
 from app.security.crypto import generate_webhook_secret
+from tests.integration.helpers import ensure_user
 
 
 @pytest_asyncio.fixture
@@ -38,10 +39,13 @@ async def test_a_database_error_does_not_carry_the_webhook_secret(
     secret = generate_webhook_secret()
     tg_bot_id = uuid.uuid4().int % 10**9 + 10**9
     async with get_sessionmaker()() as session:
+        owners = [await ensure_user(session, "a"), await ensure_user(session, "b")]
+        await session.commit()
+    async with get_sessionmaker()() as session:
         session.add_all(
             [
-                Bot(owner_id="a", name="a", tg_bot_id=tg_bot_id, tg_webhook_secret=secret),
-                Bot(owner_id="b", name="b", tg_bot_id=tg_bot_id, tg_webhook_secret=secret),
+                Bot(owner_id=owners[0], name="a", tg_bot_id=tg_bot_id, tg_webhook_secret=secret),
+                Bot(owner_id=owners[1], name="b", tg_bot_id=tg_bot_id, tg_webhook_secret=secret),
             ]
         )
         with pytest.raises(IntegrityError) as info:
