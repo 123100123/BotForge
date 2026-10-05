@@ -2,8 +2,8 @@
 #
 # Runs the production stack on a developer machine behind a proxy, with https://localhost served by
 # Caddy's internal CA (curl needs -k, browsers warn). It differs from production in these ways:
-#   - SITE_HOST is localhost; PUBLIC_BASE_URL defaults to https://localhost and can be overridden
-#     in deploy/.env.local (a tunnel URL, for real Telegram);
+#   - SITE_HOST is localhost, and Telegram updates are fetched by polling (TELEGRAM_MODE=polling), so
+#     real Telegram works without a tunnel or a public address;
 #   - the backend image includes the `headless` dependency group and runs LLM_PROVIDER=claude_cli, using
 #     a Claude Code token (CLAUDE_CODE_OAUTH_TOKEN from deploy/.env.local) instead of an API key;
 #   - downloads and outbound calls go through the proxy on the host (host.docker.internal:10808);
@@ -26,8 +26,10 @@ services:
         https_proxy: http://host.docker.internal:10808
     environment:
       FRONTEND_ORIGIN: https://localhost
-      # The Telegram webhook base. Set PUBLIC_BASE_URL in .env.local to a tunnel URL (cloudflared) to
-      # test with real Telegram; the browser side stays on https://localhost (FRONTEND_ORIGIN above).
+      # Telegram cannot reach this machine (and tunnels are blocked), so the backend polls Telegram for
+      # updates instead of receiving webhooks: outbound only, through the proxy below.
+      TELEGRAM_MODE: polling
+      # Only used for webhooks, which polling mode does not register.
       PUBLIC_BASE_URL: ${PUBLIC_BASE_URL:-https://localhost}
       LLM_PROVIDER: claude_cli
       # `claude setup-token` prints it. The SDK passes the container environment through to the CLI.

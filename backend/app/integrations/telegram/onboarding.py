@@ -2,7 +2,9 @@
 
 ``connect`` verifies the token with ``getMe``, refuses a Telegram bot that another BotForge bot
 already uses, stores the token Fernet-encrypted, generates the per-bot webhook secret and registers
-``{PUBLIC_BASE_URL}/tg/{bot_id}``. Nothing here returns or logs the token or the secret.
+``{PUBLIC_BASE_URL}/tg/{bot_id}``. Nothing here returns or logs the token or the secret. In polling
+mode (``TELEGRAM_MODE=polling``) no webhook is registered: connect removes any webhook instead and the
+poller (``poller.py``) fetches the bot's updates.
 ``scripts/reregister_webhooks.py`` moves registered webhooks to a new ``PUBLIC_BASE_URL`` with the
 same ``webhook_url`` and ``status_after_connect``, keeping each bot's secret and owner link.
 
@@ -28,6 +30,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import flag_modified
 
+from app.config import TelegramMode
 from app.db.models import Bot
 from app.integrations.telegram import texts
 from app.integrations.telegram.client import TelegramError, TelegramProvider
@@ -107,6 +110,18 @@ def _reset_owner_link(bot: Bot, code: str | None) -> None:
     flag_modified(bot, "owner_link_code")
 
 
+def _reset_poll_offset(bot: Bot) -> None:
+    """Polling starts over for a new token: update ids, and so offsets, belong to one Telegram bot.
+
+    Always written (``flag_modified``), as in ``_reset_owner_link``: the poller of the previous token
+    may have saved an offset after ``bot`` was read, and the ORM would leave out a column it believes
+    unchanged, carrying that offset over to the new token (where it could confirm, that is drop, the
+    new bot's first updates). The poller saves by compare-and-set on the token, so nothing it writes
+    after this commit survives either."""
+    bot.tg_poll_offset = None
+    flag_modified(bot, "tg_poll_offset")
+
+
 def status_after_connect(bot: Bot) -> str:
     """The status of a bot whose webhook was just registered: a paused bot stays paused, otherwise
     it is live with an active revision and draft without one. ``scripts/reregister_webhooks.py``
@@ -144,12 +159,21 @@ def _telegram_failure(exc: TelegramError, *, invalid_token_possible: bool = Fals
 
 
 async def connect(
-    session: AsyncSession, bot: Bot, token: str, provider: TelegramProvider, *, public_base_url: str
+    session: AsyncSession,
+    bot: Bot,
+    token: str,
+    provider: TelegramProvider,
+    *,
+    public_base_url: str,
+    mode: TelegramMode = "webhook",
 ) -> None:
+    """``mode="polling"`` (``TELEGRAM_MODE``) registers no webhook and needs no public https
+    ``PUBLIC_BASE_URL``: it calls ``deleteWebhook`` instead (dropping queued updates, as the webhook
+    connect does), and the poller picks the bot up on its next pass. Everything else is identical."""
     token = token.strip()
     if not TOKEN_FORMAT.fullmatch(token):
         raise OnboardingError(400, "invalid_token", texts.INVALID_TOKEN)
-    url = webhook_url(public_base_url, bot.id)
+    url = webhook_url(public_base_url, bot.id) if mode == "webhook" else None
     client = provider(token)
     try:
         me = await client.get_me()
@@ -177,6 +201,7 @@ async def connect(
     bot.tg_username = username
     bot.tg_webhook_secret = generate_webhook_secret()
     bot.tg_last_error = None
+    _reset_poll_offset(bot)
     bot.status = status_after_connect(bot)
     # Every connect starts a new owner link: the owner is unlinked and a fresh single-use code is
     # armed (the Settings page shows it). This is how the owner links again, or links another
@@ -189,7 +214,10 @@ async def connect(
         raise OnboardingError(409, "telegram_bot_in_use", texts.TOKEN_IN_USE) from None
 
     try:
-        await client.set_webhook(url, bot.tg_webhook_secret)
+        if url is not None:
+            await client.set_webhook(url, bot.tg_webhook_secret)
+        else:  # polling: a webhook left from webhook mode would make getUpdates fail with 409
+            await client.delete_webhook(drop_pending_updates=True)
     except TelegramError as exc:
         await session.rollback()
         raise _telegram_failure(exc) from None
@@ -208,6 +236,7 @@ async def disconnect(session: AsyncSession, bot: Bot, provider: TelegramProvider
     bot.tg_username = None
     bot.tg_bot_id = None
     bot.tg_last_error = None
+    _reset_poll_offset(bot)
     if bot.status != "paused":
         bot.status = "draft"
     _reset_owner_link(bot, None)

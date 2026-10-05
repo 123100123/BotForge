@@ -260,7 +260,8 @@ Restore with `docker compose stop backend`, then
 
 ### 6. Changing the hostname later
 
-Update `SITE_HOST` in `deploy/.env` (and point the new name's DNS A record at the server), then:
+Update `SITE_HOST` in `deploy/.env` (and point the new name's DNS A record at the server), then (in
+polling mode only the `up -d` is needed):
 
 ```sh
 docker compose up -d
@@ -274,6 +275,18 @@ certificate for the new name. The Telegram webhooks of connected bots still poin
 The script keeps updates that Telegram queued while the old address was unreachable (it sends
 `setWebhook` with `drop_pending_updates=False`), so customer messages sent during the move are delivered
 afterwards. `connect` still drops pending updates.
+
+### Telegram: webhook or polling
+
+By default (`TELEGRAM_MODE=webhook`) Telegram delivers updates to `https://SITE_HOST/tg/<bot id>`, so
+Telegram's servers must be able to reach the VPS over HTTPS. Where they cannot (likely on a server in
+Iran, and on a developer machine), set `TELEGRAM_MODE=polling` in `deploy/.env` and run
+`docker compose up -d`: the backend then fetches each connected bot's updates with `getUpdates`, using
+outbound connections only (through `OUTBOUND_HTTPS_PROXY` if set), and handles them exactly as the
+webhook would. Connecting a bot then registers no webhook, `SITE_HOST` serves only the site, and
+`reregister_webhooks.py` has nothing to do. Polling needs exactly one backend process (never scale it).
+After switching back from polling to webhook mode, run `reregister_webhooks.py` once so every connected
+bot gets its webhook.
 
 ### Restricted networks (Iran)
 
@@ -315,8 +328,8 @@ optional settings. Everything below is empty by default and then changes nothing
 in (`claude setup-token` gives the `CLAUDE_CODE_OAUTH_TOKEN`), then `./local.sh up`, `./local.sh logs`,
 `./local.sh psql`, `./local.sh backup`, `./local.sh down -v`. It uses `docker-compose.local.yml`, which
 assumes a proxy on the host at port 10808 and publishes Postgres on 127.0.0.1:55432. Never use it on the
-VPS. The step-by-step checklist, including real Telegram through a tunnel, is
-`deploy/LOCAL-REHEARSAL.md`.
+VPS. It runs Telegram in polling mode, so real Telegram works with no tunnel. The step-by-step
+checklist is `deploy/LOCAL-REHEARSAL.md`.
 
 ### Client IPs and rate limits
 

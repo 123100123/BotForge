@@ -25,6 +25,7 @@ import app.api as api_package
 from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
+from app.integrations.telegram import poller as telegram_poller
 from app.security.body_limit import BodyLimitMiddleware
 from app.security.rate_limit import AuthRateLimits
 from app.security.redact import install_log_redaction
@@ -93,8 +94,25 @@ async def mark_interrupted_runs() -> int:
         return result.rowcount or 0  # type: ignore[attr-defined]
 
 
+def start_telegram_poller() -> telegram_poller.TelegramPoller | None:
+    """The Telegram poller when ``TELEGRAM_MODE=polling`` (None in webhook mode, the default).
+    A failure to start is logged; the rest of the app keeps serving."""
+    if get_settings().TELEGRAM_MODE != "polling":
+        return None
+    if not database_configured():
+        log.error("TELEGRAM_MODE=polling needs DATABASE_URL; Telegram updates are not fetched")
+        return None
+    try:
+        poller = telegram_poller.start_polling(get_sessionmaker())
+    except Exception as exc:  # e.g. ALL_PROXY=socks5://... without httpx's socks support
+        log.error("could not start Telegram polling (%s); check the proxy settings", type(exc).__name__)
+        return None
+    log.info("Telegram polling mode: fetching updates with getUpdates")
+    return poller
+
+
 @asynccontextmanager
-async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     if database_configured():
         try:
             count = await mark_interrupted_runs()
@@ -102,8 +120,14 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
                 log.info("marked %d running agent runs as interrupted", count)
         except Exception:
             log.exception("could not mark interrupted agent runs")
-    yield
-    await dispose_engine()
+    poller = start_telegram_poller()
+    app.state.telegram_poller = poller
+    try:
+        yield
+    finally:
+        if poller is not None:
+            await poller.stop()
+        await dispose_engine()
 
 
 def include_api_routers(app: FastAPI) -> list[str]:

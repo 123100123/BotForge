@@ -10,6 +10,10 @@ Processing: record ``(bot_id, update_id)`` in ``tg_updates`` and commit at once 
 stops here); owner deep link ``/start owner_<code>`` (single use, and only while no owner is
 linked); the fixed "not ready" reply when the bot has no active revision; otherwise ``dispatch``.
 Owner linking is handled before the active-revision check because linking needs no revision.
+
+Everything after the HTTP checks is ``process_update``, which the poller (``TELEGRAM_MODE=polling``,
+``app.integrations.telegram.poller``) calls for every update it fetches, so both modes share one
+path. It stays in this module so the webhook tests' patches of its names cover both.
 """
 
 import json
@@ -81,19 +85,34 @@ async def telegram_webhook(
         raise _error(403, "forbidden", "دسترسی مجاز نیست.")
     body = await _read_body(request)
 
-    update_id: Any = None
+    update = _decode(body)
+    if update is not None:
+        await process_update(session, bot, update, telegram)
+    return {"ok": True}
+
+
+async def process_update(
+    session: AsyncSession, bot: Bot, update: dict[str, Any], telegram: TelegramProvider
+) -> None:
+    """Handle one authenticated, parsed Telegram update for ``bot``: dedupe, conversion, the owner
+    link, the "not ready" reply, dispatch and delivery. The one path for both ways updates arrive:
+    the webhook above (after its secret and body-size checks) and the poller (polling mode, after
+    getUpdates with the bot's own token).
+
+    Never raises an ``Exception``: a failure is logged with the bot id and update id only (never the
+    content) and the transaction rolled back, so a poison update is dropped instead of replayed.
+    Cancellation (``BaseException``) propagates.
+    """
+    bot_id = bot.id  # read before anything can expire the ORM object
+    update_id = update.get("update_id")
     try:
-        update = _decode(body)
-        update_id = update.get("update_id") if update is not None else None
-        if update is not None:
-            await _process(session, bot, update, telegram)
+        await _process(session, bot, update, telegram)
     except Exception:
-        log.exception("webhook processing failed (bot %s, update %s)", bot_uuid, update_id)
+        log.exception("telegram update processing failed (bot %s, update %s)", bot_id, update_id)
         try:
             await session.rollback()
         except Exception:
-            log.exception("rollback failed (bot %s)", bot_uuid)
-    return {"ok": True}
+            log.exception("rollback failed (bot %s)", bot_id)
 
 
 def _decode(body: bytes) -> dict[str, Any] | None:
