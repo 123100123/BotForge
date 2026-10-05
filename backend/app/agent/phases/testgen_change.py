@@ -4,6 +4,8 @@
 - Every acceptance scenario of the base revision is carried forward unchanged (same id, same
   content). A scenario superseded earlier in this run stays superseded only while the current delta
   still releases it (its requirement ids intersect the changed or removed ids).
+- This run's new scenarios from earlier rounds are kept only while no requirement they cite was
+  touched since testgen last ran (``untested_touched``, accumulated across understand rounds).
 - One structured call writes acceptance scenarios for the added and changed requirements only,
   validated like CREATE (``check_acceptance``) plus: each must reference an added or changed id.
   Their ids are recorded in ``new_scenario_ids`` (the only ids ``fix_scenario`` accepts).
@@ -28,11 +30,15 @@ from app.testing.scenario import Scenario
 def retained_scenarios(ctx: RunContext, targets: set[str]) -> list[Scenario]:
     """This run's new scenarios from earlier rounds that still hold.
 
-    Dropped when a requirement they cite was touched in the latest round, when they no longer cite
-    any added or changed requirement, or when they no longer validate against the current draft.
+    Dropped when a requirement they cite was touched since testgen last ran (in any understand
+    round, including one that ended in a clarify pause: its wording may differ from the one the
+    scenario was written for), when they no longer cite any added or changed requirement, or when
+    they no longer validate against the current draft.
     """
     state = ctx.state
-    touched = set(state.delta_touched)
+    # ``delta_touched`` (the latest round) is always part of ``untested_touched``; the union only
+    # matters for a state persisted before ``untested_touched`` existed.
+    touched = set(state.untested_touched) | set(state.delta_touched)
     kept: list[Scenario] = []
     for s in state.scenarios:
         if s.id not in state.new_scenario_ids:
@@ -150,7 +156,7 @@ async def run(ctx: RunContext) -> Next:
 
     targets = target_ids(state.delta)
     # New scenarios from earlier rounds of this run are kept unless a requirement they cite was
-    # added, changed or removed in the latest round (then they are regenerated).
+    # added, changed or removed since testgen last ran (then they are regenerated).
     kept = retained_scenarios(ctx, targets)
     covered = {rid for s in kept for rid in s.requirement_ids}
     focus = targets - covered
@@ -181,5 +187,8 @@ async def run(ctx: RunContext) -> Next:
 
     state.scenarios = [*carried, *new]
     state.new_scenario_ids = [s.id for s in new]
+    # Consumed: no scenario citing a touched id survived ``retained_scenarios``, so every new
+    # scenario now was written for its requirements' current wording.
+    state.untested_touched = []
     await ctx.emit(ev.tests_generated(len(state.derived), len(state.scenarios), notes))
     return Next("run")

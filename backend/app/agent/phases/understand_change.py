@@ -129,6 +129,9 @@ async def run(ctx: RunContext) -> Next:
     )
     state.delta = delta
     state.delta_touched = sorted(merged.touched)
+    # Accumulated until testgen has written tests for the current wording (a clarify pause below
+    # skips testgen, and the next round may re-list the same wording without "touching" it).
+    state.untested_touched = sorted(set(state.untested_touched) | merged.touched)
     state.requirements = apply_delta(base, delta)
     await ctx.emit(ev.requirements(state.requirements))
 

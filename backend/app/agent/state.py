@@ -87,6 +87,11 @@ class RunState(BaseModel):
     record_counts: dict[str, int] = {}  # live records per collection (counts only, never records)
     max_confirmed_per_item: dict[str, int] = {}  # booking capability key -> highest confirmed count
     delta_touched: list[str] = []  # requirement ids added/changed/removed in the LATEST round
+    # Requirement ids added/changed/removed by any understand round since testgen last ran. A
+    # clarify pause runs no testgen, so this outlives a single round: this run's earlier tests
+    # citing these ids were written for an older wording and are dropped by the next testgen,
+    # which then clears it. Persisted, so a resume after a restart still drops them.
+    untested_touched: list[str] = []
     triage: str | None = None  # change / question / data_request / unsupported
     diff: dict[str, Any] | None = None  # the review card (the `diff` event payload)
     usage: Usage = Usage()
