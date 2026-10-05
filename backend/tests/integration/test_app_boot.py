@@ -188,3 +188,28 @@ async def test_cors_allows_only_the_frontend_origin(monkeypatch: pytest.MonkeyPa
         )
     assert allowed.headers.get("access-control-allow-origin") == "https://app.example.com"
     assert "access-control-allow-origin" not in denied.headers
+
+
+async def test_cors_accepts_several_comma_separated_origins(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", " https://app.example.com , https://preview.example.com ,, ")
+    get_settings.cache_clear()
+    try:
+        assert get_settings().frontend_origins == ["https://app.example.com", "https://preview.example.com"]
+        async with make_client(create_app()) as client:
+            results: dict[str, str | None] = {}
+            for origin in ("https://app.example.com", "https://preview.example.com", "https://evil.example.com"):
+                preflight = await client.options(
+                    "/bots", headers={"Origin": origin, "Access-Control-Request-Method": "GET"}
+                )
+                simple = await client.get("/healthz", headers={"Origin": origin})
+                assert preflight.headers.get("access-control-allow-origin") == simple.headers.get(
+                    "access-control-allow-origin"
+                )
+                results[origin] = simple.headers.get("access-control-allow-origin")
+    finally:
+        get_settings.cache_clear()
+    assert results == {
+        "https://app.example.com": "https://app.example.com",
+        "https://preview.example.com": "https://preview.example.com",
+        "https://evil.example.com": None,
+    }

@@ -19,9 +19,14 @@ that a delivery failure cannot undo the booking: it is logged and recorded in ``
 Delivery is skipped entirely for the sandbox. For ``kind="admin"`` events messages addressed to the
 acting owner are not sent to Telegram either: the web admin receives them in the returned response,
 and only notifications to other people (for example a promoted customer) go out.
+
+Messages to an actor whose id is not a Telegram chat id (for example the seeded demo customers
+``demo-01``) are skipped too: Telegram would reject them, and that rejection would show up in
+Settings as a false error. The skip is logged and leaves ``bots.tg_last_error`` alone.
 """
 
 import logging
+import re
 import uuid
 from dataclasses import dataclass
 
@@ -41,6 +46,7 @@ log = logging.getLogger(__name__)
 
 SANDBOX_OWNER = "owner"
 MAX_ERROR_CHARS = 500
+_CHAT_ID = re.compile(r"-?\d+")  # a Telegram chat id; groups and channels are negative
 
 
 async def dispatch(
@@ -163,6 +169,9 @@ async def _deliver(
     for message in response.messages:
         if event.kind == "admin" and message.to_actor_id == event.actor.id:
             continue  # the web admin gets its own reply in the HTTP response
+        if not _CHAT_ID.fullmatch(message.to_actor_id):
+            log.info("bot %s: %r is not a Telegram chat id; not delivered", bot.id, message.to_actor_id)
+            continue
         attempts += 1
         try:
             await send_out_message(client, message, event, origin)

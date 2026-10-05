@@ -1,0 +1,35 @@
+[
+  {
+    "ref": "w1",
+    "collection": "workshop",
+    "values": [
+      {"key": "title", "value": "کارگاه عکاسی"},
+      {"key": "description", "value": "آشنایی با اصول نوردهی و ترکیب‌بندی در عکاسی با موبایل و دوربین."},
+      {"key": "teacher", "value": "مریم احمدی"},
+      {"key": "starts_at", "value": "+48h"},
+      {"key": "price", "value": "1500000"}
+    ]
+  },
+  {
+    "ref": "w2",
+    "collection": "workshop",
+    "values": [
+      {"key": "title", "value": "کارگاه سفالگری"},
+      {"key": "description", "value": "ساخت ظروف ساده با چرخ سفالگری؛ همهٔ مواد در کارگاه فراهم است."},
+      {"key": "teacher", "value": "رضا کریمی"},
+      {"key": "starts_at", "value": "+96h"},
+      {"key": "price", "value": "2200000"}
+    ]
+  },
+  {
+    "ref": "w3",
+    "collection": "workshop",
+    "values": [
+      {"key": "title", "value": "کارگاه خوشنویسی"},
+      {"key": "description", "value": "مقدمات خط نستعلیق و تمرین حروف و ترکیب‌ها."},
+      {"key": "teacher", "value": "سارا محمدی"},
+      {"key": "starts_at", "value": "+168h"},
+      {"key": "price", "value": "900000"}
+    ]
+  }
+]

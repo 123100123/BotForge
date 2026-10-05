@@ -13,7 +13,7 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     TEST_DATABASE_URL: str | None = None
 
-    FRONTEND_ORIGIN: str = "http://localhost:3000"
+    FRONTEND_ORIGIN: str = "http://localhost:3000"  # one origin, or several separated by commas
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     SUPABASE_URL: str | None = None
@@ -26,6 +26,11 @@ class Settings(BaseSettings):
 
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False
+
+    @property
+    def frontend_origins(self) -> list[str]:
+        """``FRONTEND_ORIGIN`` split on commas, whitespace stripped, empty entries dropped."""
+        return [origin for part in self.FRONTEND_ORIGIN.split(",") if (origin := part.strip())]
 
     @property
     def async_database_url(self) -> str | None:

@@ -35,7 +35,7 @@ services:
       # --- public addresses ---
       - key: PUBLIC_BASE_URL         # this service's public https URL; Telegram webhooks are registered under it
         sync: false
-      - key: FRONTEND_ORIGIN         # the Vercel URL, exactly one origin, no trailing slash (CORS)
+      - key: FRONTEND_ORIGIN         # the Vercel URL(s), comma-separated, no trailing slash (CORS)
         sync: false
       # --- LLM ---
       - key: LLM_MODEL_STRONG
