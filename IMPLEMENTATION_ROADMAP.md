@@ -22,81 +22,74 @@ Last updated: 2026-10-05 (Day 3 of 7).
 
 **Start here.** This section is the handoff between working sessions. It says what is done, what is unproven, and what to do next. Whoever ends a session updates it.
 
-As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Development moved from Windows to Linux at this point. The agent worktrees that existed on the Windows machine were all merged before the move; nothing is left on them.
+As of 2026-10-05 (end of the first Linux session), on local branch `main` of `github.com/123100123/BotForge`. Everything below is merged into `main`; it has **not** been pushed yet.
 
 ### Done
 
-- **Work packages:** WP0 through WP11 are built and merged. WP5 and WP4b had security reviews. A batch-2 verification found eight defects, and all eight have fixes merged (see "Open work", item 1).
-- **Gate A:** passed and independently verified. The golden workshop spec passes 9 hand-written and 11 derived scenarios through the real runtime. The repair-request spec passes 9 derived scenarios.
-- **Backend suite:** 1076 passed and 1 skipped (open item 0), with the database tests running and ruff clean. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
-- **Local smoke test:** `scripts/smoke_local.py` passes 15 of 15 steps against the real HTTP stack, with no LLM, no Telegram, and no cloud.
-- **Frontend:** all six tabs are built and work in mock mode (`NEXT_PUBLIC_MOCK=1`).
+- **Work packages:** WP0 through WP11 are built and merged. WP5 and WP4b had security reviews.
+- **Batch-2 fixes re-verified** by a fresh `verifier`. 10 of the 12 checks held. The 2 that failed were fixed and merged:
+  - **M2:** a requirement reworded during a clarify pause could keep its old-wording tests as coverage. Fixed with `AgentState.untested_touched`.
+  - **F5:** after disconnect and reconnect, the fresh owner link was hidden. It was also usable, and silently replaced the linked owner. New rule: an owner code can establish an owner but never replace one (see the Decision Log).
+- **Hanging test fixed.** It was a test bug, not a product bug: httpx's `ASGITransport` waits for a streaming response to finish, and the test opened the stream of a still-active run. The skip is removed, and a regression test proves a live stream closes when its run ends.
+- **Small fixes:**
+  - `FRONTEND_ORIGIN` accepts a comma-separated list; trailing slashes are stripped.
+  - `scripts/load_spec.py --sample-data` stores sample data and loads it into the sandbox; `backend/scripts/workshop.sample_data.json` is provided.
+  - Dispatch skips Telegram delivery to actor ids that are not ASCII integers.
+  - Token redaction catches spaced bot tokens and runs in linear time.
+  - The payload and response tables are up to date.
+- **Headless Claude provider:** `ClaudeCodeLLM` (`LLM_PROVIDER=claude_cli`) runs the agent through the Claude Code login, with no API key (see LLM Strategy).
+- **Gate A:** passed earlier.
+- **Gate C passed on headless Claude:** `eval_golden.py --create --provider claude_cli --runs 3` passed 3/3. Each run produced 10 derived and 5 acceptance scenarios, all green, with 2 tool calls. Notional API cost was about $0.17 per run, and a run takes about 1 minute.
+- **Gate D, automated part, passed on headless Claude:** `--modify --runs 3` passed 3/3, with both golden modifications in each run. It averaged 7 tool calls and a notional $0.19 per run. The manual Telegram half of Gate D is still open.
+- **Backend suite:** 1158 passed, 0 skipped, ruff clean (`uv sync --group dbtest --group headless && uv run pytest -q`).
+- **Frontend:** `npm ci`, lint and build (mock mode) pass on Linux.
 
 ### Built but not yet proven
 
-- **No call to the real LLM yet.** The create and modify agents are tested only with `FakeLLM`. Untested against the real API:
-  - whether structured output accepts the BotSpec and Scenario schemas;
-  - prompt caching;
-  - the `fallbacks` parameter;
-  - Persian quality of the outputs;
-  - real cost per run.
+- **Anthropic API path:** the agent has never run against the real API. Headless runs do not prove `output_config.format` acceptance of the BotSpec schema (O5), prompt caching, `fallbacks`, or real cost. This is the pre-deploy API check (see Milestone Gates).
 - **No real Telegram and no deployment.** The webhook path is tested only with `FakeTelegramClient`. The Docker image has never been built.
-- **The frontend has never talked to the real backend.** The contract was checked by reading code only.
+- **The frontend has never talked to the real backend.**
+- **Owner-link race safety** relies on Postgres READ COMMITTED re-checking a single `UPDATE ... WHERE` after a concurrent commit. Tests cover it; a human security review is still worthwhile.
 
 ### Open work, in order
 
-0. **Fix a hanging test** (do this first):
-   - **Symptom:** `tests/integration/test_runs_api.py::test_run_status_events_and_startup_interruption_over_the_api` never finishes, and it hangs the whole suite. It was added in the last agent-fix round and is now marked `skip`.
-   - **Isolation:** run on its own, it hangs. The other seven tests in that file pass on their own.
-   - **Suspect (unconfirmed):** the SSE stream for a run marked `interrupted` at startup never closes. Look at `orchestrator.ensure_status_event`, called from `api/runs.py` `stream_events`.
-   - **Why it matters:** if the stream really does stay open, every client watching an interrupted run holds a connection forever. It is therefore possibly a product bug, not only a test bug.
-   - **To finish:** fix it, remove the `skip`, and confirm the full suite still passes.
-1. **Re-verify the batch-2 fixes** with a fresh `verifier`. This is revision round 1 of the 2 allowed by the conductor policy. Each check below is a defect found in batch-2 verification:
-   - **Modification safety:**
-     - the change delta is cumulative across review rounds;
-     - every added or changed requirement is covered by a passing new test;
-     - a "changed" requirement whose wording is unchanged is dropped;
-     - the review payload includes `diff.requirements`.
-   - **Create-flow limits:**
-     - zero valid acceptance scenarios blocks approval;
-     - hitting the tool-call limit blocks approval;
-     - a Telegram token pasted into the agent chat is redacted at intake.
-   - **Frontend contract:**
-     - status comes from `run_status` events and from `GET /runs/{id}`, so a run is no longer stuck as running;
-     - the event stream does not reconnect for finished runs;
-     - the Tests tab handles revisions with no stored scenarios;
-     - the Data tab uses the new fields;
-     - Settings handles the single-use owner link.
-2. **Small fixes:**
-   - `FRONTEND_ORIGIN` should accept comma-separated origins, for Vercel preview URLs.
-   - `scripts/load_spec.py` should store sample data, so the simulator sandbox of a spec loaded by script is not empty.
-   - Dispatch should skip Telegram delivery to non-numeric actor ids. The seeded demo customers have ids like `demo-01`, and a delivery attempt to them is recorded as the bot's last Telegram error.
-   - The roadmap's event payload table needs `run_status` and `diff.requirements` added. Its "Response shapes" table needs the data-API additions: `timezone`, `statuses`, `actions`, `actor_name`, `item_title`, `field_errors`.
-3. **Live LLM** (needs `ANTHROPIC_API_KEY`; costs real money; ask the owner before running):
-   - Run `scripts/spike_structured_output.py` and decide O5.
-   - Then run `scripts/eval_golden.py --create --runs 3`, which is **Gate C**.
-   - Then run `scripts/eval_golden.py --modify --runs 3`. Together with a manual check on real Telegram this is **Gate D**.
-   - Fix the prompts until both pass.
-4. **Deploy** (needs the owner's accounts):
-   - Set up Supabase (project, Auth with email confirmation off), Render (`render.yaml`), and Vercel (root `frontend`), following the README "Deployment checklist".
+1. **Push** `main` to GitHub, after the owner has looked at the changes.
+2. **Follow-ups found this session** (small; none blocks the demo):
+   - **Stream race:** `Orchestrator._save` commits a terminal status before it appends the `run_status` event, so a stream can close just before that event. The frontend also polls `GET /runs/{id}`, so the UI still settles.
+   - **Telegram adapter:** `integrations/telegram/adapter.py` accepts Persian-digit ids through `isdigit()`/`int()`. Dispatch now filters them out first.
+   - **JWT redaction** is quadratic on long inputs. Agent input is capped at 4000 characters, where it takes about 4 ms.
+   - **npm:** `npm ci` reports 5 high-severity vulnerabilities. Triage them with a `security-executor`.
+   - **Budget check:** on `claude_cli`, the tools of the response that crosses the run budget may already have run.
+   - **`BotOut.owner_link_code`** (`GET /bots`, `api/bots.py`) returns the raw code instead of going through `armed_owner_code()`. Only the owner sees it, and the webhook rejects such codes, so it is not exploitable, but it should follow the same single rule.
+   - **ClaudeCodeLLM:** no test covers a drain that hangs or raises after a successful interrupt. The code path is the same timeout block.
+3. **Deploy** (needs the owner's accounts):
+   - Set up Supabase (Auth with email confirmation off), Render (`render.yaml`) and Vercel (root `frontend`), following the README "Deployment checklist".
    - Register two BotFather bots.
-   - Do the manual **Gate B** check: the golden spec serves real Telegram.
-   - Then **Gate E**: a new account completes the golden path using only the deployed UI.
-5. **Demo** (Days 6–7): feature freeze at the end of Day 6. Then work through the Demo Preparation Checklist, record the video early on Day 7, and verify the live link.
+   - Load the golden spec with `scripts/load_spec.py --sample-data scripts/workshop.sample_data.json`.
+4. **Pre-deploy API check** (needs `ANTHROPIC_API_KEY`; costs real money; ask the owner first): run `scripts/spike_structured_output.py` (decides O5), then `scripts/eval_golden.py --create --runs 1 --provider anthropic`.
+5. **Gates B, D (manual) and E:**
+   - **Gate B:** the golden spec serves real Telegram.
+   - **Gate D (manual):** both changes are made on a live bot.
+   - **Gate E:** a new account completes the golden path in the deployed UI.
+6. **Demo** (Days 6–7): feature freeze at the end of Day 6. Then the Demo Preparation Checklist, the video early on Day 7, and a check of the live link.
 
 ### Needs the owner
 
-- An Anthropic API key with billing.
-- Accounts for Supabase, Render (a paid always-on instance) and Vercel, or approval for an agent to create them through connectors.
+- Accounts for Supabase, Render (a paid always-on instance) and Vercel, or approval for an agent to create them through connectors. Supabase and Render connectors are available in Claude Code; Vercel's needs authorizing in claude.ai connector settings.
 - Two BotFather bot tokens.
+- An Anthropic API key with billing, needed only for the pre-deploy API check and the deployed app.
 - Answers from the organizers on O1 (deadline, video rules) and O2 (whether the "agent builders" rule restricts only build tooling).
 
 ### Setting up a new machine
 
-1. **Clone and test the backend:** `git clone https://github.com/123100123/BotForge && cd BotForge/backend`, then [install uv](https://docs.astral.sh/uv/), then `uv sync --group dbtest && uv run pytest -q`.
-2. **Frontend:** install Node 20.9 or newer, then `cd frontend && npm install && npm run build`. The last frontend build ran with a portable Node on Windows; run it again on the new machine.
-3. **Agent orchestration:** in Claude Code, ask it to install conductor by following `conductor/install/AGENT-INSTALL.md`. It installs globally under `~/.claude/`. It needs Python 3.9 or newer for the hooks, and Claude Code 2.1.284 or newer.
-4. **Local stack:** follow the README "Local setup" section. It has a Linux subsection.
+1. **Clone and test the backend:**
+   - `git clone https://github.com/123100123/BotForge && cd BotForge/backend`.
+   - Install uv with the official installer (`curl -LsSf https://astral.sh/uv/install.sh | sh`), so it lands in `~/.local/bin`. On Ubuntu, avoid the `astral-uv` snap: after a snap auto-refresh it exited with code 120 and no output.
+   - Then `uv sync --group dbtest --group headless && uv run pytest -q`.
+2. **Frontend:** Node 20.9 or newer, then `cd frontend && npm ci && npm run build`.
+3. **Headless LLM:** log in to Claude Code once. The `claude-agent-sdk` package (group `headless`) bundles the CLI, so `claude` does not need to be on PATH. Set `LLM_PROVIDER=claude_cli` for local runs and evals.
+4. **Agent orchestration:** in Claude Code, ask it to install conductor by following `conductor/install/AGENT-INSTALL.md`, then restart Claude Code. It installs globally under `~/.claude/`, and needs Python 3.9 or newer and Claude Code 2.1.284 or newer. On this machine the main model is `opus`; Fable 5.1 (`/model best`) is only for highly sensitive jobs.
+5. **Local stack:** follow the README "Local setup" section.
 
 ---
 
@@ -1602,3 +1595,4 @@ Not part of the hackathon build.
 | 2026-10-05 | Batch-2 verification fixes (build agent, platform, frontend) and WP11 (Dockerfile, Render blueprint, dev database, demo seed, local smoke test, README) merged. Repository published to GitHub as `main`, made Linux-ready (`.gitattributes`, Linux setup notes), and given a "Current Status" handoff section at the top of this document. |
 | 2026-10-05 | Headless Claude provider (`claude_cli`) for evals and local development. Roadmap sections updated: LLM Strategy, Open Decisions O4/O5, Milestone Gates, Test Strategy, WP6 verification. Event payload and response-shape tables brought up to date (`run_status`, `diff.requirements`, data API `timezone`, `statuses`, `actions`, `actor_name`, `item_title`, `field_errors`). |
 | 2026-10-05 | Owner-link relink fix (F5): connect and disconnect unlink the owner, a code never replaces a linked owner, and the Settings page and mock match the backend. Token redaction also catches a bot token written with spaces or bidi marks around the colon (C3), in linear time. |
+| 2026-10-05 | First Linux session. The hanging runs-API test was a test bug; it is fixed and unskipped. Modify-flow fix M2 (`untested_touched`). Small fixes: origin list, `load_spec --sample-data`, ASCII-only Telegram chat ids. **Gate C passed** on headless Claude (3/3), and the automated part of **Gate D** passed (3/3); the manual Telegram half of Gate D is still open. 1158 backend tests pass, 0 skipped. |
