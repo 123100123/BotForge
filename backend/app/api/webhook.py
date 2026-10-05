@@ -8,8 +8,11 @@ back.
 
 Processing: record ``(bot_id, update_id)`` in ``tg_updates`` and commit at once (a duplicate delivery
 stops here); owner deep link ``/start owner_<code>`` (single use, and only while no owner is
-linked); the fixed "not ready" reply when the bot has no active revision; otherwise ``dispatch``.
-Owner linking is handled before the active-revision check because linking needs no revision.
+linked); staff deep link ``/start staff_<code>`` in a private chat (multi-use; ``_join_staff``): on
+the bot's current code the sender becomes staff, is told so and then gets the normal start, on any
+other code one generic reply and nothing else; the fixed "not ready" reply when the bot has no
+active revision; otherwise ``dispatch``. Owner linking and joining as staff are handled before the
+active-revision check because neither needs a revision.
 
 Everything after the HTTP checks is ``process_update``, which the poller (``TELEGRAM_MODE=polling``,
 ``app.integrations.telegram.poller``) calls for every update it fetches, so both modes share one
@@ -34,6 +37,7 @@ from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import ParsedUpdate, parse_update
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
 from app.integrations.telegram.onboarding import armed_owner_code
+from app.roles.service import STAFF_JOINED, STAFF_LINK_INVALID, redeem_staff_code, staff_code_from_payload
 from app.runtime.pg_store import advisory_lock
 from app.security.crypto import verify_webhook_secret
 from app.services.dispatch import dispatch, reply_plain
@@ -147,6 +151,14 @@ async def _process(
     if parsed.start_payload is not None and parsed.start_payload.startswith(OWNER_PAYLOAD_PREFIX):
         await _link_owner(session, bot, parsed, telegram)
         return
+    staff_code = staff_code_from_payload(parsed.start_payload)
+    if (
+        staff_code is not None
+        and parsed.event.chat_type == "private"
+        and not await _join_staff(session, bot, parsed, staff_code, telegram)
+    ):
+        return  # not joined: the generic reply was the whole answer
+    # (joined: the normal start follows, welcome and the menu, now with the staff items)
 
     active = await load_active_spec(session, bot)
     if active is None:
@@ -191,6 +203,26 @@ async def _link_owner(
     await session.commit()  # also releases the lock
     text = texts.OWNER_LINKED if linked else texts.OWNER_LINK_INVALID
     await reply_plain(session, fresh, parsed.origin.chat_id, text, telegram=telegram, origin=parsed.origin)
+
+
+async def _join_staff(
+    session: AsyncSession, bot: Bot, parsed: ParsedUpdate, code: str, telegram: TelegramProvider
+) -> bool:
+    """``/start staff_<code>``: make the sender staff of the live bot when ``code`` is its current
+    staff code (``roles.service.redeem_staff_code``: checked in constant time under the bot's lock,
+    idempotent, a manager stays a manager) and confirm it; True when joined.
+
+    Any other code (wrong, rotated, revoked, empty) changes nothing and gets one generic reply,
+    whatever the reason. The code is never logged or echoed. The role is committed before any
+    reply, so the start that follows (``dispatch``, which reads the role under the same lock)
+    already shows the staff menu.
+    """
+    actor = parsed.event.actor
+    joined = await redeem_staff_code(session, bot, actor.id, code, display_name=actor.display_name)
+    await session.commit()  # also releases the lock
+    text = STAFF_JOINED if joined else STAFF_LINK_INVALID
+    await reply_plain(session, bot, parsed.origin.chat_id, text, telegram=telegram, origin=parsed.origin)
+    return joined
 
 
 def _same_code(given: str, expected: str) -> bool:

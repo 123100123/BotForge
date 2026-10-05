@@ -1,4 +1,8 @@
-"""Simulator endpoints: send a persona's event to the sandbox; reset the sandbox."""
+"""Simulator endpoints: send a persona's event to the sandbox; reset the sandbox.
+
+``persona`` is one of ``simulator.service.Persona``: ``ali``, ``sara``, ``reza`` (customers),
+``staff`` (role staff) or ``owner`` (the bot owner, a manager). Anything else is a 422.
+"""
 
 import uuid
 

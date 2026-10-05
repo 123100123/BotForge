@@ -3,6 +3,10 @@
 Events run with ``env="sandbox"`` through ``dispatch`` (so locking and transactions match Telegram),
 against the chosen revision's spec: the active revision, or any draft/active revision of the same
 bot. Nothing is sent to Telegram from here. Sandbox rows never mix with live rows (``env`` column).
+
+Personas: three customers (``ali``, ``sara``, ``reza``), ``staff`` (role staff: sees staff-only
+capabilities and works the request queue) and ``owner`` (the bot owner, a manager). A persona's role
+is carried in its actor; ``dispatch`` reads roles from ``bot_users`` for live events only.
 """
 
 import uuid
@@ -11,7 +15,7 @@ from typing import Literal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.botspec.models import BotSpec
+from app.botspec.models import BotSpec, Role
 from app.db.models import Bot, Revision
 from app.revisions.service import load_sample_data
 from app.runtime.contracts import Actor, RuntimeEvent, RuntimeResponse
@@ -21,9 +25,11 @@ from app.services.specs import get_bot_revision
 from app.testing.drivers import DISPLAY_NAMES
 from app.testing.scenario import OWNER
 
-Persona = Literal["ali", "sara", "reza", "owner"]
+Persona = Literal["ali", "sara", "reza", "staff", "owner"]
 EventKind = Literal["start", "text", "callback"]
 SIMULATABLE = ("draft", "active")
+STAFF = "staff"  # the staff persona's actor id
+PERSONA_NAMES: dict[str, str] = {**DISPLAY_NAMES, STAFF: "همکار"}
 
 
 class SimulatorError(Exception):
@@ -37,7 +43,8 @@ class SimulatorError(Exception):
 
 
 def persona_actor(persona: Persona) -> Actor:
-    return Actor(id=persona, display_name=DISPLAY_NAMES[persona], is_owner=persona == OWNER)
+    role: Role = "staff" if persona == STAFF else "customer"  # the owner is a manager through is_owner
+    return Actor(id=persona, display_name=PERSONA_NAMES[persona], is_owner=persona == OWNER, role=role)
 
 
 async def resolve_revision(session: AsyncSession, bot: Bot, revision_id: uuid.UUID | None) -> Revision:
