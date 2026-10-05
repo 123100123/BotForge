@@ -1,13 +1,16 @@
 # BotForge
 
-BotForge lets a small-business owner describe a business in Persian and get a working Telegram bot.
-An AI agent turns the conversation into a validated BotSpec (data, not code); a deterministic runtime
-executes it. The owner tests the bot in a web simulator, approves each version, edits live data in a
-dashboard, and asks for changes in plain language. Every change is a reviewable, reversible revision.
+**One bot. Your entire business. Built and maintained by AI.**
+
+BotForge is a Persian AI Business OS for Telegram: the owner describes the business, and an AI agent
+builds and maintains a modular bot (orders, bookings, events, forms, reports, spreadsheet analysis) from
+a validated BotSpec that a deterministic runtime executes with no LLM calls for routine operations.
+The owner runs it from the Business Control Center; every change is a reviewable, reversible revision.
 
 The V1 demo scenario is a workshop-registration bot (capacity, waitlist with automatic promotion,
-cancellation). `IMPLEMENTATION_ROADMAP.md` is the source of truth for scope, architecture and decisions;
-this README only covers running and deploying the project.
+cancellation). `IMPLEMENTATION_ROADMAP.md` is the source of truth for scope, architecture and decisions
+(the Business OS expansion lives on branch `business-os`); this README only covers running and deploying
+the project.
 
 ## Repository layout
 
@@ -18,7 +21,7 @@ this README only covers running and deploying the project.
 | `backend/scripts/` | Operator and dev tools: `create_user.py`, `load_spec.py`, `seed_demo.py`, `dev_db.py`, `smoke_local.py`, `eval_golden.py` |
 | `backend/tests/` | `unit/`, `golden/`, `integration/` (needs Postgres) |
 | `backend/Dockerfile` | Production image (one container, one worker) |
-| `frontend/` | Next.js web app (Persian, RTL) |
+| `frontend/` | Business Control Center (Next.js, Persian, RTL) |
 | `examples/` | Golden workshop BotSpec, scenarios and prompts |
 | `render.yaml` | Render Blueprint for the backend |
 | `conductor/` | Claude Code orchestration config used to build this project (not part of the product); install with `conductor/install/AGENT-INSTALL.md` |
