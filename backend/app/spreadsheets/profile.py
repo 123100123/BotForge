@@ -10,6 +10,13 @@ never fatal), so one bad suggestion never fails the profile. The profile is stor
 layout signature (``column_signature`` of the chosen sheet); creating it again for the same layout
 updates the stored one. ``update_profile`` applies the same validation to an owner's edit.
 
+Cost control (SECURITY): the profile draft (strong tier) and the run summary (fast tier, ``run.py``) are
+the only model calls of Spreadsheet Intelligence and both are paid. ``claim_llm_call`` allows at most
+``LLM_CALLS_PER_DAY`` of them per owner ACCOUNT per rolling 24 hours (keyed by the account, so more bots
+buy no more calls), counted in this process like the agent's run limiter (one backend process; a restart
+starts a fresh window). A draft over the budget is refused with 429 ``analysis_daily_cap`` before the
+model is called; a summary over it is skipped.
+
 The caller commits. Errors are ``ProfileError`` (Persian ``message_fa``, HTTP ``status``).
 """
 
@@ -35,10 +42,16 @@ from app.schemas.business import (
     SheetProfile,
     WorkbookInspection,
 )
+from app.security.rate_limit import RateLimiter
 from app.spreadsheets import service
 from app.spreadsheets.inspect import column_signature, normalize_label
 
 log = logging.getLogger(__name__)
+
+LLM_WINDOW_SECONDS = 24 * 60 * 60.0
+LLM_CALLS_PER_DAY = 30  # profile drafts and run summaries together, per owner account (module docstring)
+LLM_CAP_MESSAGE = "به سقف تحلیل هوشمند امروز رسیده‌اید. لطفاً فردا دوباره تلاش کنید."
+llm_call_limiter = RateLimiter(LLM_WINDOW_SECONDS)
 
 MAX_METRICS = 8
 MAX_CHECKS = 6
@@ -69,6 +82,21 @@ class ProfileError(Exception):
 class LLMUnavailable(ProfileError):
     def __init__(self, message_fa: str = LLM_UNAVAILABLE_MESSAGE, *, code: str = "llm_unavailable") -> None:
         super().__init__(503, code, message_fa)
+
+
+class LLMCapReached(ProfileError):
+    """The owner's daily budget of model calls is used up (``claim_llm_call``)."""
+
+    def __init__(self) -> None:
+        super().__init__(429, "analysis_daily_cap", LLM_CAP_MESSAGE)
+
+
+def claim_llm_call(bot: Bot) -> bool:
+    """Count one model call against the daily budget of ``bot``'s owner account; False, counting
+    nothing, once the budget is used up (module docstring). A bot without an owner (only built in
+    tests: the column is NOT NULL) has a budget of its own."""
+    key = f"user:{bot.owner_id}" if bot.owner_id is not None else f"bot:{bot.id}"
+    return llm_call_limiter.allow(key, LLM_CALLS_PER_DAY)
 
 
 class ProfileDraft(BaseModel):
@@ -362,6 +390,8 @@ async def create_profile(
     inspection = service.to_upload_out(upload_row).inspection
     if not any(s.rows for s in inspection.sheets):
         raise ProfileError(422, "empty_workbook", EMPTY_SHEET_MESSAGE)
+    if not claim_llm_call(bot):  # cost control: counted before the model is called, failures included
+        raise LLMCapReached()
     payload = _prompt_payload(inspection, upload_row.filename)
     try:
         result, _usage = await llm.structured(

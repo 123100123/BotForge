@@ -5,8 +5,8 @@
 run (a missing column; new columns alone are tolerated and listed in ``schema_diff.new``) or evaluates
 every metric with ``runtime.aggregate`` and every check, and stores the run. The same file and profile
 always give the same metrics (day and week buckets use UTC because spreadsheet datetimes carry no zone).
-An optional fast-tier narrative (``narrative.py``) is the only model call, and its failure leaves the
-run ``ok`` without a summary.
+An optional fast-tier narrative (``narrative.py``) is the only model call, and its failure (or the owner's
+daily model budget being used up, ``profile.claim_llm_call``) leaves the run ``ok`` without a summary.
 
 Checks (anomalies):
 - ``outlier_high`` / ``outlier_low``: z-score (population standard deviation) of the per-group sum of
@@ -17,6 +17,14 @@ Checks (anomalies):
 - ``missing_values``: the number of empty cells in ``field`` (info; critical above 20% of the rows).
 At most ``MAX_ANOMALIES_PER_CHECK`` anomalies per check, the most extreme first.
 
+Size (SECURITY): a run is stored, listed fifty at a time and read back by the Overview and the Copilot,
+and its group labels are cell values of an uploaded file (any length, one per distinct value). So a
+series or breakdown keeps at most ``MAX_SERIES_POINTS`` points (day/week series their latest buckets,
+breakdowns their largest groups) and every group label, anomalies included, is cut to
+``MAX_GROUP_LABEL_CHARS`` characters. Scalar values are computed over every row as before. A large
+sheet is seconds of CPU, so the rows are read and evaluated in ONE job on the spreadsheet parser thread
+(``service.compute_on_rows``), never on the event loop that serves every bot's webhook.
+
 ``run_profile`` and ``run_for_upload`` flush; the caller commits.
 """
 
@@ -24,6 +32,7 @@ import logging
 import math
 import uuid
 from datetime import UTC, datetime
+from functools import partial
 from typing import Any
 
 from sqlalchemy import select
@@ -49,7 +58,8 @@ from app.spreadsheets import service
 from app.spreadsheets.errors import SpreadsheetError
 from app.spreadsheets.inspect import column_signature, normalize_label
 from app.spreadsheets.narrative import narrate
-from app.spreadsheets.reader import Cell
+from app.spreadsheets.profile import claim_llm_call
+from app.spreadsheets.reader import Cell, truncate
 from app.spreadsheets.storage import FileStorage, get_storage
 
 log = logging.getLogger(__name__)
@@ -60,6 +70,8 @@ Z_CRITICAL = 3.0
 MISSING_CRITICAL_SHARE = 0.2
 MAX_ANOMALIES_PER_CHECK = 10
 RUNS_LIMIT = 50
+MAX_SERIES_POINTS = 100  # points stored per series / breakdown metric (module docstring, "Size")
+MAX_GROUP_LABEL_CHARS = 80  # a group label is a cell value of the uploaded file
 
 
 def mismatch_message(profile_name: str) -> str:
@@ -110,13 +122,23 @@ def _metric_value(spec: AnalysisMetricSpec, rows: list[Row]) -> MetricValue:
     )
     if spec.group_by is None:
         return MetricValue(id=spec.id, label=spec.label, kind="scalar", value=result.value)
+    groups = result.groups
+    if len(groups) > MAX_SERIES_POINTS:
+        if time_bucketed:  # the latest buckets, still in time order
+            groups = groups[-MAX_SERIES_POINTS:]
+        else:  # the largest groups (``evaluate``'s own top-n order)
+            groups = sorted(groups, key=lambda g: (-g[1], g[0]))[:MAX_SERIES_POINTS]
     return MetricValue(
         id=spec.id,
         label=spec.label,
         kind="series" if time_bucketed else "breakdown",
         value=result.value,
-        series=[SeriesPoint(label=label, value=value) for label, value in result.groups],
+        series=[SeriesPoint(label=_group_label(label), value=value) for label, value in groups],
     )
+
+
+def _group_label(label: str) -> str:
+    return truncate(label, MAX_GROUP_LABEL_CHARS)
 
 
 # --- checks -----------------------------------------------------------------------------------------
@@ -143,7 +165,7 @@ def _anomaly(
             "check_id": check.id,
             "label": check.label,
             "field": check.field,
-            "group": group,
+            "group": None if group is None else _group_label(group),
             "value": value,
             "expected": expected,
             "severity": severity,
@@ -197,6 +219,27 @@ def _run_check(check: AnalysisCheckSpec, rows: list[Row]) -> list[AnalysisAnomal
     if check.kind in ("threshold_above", "threshold_below"):
         return _thresholds(check, rows)
     return _missing(check, rows)
+
+
+def _evaluate(
+    headers: list[str],
+    rows: list[list[Cell]],
+    *,
+    expected: list[str],
+    metric_specs: list[Any],
+    check_specs: list[Any],
+) -> tuple[SchemaDiff, list[MetricValue], list[AnalysisAnomaly]]:
+    """The CPU-bound part of a run, pure (it runs on the parser thread): the layout comparison, then,
+    unless a column is missing, every metric and every check."""
+    diff = diff_columns(expected, headers)
+    if diff.missing:
+        return diff, [], []
+    data = _rows_as_dicts(headers, rows, expected)
+    metrics = [_metric_value(AnalysisMetricSpec.model_validate(m), data) for m in metric_specs]
+    anomalies: list[AnalysisAnomaly] = []
+    for raw in check_specs:
+        anomalies.extend(_run_check(AnalysisCheckSpec.model_validate(raw), data))
+    return diff, metrics, anomalies
 
 
 # --- running ----------------------------------------------------------------------------------------
@@ -275,10 +318,17 @@ async def run_profile(
             session, bot, profile_row, upload_row, status="schema_changed", submitted_by=submitted_by,
             schema_diff=diff, error=changed_message,
         )  # fmt: skip
-    try:
-        headers, rows = await service.load_rows(
+    evaluate_rows = partial(
+        _evaluate,
+        expected=expected,
+        metric_specs=list(profile_row.metrics),
+        check_specs=list(profile_row.checks),
+    )
+    try:  # SECURITY: read and evaluated in one job on the parser thread, never on the event loop
+        diff, metrics, anomalies = await service.compute_on_rows(
             store,
             upload_row,
+            evaluate_rows,
             sheet=sheet.name,
             max_rows=cfg.SPREADSHEET_MAX_ROWS,
             max_cols=cfg.SPREADSHEET_MAX_COLUMNS,
@@ -290,20 +340,16 @@ async def run_profile(
             error=exc.message_fa,
         )  # fmt: skip
 
-    diff = diff_columns(expected, headers)
     if diff.missing:
         return await _store(
             session, bot, profile_row, upload_row, status="schema_changed", submitted_by=submitted_by,
             schema_diff=diff, error=changed_message,
         )  # fmt: skip
 
-    data = _rows_as_dicts(headers, rows, expected)
-    metrics = [_metric_value(AnalysisMetricSpec.model_validate(m), data) for m in profile_row.metrics]
-    anomalies: list[AnalysisAnomaly] = []
-    for raw in profile_row.checks:
-        anomalies.extend(_run_check(AnalysisCheckSpec.model_validate(raw), data))
     summary = None
-    if narrative and llm is not None:
+    # The summary is a paid model call, counted against the owner's daily budget
+    # (``profile.claim_llm_call``); once that is used up the run is stored without one.
+    if narrative and llm is not None and claim_llm_call(bot):
         summary = await narrate(llm, profile_row.name, metrics, anomalies)
     result = {
         "metrics": [m.model_dump(mode="json") for m in metrics],
