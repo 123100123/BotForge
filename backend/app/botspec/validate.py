@@ -75,7 +75,8 @@ from app.botspec.records import RecordValueError, coerce_value
 from app.botspec.text_keys import allowed_placeholders, placeholders_in
 from app.runtime.callbacks import ACT_OWN, CallbackError, make_callback  # leaf module, no cycle
 
-RESERVED_KEYS = frozenset({"menu"})
+# "menu": callback namespace; "overview": would shadow GET /bots/{id}/reports/overview.
+RESERVED_KEYS = frozenset({"menu", "overview"})
 MAX_MENU_ITEMS = 8
 MAX_REMINDER_HOURS = 720
 # Largest record id we budget for in owner-action callback data ("own" arg = "<id>.<action>").

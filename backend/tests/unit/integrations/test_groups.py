@@ -39,6 +39,7 @@ from app.spreadsheets.errors import BUSY_MESSAGE, too_large_message
 from app.spreadsheets.telegram_ingest import (
     ANALYSIS_FAILED,
     DOWNLOAD_FAILED,
+    NO_PROFILE,
     RECEIVED,
     handle_document,
     run_reply,
@@ -655,7 +656,7 @@ def test_run_reply_for_a_changed_layout_lists_the_missing_columns() -> None:
 
 
 def test_run_reply_for_nothing_or_a_failure_acknowledges_the_file() -> None:
-    assert run_reply(None, "x.xlsx") == RECEIVED
+    assert run_reply(None, "x.xlsx") == NO_PROFILE  # stored, but no profile fits its layout
     assert run_reply({"not": "a run"}, "x.xlsx") == RECEIVED
     assert run_reply(run("failed", error="boom"), "x.xlsx") == f"{RECEIVED}\n{ANALYSIS_FAILED}"
 

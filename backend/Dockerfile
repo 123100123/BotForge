@@ -32,7 +32,11 @@ COPY alembic ./alembic
 COPY app ./app
 COPY scripts ./scripts
 
-RUN useradd --system --uid 10001 --no-create-home botforge && chown -R botforge /app
+# /data/uploads is the UPLOAD_DIR of deploy/docker-compose.yml. Created here, owned by the app user,
+# so a fresh named volume mounted on it starts out writable (Docker copies the ownership in).
+RUN useradd --system --uid 10001 --no-create-home botforge \
+    && mkdir -p /data/uploads \
+    && chown -R botforge /app /data/uploads
 USER botforge
 
 # Render injects PORT; 8000 is the fallback for a plain `docker run`.
