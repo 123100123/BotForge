@@ -3,13 +3,14 @@
 import { useState } from "react";
 import { AnalystTab } from "@/components/analyst/analyst-tab";
 import { Segmented } from "@/components/app/segmented";
+import type { WorkspaceTab } from "@/components/app/workspace";
 import { ReportsTab } from "@/components/reports/reports-tab";
 import type { Bot } from "@/lib/types";
 
 type ReportsView = "reports" | "analyst";
 
 /** The Reports section: business reports, with the Data Analyst as a sub-section. */
-export function ReportsSection({ bot }: { bot: Bot }) {
+export function ReportsSection({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: WorkspaceTab) => void }) {
   const [view, setView] = useState<ReportsView>("reports");
 
   return (
@@ -23,7 +24,7 @@ export function ReportsSection({ bot }: { bot: Bot }) {
           { value: "analyst", label: "تحلیلگر داده" },
         ]}
       />
-      {view === "reports" ? <ReportsTab bot={bot} /> : <AnalystTab bot={bot} />}
+      {view === "reports" ? <ReportsTab bot={bot} onOpenTab={onOpenTab} /> : <AnalystTab bot={bot} />}
     </div>
   );
 }
