@@ -585,7 +585,7 @@ async def test_the_real_client_sends_the_existing_secret_and_leaks_nothing(
     assert json.loads(requests[0].content) == {
         "url": f"{NEW_BASE}/tg/{ok.id}",
         "secret_token": ok.secret,
-        "allowed_updates": ["message", "callback_query"],
+        "allowed_updates": ["message", "callback_query", "my_chat_member"],
         "drop_pending_updates": False,  # customer messages sent during a host move are kept
     }
     assert len(requests) == 4  # ok, revoked, and the unreachable one tried twice (one retry)

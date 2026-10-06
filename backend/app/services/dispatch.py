@@ -27,6 +27,19 @@ and only notifications to other people (for example a promoted customer) go out.
 Messages to an actor whose id is not a Telegram chat id (for example the seeded demo customers
 ``demo-01``) are skipped too: Telegram would reject them, and that rejection would show up in
 Settings as a false error. The skip is logged and leaves ``bots.tg_last_error`` alone.
+
+Group interactions (``event.chat_type == "group"``: a button press on a group message, in practice
+the RSVP button of an event card) are delivered differently (``_deliver_group``), after the runtime
+ran and the state committed like every live event:
+
+- the button press is answered once, and the first reply to the presser that is not an edit becomes
+  the ``answerCallbackQuery`` toast text (seen by the presser only);
+- after a successful RSVP (book or cancel) on an events capability, the pressed message (the card)
+  is rendered again (``services/group_cards.py``, read after the commit) and edited in place;
+  Telegram's "message is not modified" is not an error;
+- notices to other people (an owner alert) go to their private chats as usual;
+- nothing else is sent: no message to the group, and nothing at all to the presser's private chat
+  (their other replies, edits included, belong to a private conversation and are dropped).
 """
 
 import logging
@@ -39,19 +52,31 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.botspec.models import BotSpec, Role
 from app.db.models import Bot
-from app.integrations.telegram.adapter import TelegramOrigin, render_text, send_out_message
+from app.integrations.telegram.adapter import (
+    NOT_MODIFIED,
+    TelegramOrigin,
+    render_text,
+    reply_markup,
+    send_out_message,
+)
 from app.integrations.telegram.client import TelegramApi, TelegramError, TelegramProvider, default_provider
 from app.roles.service import get_role
-from app.runtime.contracts import RuntimeEvent, RuntimeResponse
+from app.runtime.contracts import OutMessage, RuntimeEvent, RuntimeResponse
 from app.runtime.pg_store import PgStore, advisory_lock
 from app.runtime.runtime import BotRuntime
 from app.security.crypto import TokenCryptoError, decrypt_token
+from app.services.group_cards import Card, is_events_capability, render_for_item
 
 log = logging.getLogger(__name__)
 
 SANDBOX_OWNER = "owner"
 MAX_ERROR_CHARS = 500
+NO_TOKEN = "توکن تلگرام در دسترس نیست؛ پیام‌ها ارسال نشدند."
 _CHAT_ID = re.compile(r"-?[0-9]+")  # a Telegram chat id (ASCII digits: \d also matches Persian ones)
+_USER_ID = re.compile(r"[0-9]+")  # a person's private chat (group and channel ids are negative)
+# Outcomes after which a group's event card shows a different count.
+_CARD_ACTIONS = frozenset({"book", "cancel"})
+_CARD_RESULTS = frozenset({"confirmed", "waitlisted", "cancelled"})
 
 
 async def dispatch(
@@ -97,7 +122,10 @@ async def dispatch(
         raise
 
     if live:
-        await _deliver(session, target, response, event, origin, provider)
+        if event.chat_type == "group":
+            await _deliver_group(session, target, spec, response, event, origin, provider)
+        else:
+            await _deliver(session, target, response, event, origin, provider)
     return response
 
 
@@ -146,6 +174,12 @@ def _client_for(target: _Target, provider: TelegramProvider) -> TelegramApi | No
         return None
 
 
+def client_for_bot(bot: Bot, telegram: TelegramProvider | None = None) -> TelegramApi | None:
+    """A Telegram client with ``bot``'s decrypted token (the webhook's document download), or ``None``
+    (logged) when the bot has no usable token. The token never leaves the client."""
+    return _client_for(_Target(bot.id, bot.tg_token_enc, bot.tg_last_error), telegram or default_provider)
+
+
 async def _answer_callback_best_effort(
     target: _Target, origin: TelegramOrigin | None, provider: TelegramProvider
 ) -> None:
@@ -172,7 +206,7 @@ async def _deliver(
     attempts = 0
     client = _client_for(bot, provider)
     if client is None:
-        await _record_error(session, bot, "توکن تلگرام در دسترس نیست؛ پیام‌ها ارسال نشدند.")
+        await _record_error(session, bot, NO_TOKEN)
         return
 
     if origin is not None and origin.callback_query_id is not None:
@@ -201,6 +235,132 @@ async def _deliver(
 
     if attempts:  # a delivery that sent nothing says nothing about the last error
         await _record_error(session, bot, errors[-1] if errors else None)
+
+
+def _toast(response: RuntimeResponse, event: RuntimeEvent) -> str | None:
+    """The toast of a group button press: the first reply to the presser that is not an edit."""
+    return next((m.text for m in response.messages if m.to_actor_id == event.actor.id and not m.edit), None)
+
+
+async def _refreshed_card(
+    session: AsyncSession, bot_id: uuid.UUID, spec: BotSpec, response: RuntimeResponse, event: RuntimeEvent
+) -> Card | None:
+    """The card of the event that a successful RSVP (book or cancel) in ``response`` changed, read
+    after the commit so it shows the latest count; ``None`` when there is no such RSVP on an events
+    capability, the booking or its item is gone, or the read fails (logged: the card is cosmetic and
+    the RSVP is already committed)."""
+    outcome = next(
+        (
+            o
+            for o in response.outcomes
+            if o.action in _CARD_ACTIONS and o.result in _CARD_RESULTS and o.record_id is not None
+        ),
+        None,
+    )
+    if outcome is None or outcome.record_id is None:
+        return None
+    cap = spec.capability(outcome.capability)
+    if not is_events_capability(cap):
+        return None
+    try:
+        store = PgStore(session, bot_id, event.env)
+        booking = await store.get_record(cap.key, outcome.record_id)
+        card = None
+        if booking is not None and booking.item_id is not None:
+            card = await render_for_item(store, spec, cap, booking.item_id, now=event.now)
+        await session.commit()  # ends the read-only transaction (nothing is pending after dispatch)
+        return card
+    except Exception:
+        log.exception("bot %s: could not render the event card again", bot_id)
+        try:
+            await session.rollback()
+        except Exception:
+            log.exception("bot %s: rollback failed", bot_id)
+        return None
+
+
+async def _deliver_group(
+    session: AsyncSession,
+    bot: _Target,
+    spec: BotSpec,
+    response: RuntimeResponse,
+    event: RuntimeEvent,
+    origin: TelegramOrigin | None,
+    provider: TelegramProvider,
+) -> None:
+    """Delivery for a group interaction (module docstring): the toast, the card edit, notices to
+    other people; nothing to the group otherwise and nothing to the presser's private chat."""
+    errors: list[str] = []
+    attempts = 0
+    client = _client_for(bot, provider)
+    if client is None:
+        await _record_error(session, bot, NO_TOKEN)
+        return
+
+    if origin is not None and origin.callback_query_id is not None:
+        attempts += 1
+        try:
+            await client.answer_callback_query(origin.callback_query_id, text=_toast(response, event))
+        except TelegramError as exc:
+            _log_failure(bot, exc)
+            errors.append(f"{exc.method}: {exc.description}")
+
+    if origin is not None and origin.message_id is not None:
+        card = await _refreshed_card(session, bot.id, spec, response, event)
+        if card is not None:
+            text, buttons = card
+            markup = reply_markup(OutMessage(to_actor_id=event.actor.id, text=text, buttons=buttons))
+            attempts += 1
+            try:
+                await client.edit_message_text(origin.chat_id, origin.message_id, render_text(text), markup)
+            except TelegramError as exc:
+                if NOT_MODIFIED not in exc.description.lower():  # else the card already shows it
+                    _log_failure(bot, exc)
+                    errors.append(f"{exc.method}: {exc.description}")
+
+    for message in response.messages:
+        if message.to_actor_id == event.actor.id:
+            continue  # the toast above, or a private-chat reply that has no place in a group
+        if not _USER_ID.fullmatch(message.to_actor_id):
+            log.info("bot %s: %r is not a person's chat id; not delivered", bot.id, message.to_actor_id)
+            continue
+        attempts += 1
+        try:
+            await send_out_message(client, message, event, None)  # no origin: never an edit
+        except TelegramError as exc:
+            _log_failure(bot, exc)
+            errors.append(f"{exc.method}: {exc.description}")
+        except Exception:  # a delivery bug must not fail an event that already committed
+            log.exception("bot %s: unexpected error while delivering a message", bot.id)
+            errors.append("خطای غیرمنتظره در ارسال پیام")
+
+    if attempts:
+        await _record_error(session, bot, errors[-1] if errors else None)
+
+
+async def answer_callback(
+    session: AsyncSession,
+    bot: Bot,
+    origin: TelegramOrigin | None,
+    text: str | None = None,
+    *,
+    telegram: TelegramProvider | None = None,
+) -> None:
+    """Answer a button press, with ``text`` as its toast, and send nothing else (the webhook's answer
+    to a group button press that never reaches the runtime). Best effort like ``reply_plain``."""
+    if origin is None or origin.callback_query_id is None:
+        return
+    target = _Target(bot.id, bot.tg_token_enc, bot.tg_last_error)
+    client = _client_for(target, telegram or default_provider)
+    if client is None:
+        return
+    error: str | None = None
+    try:
+        await client.answer_callback_query(origin.callback_query_id, text=text)
+    except TelegramError as exc:
+        _log_failure(target, exc)
+        error = f"{exc.method}: {exc.description}"
+    await _record_error(session, target, error)
 
 
 async def reply_plain(

@@ -171,7 +171,11 @@ async def test_updates_are_handled_in_order_through_the_webhook_path_and_the_off
 
     names = [name for name, _ in fake.calls]
     assert names[0] == "deleteWebhook" and fake.calls[0][1] == {"drop_pending_updates": False}
-    assert polls(fake)[0] == {"offset": None, "timeout": 25, "allowed_updates": ["message", "callback_query"]}
+    assert polls(fake)[0] == {
+        "offset": None,
+        "timeout": 25,
+        "allowed_updates": ["message", "callback_query", "my_chat_member"],
+    }
     # the webhook's own path: deduplicated, converted, dispatched and answered, one update at a time
     assert await seen_updates(session_factory, bot.id) == {501, 502, 503}
     chats = [int(call["chat_id"]) for call in fake.calls_to("sendMessage")]

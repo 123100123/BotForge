@@ -1,13 +1,26 @@
 """Telegram update <-> runtime contracts (roadmap: Telegram Integration, steps 4 and 6).
 
 Inbound: ``parse_update`` turns a raw update dict into a ``ParsedUpdate`` (a ``RuntimeEvent`` plus the
-Telegram-only details the runtime must not see). Only private chats are handled; `/start` becomes a
-``start`` event (a deep-link payload is returned separately), other text a ``text`` event, a callback
-query a ``callback`` event; everything else yields ``None``.
+Telegram-only details the runtime must not see). Private chats: `/start` becomes a ``start`` event (a
+deep-link payload is returned separately), other text a ``text`` event, a callback query a
+``callback`` event, and a document (a file sent as a file) a ``ParsedUpdate.document`` beside an
+event that carries only the actor (``kind="text"``, no text; the webhook handles documents itself
+and never dispatches them). Groups (Business OS, Telegram groups): only a button press on a message
+of a group, supergroup or channel is handled, as a ``callback`` event with ``chat_type="group"``
+whose actor is the person who pressed (``dispatch`` resolves their role and owner flag as for any
+live event) and whose origin is the group chat and the pressed message (the event card). Group
+messages stay ignored (privacy mode: the bot reads no group conversation). Everything else yields
+``None``.
+
+SECURITY (group presses): the pressed message is shared by the whole group and is edited in place
+after an RSVP, so its own keyboard is the proof of what was pressed. Telegram sends the message,
+keyboard included, with the callback query, while the callback data is what the client sent: data
+that is not one of the message's buttons (a modified client) is ignored, and a message without a
+readable keyboard (an inaccessible one) is not an edit target (``origin.message_id`` is None).
 
 Outbound: ``send_out_message`` performs one ``OutMessage`` with the right Bot API call. All text is
 HTML-escaped (``parse_mode=HTML``); button labels are plain text and are not escaped. The chat id of
-a recipient is its actor id (private chats only).
+a recipient is its actor id (a private chat); group delivery rules live in ``services/dispatch.py``.
 """
 
 import html
@@ -23,6 +36,10 @@ log = logging.getLogger(__name__)
 
 MAX_TEXT_CHARS = 4000  # Telegram allows 4096 after entity parsing; stay below it
 NOT_MODIFIED = "message is not modified"
+# Chats whose button presses are group-context callbacks (an event card can be posted to any of them).
+GROUP_CHAT_TYPES = frozenset({"group", "supergroup", "channel"})
+MAX_FILE_ID_CHARS = 256  # Telegram's ids are far shorter; anything longer is not a real one
+MAX_FILE_NAME_CHARS = 1024  # a label only (the spreadsheet service sanitises and shortens it)
 
 
 @dataclass(frozen=True)
@@ -35,10 +52,23 @@ class TelegramOrigin:
 
 
 @dataclass(frozen=True)
+class TelegramDocument:
+    """A file sent as a document in a private chat. Every field comes from the update as is (types
+    checked): ``file_name`` and ``mime_type`` are advisory labels, ``file_size`` may be absent."""
+
+    file_id: str
+    file_unique_id: str
+    file_name: str | None = None
+    mime_type: str | None = None
+    file_size: int | None = None
+
+
+@dataclass(frozen=True)
 class ParsedUpdate:
     event: RuntimeEvent
     origin: TelegramOrigin
     start_payload: str | None = None  # `/start <payload>` deep-link argument
+    document: TelegramDocument | None = None  # private chats only; the event then has no text
 
 
 def _display_name(user: dict[str, Any]) -> str:
@@ -86,23 +116,86 @@ def _is_private_user(chat: Any, user: Any) -> bool:
     )
 
 
+def _is_person(user: Any) -> bool:
+    """A human Telegram user (a positive int id that is not a bool, not a bot): who pressed a button
+    in a group."""
+    return (
+        isinstance(user, dict)
+        and type(user.get("id")) is int
+        and user["id"] > 0
+        and not user.get("is_bot", False)
+    )
+
+
+def _group_chat_id(chat: Any) -> int | None:
+    """The id of a group, supergroup or channel chat, else ``None``."""
+    if not isinstance(chat, dict) or chat.get("type") not in GROUP_CHAT_TYPES:
+        return None
+    chat_id = chat.get("id")
+    return chat_id if type(chat_id) is int else None
+
+
+def _offers_button(carrier: Any, data: str) -> bool | None:
+    """Whether the pressed message's inline keyboard has a button with callback data ``data``;
+    ``None`` when the message carries no readable keyboard (an inaccessible message)."""
+    markup = carrier.get("reply_markup") if isinstance(carrier, dict) else None
+    rows = markup.get("inline_keyboard") if isinstance(markup, dict) else None
+    if not isinstance(rows, list):
+        return None
+    return any(
+        isinstance(button, dict) and button.get("callback_data") == data
+        for row in rows
+        if isinstance(row, list)
+        for button in row
+    )
+
+
+def _is_file_id(value: Any) -> bool:
+    return isinstance(value, str) and 0 < len(value) <= MAX_FILE_ID_CHARS
+
+
+def _document(raw: Any) -> TelegramDocument | None:
+    """The ``document`` of a message, or ``None`` when absent or malformed."""
+    if not isinstance(raw, dict):
+        return None
+    file_id, unique_id = raw.get("file_id"), raw.get("file_unique_id")
+    if not _is_file_id(file_id) or not _is_file_id(unique_id):
+        return None
+    name, mime, size = raw.get("file_name"), raw.get("mime_type"), raw.get("file_size")
+    return TelegramDocument(
+        file_id=file_id,
+        file_unique_id=unique_id,
+        file_name=name[:MAX_FILE_NAME_CHARS] if isinstance(name, str) else None,
+        mime_type=mime[:MAX_FILE_ID_CHARS] if isinstance(mime, str) else None,
+        file_size=size if type(size) is int and size >= 0 else None,
+    )
+
+
 def _parse(
     bot_id: str, update: dict[str, Any], owner_actor_id: str | None, now: datetime
 ) -> ParsedUpdate | None:
     message = update.get("message")
     if isinstance(message, dict):
         chat, user = message.get("chat"), message.get("from")
+        if not _is_private_user(chat, user):
+            return None  # group conversations are never read
         text = message.get("text")
-        if not _is_private_user(chat, user) or not isinstance(text, str) or not text.strip():
+        if isinstance(text, str) and text.strip():
+            actor = _actor(user, owner_actor_id)
+            origin = TelegramOrigin(chat_id=int(chat["id"]))
+            is_start, payload = _start_payload(text)
+            if is_start:
+                event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="start", now=now)
+                return ParsedUpdate(event, origin, payload)
+            event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="text", text=text, now=now)
+            return ParsedUpdate(event, origin)
+        document = _document(message.get("document"))
+        if document is None:
             return None
-        actor = _actor(user, owner_actor_id)  # type: ignore[arg-type]
-        origin = TelegramOrigin(chat_id=int(chat["id"]))  # type: ignore[index]
-        is_start, payload = _start_payload(text)
-        if is_start:
-            event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="start", now=now)
-            return ParsedUpdate(event, origin, payload)
-        event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="text", text=text, now=now)
-        return ParsedUpdate(event, origin)
+        actor = _actor(user, owner_actor_id)
+        origin = TelegramOrigin(chat_id=int(chat["id"]))
+        event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="text", now=now)
+        return ParsedUpdate(event, origin, document=document)
 
     query = update.get("callback_query")
     if isinstance(query, dict):
@@ -111,16 +204,39 @@ def _parse(
         chat = carrier.get("chat") if isinstance(carrier, dict) else None
         data = query.get("data")
         query_id = query.get("id")
-        if not _is_private_user(chat, user) or not isinstance(data, str) or not isinstance(query_id, str):
+        if not isinstance(data, str) or not isinstance(query_id, str):
             return None
-        actor = _actor(user, owner_actor_id)
+        if _is_private_user(chat, user):
+            actor = _actor(user, owner_actor_id)
+            message_id = carrier.get("message_id") if isinstance(carrier, dict) else None
+            origin = TelegramOrigin(
+                chat_id=int(chat["id"]),  # type: ignore[index]
+                callback_query_id=query_id,
+                message_id=message_id if isinstance(message_id, int) else None,
+            )
+            event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="callback", data=data, now=now)
+            return ParsedUpdate(event, origin)
+        group_id = _group_chat_id(chat)
+        if group_id is None or not _is_person(user):
+            return None
+        offered = _offers_button(carrier, data)
+        if offered is False:
+            return None  # not a button of the pressed message: forged by the client
         message_id = carrier.get("message_id") if isinstance(carrier, dict) else None
         origin = TelegramOrigin(
-            chat_id=int(chat["id"]),  # type: ignore[index]
+            chat_id=group_id,
             callback_query_id=query_id,
-            message_id=message_id if isinstance(message_id, int) else None,
+            message_id=message_id if offered and type(message_id) is int else None,
         )
-        event = RuntimeEvent(bot_id=bot_id, env="live", actor=actor, kind="callback", data=data, now=now)
+        event = RuntimeEvent(
+            bot_id=bot_id,
+            env="live",
+            actor=_actor(user, owner_actor_id),
+            kind="callback",
+            data=data,
+            now=now,
+            chat_type="group",
+        )
         return ParsedUpdate(event, origin)
     return None
 
