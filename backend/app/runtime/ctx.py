@@ -12,7 +12,7 @@ from typing import Any, Literal
 
 from app.botspec.models import AnyCapability, BotSpec, FieldDef
 from app.botspec.text_keys import fill_text
-from app.runtime import formatting
+from app.runtime import formatting, manager
 from app.runtime.callbacks import ACT_HOME, ACT_OPEN, MENU, make_callback
 from app.runtime.contracts import (
     Actor,
@@ -244,12 +244,16 @@ class Ctx:
 
     def menu_buttons(self) -> Buttons:
         """One row per visible ``spec.menu`` item, callback ``menu:open:<item key>``. Items whose
-        capability is disabled or not allowed for the actor are left out."""
-        return [
+        capability is disabled or not allowed for the actor are left out. A manager gets one extra
+        last row, the manager panel (``runtime/manager.py``)."""
+        rows = [
             [Button(label=m.label, data=make_callback(MENU, ACT_OPEN, m.key))]
             for m in self.spec.menu
             if self._menu_item_visible(m.capability)
         ]
+        if self.actor.effective_role == "manager":
+            rows.append([manager.panel_button()])
+        return rows
 
     def show_menu(self, text: str | None = None, edit: bool | None = None) -> None:
         self.reply(text if text is not None else common.MENU_HEADER, self.menu_buttons(), edit=edit)
