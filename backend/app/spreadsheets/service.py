@@ -6,11 +6,12 @@ under a server-generated key and adds the ``uploaded_files`` row (flushed; the C
 failed flush removes the stored file again). A commit that fails afterwards leaves an unreferenced
 file behind; files are only ever reached through their row.
 
-The CPU-bound part (sniffing, inspection, SHA-256) runs on one dedicated worker thread
-(``PARSE_WORKERS``): the event loop, which also serves every bot's webhook, stays responsive, and at
-most one workbook is parsed at a time, which bounds the memory a parse can take (an xlsx may inflate to
-``reader.MAX_UNCOMPRESSED_BYTES``). Callers that receive files from the network should also bound how
-many they hold in memory at once (``app.api.uploads`` caps uploads in flight).
+The CPU-bound part (sniffing, inspection, SHA-256, and an analysis run's metrics through
+``compute_on_rows``) runs on one dedicated worker thread (``PARSE_WORKERS``): the event loop, which also
+serves every bot's webhook, stays responsive, and at most one workbook is parsed at a time, which bounds
+the memory a parse can take (an xlsx may inflate to ``reader.MAX_UNCOMPRESSED_BYTES``). Callers that
+receive files from the network should also bound how many they hold in memory at once
+(``app.api.uploads`` caps uploads in flight).
 """
 
 import asyncio
@@ -229,3 +230,37 @@ async def load_rows(
     except FileNotFoundError:
         raise StoredFileMissing() from None
     return await run_parser(_load, data, kind, sheet, max_rows, max_cols)
+
+
+def _load_and_compute[T](
+    data: bytes,
+    kind: FileKind,
+    sheet: str | None,
+    max_rows: int,
+    max_cols: int,
+    compute: Callable[[list[str], list[list[Cell]]], T],
+) -> T:
+    headers, rows = _load(data, kind, sheet, max_rows, max_cols)
+    return compute(headers, rows)
+
+
+async def compute_on_rows[T](
+    storage: FileStorage,
+    row: UploadedFileRow,
+    compute: Callable[[list[str], list[list[Cell]]], T],
+    *,
+    sheet: str | None = None,
+    max_rows: int = DEFAULT_MAX_ROWS,
+    max_cols: int = DEFAULT_MAX_COLUMNS,
+) -> T:
+    """``compute(headers, rows)`` over the sheet ``load_rows`` would return, in ONE job on the parser
+    thread (same arguments and errors as ``load_rows``). SECURITY: an analysis run over a large sheet is
+    seconds of CPU; here it never blocks the event loop (which serves every bot's webhook), and the
+    loaded rows exist only inside the running job, so concurrent runs queue with just their file bytes
+    instead of each holding a parsed sheet."""
+    kind = key_kind(row.storage_key)
+    try:
+        data = await storage.get(row.storage_key)
+    except FileNotFoundError:
+        raise StoredFileMissing() from None
+    return await run_parser(_load_and_compute, data, kind, sheet, max_rows, max_cols, compute)

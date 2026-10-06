@@ -4,10 +4,14 @@ Intelligence; models in ``schemas/business.py``).
   GET   /bots/{bot_id}/analysis/profiles                      list[AnalysisProfileOut]
   POST  /bots/{bot_id}/analysis/profiles                      AnalysisProfileCreateIn -> AnalysisProfileOut
                                                               (201; one strong LLM call; 404 unknown
-                                                              upload; 503 ``llm_unavailable``)
+                                                              upload; 503 ``llm_unavailable``; 429
+                                                              ``analysis_daily_cap`` once the owner's
+                                                              daily model budget is used up)
   PATCH /bots/{bot_id}/analysis/profiles/{profile_id}         AnalysisProfileUpdateIn -> AnalysisProfileOut
   POST  /bots/{bot_id}/analysis/profiles/{profile_id}/run     AnalysisRunIn -> AnalysisRunOut (200 even
-                                                              when the layout changed: that is a result)
+                                                              when the layout changed: that is a result;
+                                                              ``narrative`` is skipped once the daily
+                                                              model budget is used up)
   GET   /bots/{bot_id}/analysis/runs?profile_id=              the latest 50 runs
   GET   /bots/{bot_id}/analysis/profiles/{profile_id}/submissions?date=YYYY-MM-DD   who submitted
 
