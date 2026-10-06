@@ -32,9 +32,9 @@ const salesInspection: WorkbookInspection = {
         { name: "مبلغ", inferred_type: "integer", non_null: 118, distinct: 60, sample: ["120000", "250000"], min: "20000", max: "950000", mean: 310000 },
       ],
       sample_rows: [
-        ["۱۴۰۴/۰۱/۰۱", "چای", "2", "120000"],
-        ["۱۴۰۴/۰۱/۰۲", "قهوه", "5", "250000"],
-        ["۱۴۰۴/۰۱/۰۲", "شکلات", "1", "45000"],
+        { "تاریخ": "۱۴۰۴/۰۱/۰۱", "محصول": "چای", "تعداد": 2, "مبلغ": 120000 },
+        { "تاریخ": "۱۴۰۴/۰۱/۰۲", "محصول": "قهوه", "تعداد": 5, "مبلغ": 250000 },
+        { "تاریخ": "۱۴۰۴/۰۱/۰۲", "محصول": "شکلات", "تعداد": 1, "مبلغ": 45000 },
       ],
     },
     {
@@ -46,8 +46,8 @@ const salesInspection: WorkbookInspection = {
         { name: "توضیح", inferred_type: "empty", non_null: 0, distinct: 0, sample: [], min: null, max: null, mean: null },
       ],
       sample_rows: [
-        ["اجاره", "9000000", ""],
-        ["برق", "350000", ""],
+        { "شرح": "اجاره", "مبلغ": 9000000, "توضیح": null },
+        { "شرح": "برق", "مبلغ": 350000, "توضیح": null },
       ],
     },
   ],
@@ -68,7 +68,7 @@ const changedInspection: WorkbookInspection = {
         { name: "قیمت", inferred_type: "integer", non_null: 64, distinct: 40, sample: ["135000"], min: "20000", max: "800000", mean: 290000 },
         { name: "تخفیف", inferred_type: "decimal", non_null: 20, distinct: 4, sample: ["0.1"], min: "0", max: "0.3", mean: 0.12 },
       ],
-      sample_rows: [["۱۴۰۴/۰۲/۰۱", "چای", "3", "135000", "0.1"]],
+      sample_rows: [{ "تاریخ": "۱۴۰۴/۰۲/۰۱", "محصول": "چای", "تعداد": 3, "قیمت": 135000, "تخفیف": 0.1 }],
     },
   ],
 };

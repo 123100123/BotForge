@@ -787,7 +787,7 @@ export interface CapabilityOut {
 }
 
 export interface CapabilityCategoryOut {
-  id: string;
+  id: CapabilityCategory;
   name: string;
   capabilities: CapabilityOut[];
 }
@@ -885,7 +885,8 @@ export interface SheetProfile {
   name: string;
   rows: number;
   columns: ColumnProfile[];
-  sample_rows: string[][];
+  /** One object per row, keyed by column name (cell values are JSON scalars: string, number, boolean or null). */
+  sample_rows: Record<string, unknown>[];
 }
 
 export interface WorkbookInspection {

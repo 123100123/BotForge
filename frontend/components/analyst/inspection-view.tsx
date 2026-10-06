@@ -9,8 +9,8 @@ import { fa, formatNumber } from "@/lib/format";
 import type { ColumnProfile, SheetProfile, UploadOut } from "@/lib/types";
 import { fileSizeText, TYPE_LABELS } from "./labels";
 
-function cell(value: string | null | undefined) {
-  return value === null || value === undefined || value === "" ? <span className="text-muted-foreground">-</span> : <bdi>{value}</bdi>;
+function cell(value: unknown) {
+  return value === null || value === undefined || value === "" ? <span className="text-muted-foreground">-</span> : <bdi>{String(value)}</bdi>;
 }
 
 function ColumnTable({ columns }: { columns: ColumnProfile[] }) {
@@ -75,9 +75,9 @@ function SampleRows({ sheet }: { sheet: SheetProfile }) {
         <tbody>
           {rows.map((row, r) => (
             <tr key={r} className="border-t">
-              {sheet.columns.map((c, i) => (
+              {sheet.columns.map((c) => (
                 <td key={c.name} className="px-3 py-2 whitespace-nowrap">
-                  {cell(row[i])}
+                  {cell(row[c.name])}
                 </td>
               ))}
             </tr>
