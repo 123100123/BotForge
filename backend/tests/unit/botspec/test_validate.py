@@ -190,6 +190,12 @@ WORKSHOP_NEGATIVE: list[tuple[str, Mutator, str, list[str] | None]] = [
     ("no capabilities", lambda d: d.update(capabilities=[], menu=[]), "no_capabilities", None),
     ("resource/capability key collision", _key_collision, "key_collision", ["resources", "workshop"]),
     ("reserved key", _reserved, "reserved_key", ["capabilities", "menu"]),
+    (
+        "reserved overview key",
+        lambda d: (cap(d, "info").update(key="overview"), menu(d, "about").update(capability="overview")),
+        "reserved_key",
+        ["capabilities", "overview"],
+    ),
     # schema layer
     (
         "extra property",

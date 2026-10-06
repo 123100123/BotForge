@@ -17,7 +17,8 @@ Order and limits:
 5. when the analysis runner exists (``app.spreadsheets.run.run_for_upload``, built by W2-PROF) it is
    run with no LLM client (live Telegram traffic makes no LLM calls): the reply summarises the scalar
    metrics and the anomaly count of a matching profile, or lists the missing columns of a changed
-   layout. Without a runner, or when no profile matches (``None``), the reply acknowledges the file.
+   layout. When no profile matches (``None``) the reply says the file was stored but has no analysis
+   profile, and points to the Control Center; without a runner the reply acknowledges the file.
 
 Errors: a ``SpreadsheetError`` answers with its Persian ``message_fa``; a failed download with one
 generic line. Nothing logged here contains the file name, its content or the token: bot ids, upload
@@ -48,6 +49,7 @@ log = logging.getLogger(__name__)
 RUN_MODULE = "app.spreadsheets.run"
 
 RECEIVED = "فایل دریافت و ذخیره شد ✅"
+NO_PROFILE = "فایل ذخیره شد، اما پروفایل تحلیلی برای این ساختار وجود ندارد. از مرکز کنترل یک پروفایل بسازید."
 DOWNLOAD_FAILED = "دریافت فایل از تلگرام ممکن نشد. لطفاً دوباره بفرستید."
 ANALYSIS_FAILED = "تحلیل خودکار این فایل انجام نشد؛ نتیجه را در پنل وب ببینید."
 ANALYSED = "فایل «{name}» تحلیل شد ✅"
@@ -152,12 +154,12 @@ def _columns(names: list[str]) -> str:
 
 
 def run_reply(result: object, filename: str) -> str:
-    """The Persian reply for a run result: ``None`` (no matching profile) acknowledges the file;
-    ``ok`` summarises scalar metrics and the anomaly count (three to six lines); ``schema_changed``
-    lists the missing (and new) columns; anything else acknowledges the file and says the analysis
-    did not run."""
+    """The Persian reply for a run result: ``None`` (no matching profile) says the file is stored but
+    no analysis profile fits its layout; ``ok`` summarises scalar metrics and the anomaly count (three
+    to six lines); ``schema_changed`` lists the missing (and new) columns; anything else acknowledges
+    the file and says the analysis did not run."""
     if result is None:
-        return RECEIVED
+        return NO_PROFILE
     try:
         run = AnalysisRunOut.model_validate(result)
     except ValidationError:

@@ -34,7 +34,7 @@ from app.roles.service import set_role
 from app.runtime.pg_store import PgStore
 from app.runtime.texts import booking as booking_texts
 from app.spreadsheets.errors import UNSUPPORTED_MESSAGE, too_large_message
-from app.spreadsheets.telegram_ingest import RECEIVED, RUN_MODULE
+from app.spreadsheets.telegram_ingest import NO_PROFILE, RUN_MODULE
 from tests.integration.helpers import SessionFactory
 from tests.integration.tg_helpers import ALICE, Chat, LiveBot, make_live_bot, user
 
@@ -501,7 +501,7 @@ async def test_a_staff_document_is_downloaded_with_the_cap_and_ingested(
     await make_staff(session_factory, bot, 702)
     fake_tg.files["doc-1"] = CSV
     await Telegram(tg_client, bot, fake_tg).send_document(702, size=len(CSV))
-    assert replies_to(fake_tg, 702) == [RECEIVED]
+    assert replies_to(fake_tg, 702) == [NO_PROFILE]  # the fake runner found no profile (None)
     assert [k["file_id"] for k in fake_tg.calls_to("getFile")] == ["doc-1"]
     assert [k["max_bytes"] for k in fake_tg.calls_to("downloadFile")] == [get_settings().UPLOAD_MAX_BYTES]
     [upload] = await rows(session_factory, UploadedFileRow, bot)
