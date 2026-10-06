@@ -56,7 +56,7 @@ uv sync --group dbtest        # app + dev tools + pgserver (a pip-installed Post
 
 ```powershell
 uv run ruff check app tests scripts alembic
-uv run pytest -q              # starts a temporary Postgres itself; about 1050 tests, a few minutes
+uv run pytest -q              # starts a temporary Postgres itself; about 1800 tests
 ```
 
 The test database lives in a temp directory and is removed afterwards. It never touches the dev
@@ -88,6 +88,69 @@ $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 
 `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. Owners
 sign in with the backend's own accounts (email and password, a `bf_session` cookie); see Run the API.
+
+### Business OS settings and operator notes
+
+The Business OS modules (notifications, spreadsheet analysis, Copilot) are configured with these
+environment variables (all optional; the defaults work locally, and `deploy/.env.example` lists them for
+the VPS):
+
+| Variable | Default | What it does |
+|---|---|---|
+| `NOTIFICATIONS_TICKER` | `false` (compose: `true`) | Runs the background ticker that sends queued Telegram notifications: event reminders, announcements, scheduled reports. Off means nothing is ever sent. Run it in exactly one backend process. |
+| `NOTIFICATIONS_TICK_SECONDS` | `20` | How often (seconds, 1 to 3600) the ticker looks for due messages. |
+| `NOTIFICATIONS_SEND_RATE_PER_SECOND` | `15` | Global ceiling of messages sent per second across all bots (1 to 30; Telegram allows about 30 per bot token). |
+| `UPLOAD_DIR` | `./uploads` (compose: `/data/uploads`) | Where uploaded spreadsheets are stored on disk. |
+| `UPLOAD_MAX_BYTES` | `5242880` | Largest accepted upload (5 MB), applied to the raw request body. |
+| `SPREADSHEET_MAX_ROWS` | `50000` | Rows read from a sheet; the rest is ignored. |
+| `SPREADSHEET_MAX_COLUMNS` | `100` | Columns read from a sheet. |
+| `COPILOT_DAILY_CAP` | `50` | Copilot questions per owner account per rolling 24 hours (cost control; 0 disables). |
+
+Uploads are limited further to 4 at once per process and 120 seconds to receive a file; an xlsx is
+structure-checked before it is parsed, and macro workbooks are refused. The Copilot and scheduled reports
+only work for a bot whose module is enabled in the Capability Center, and scheduled reports are sent only
+while the ticker is on.
+
+**Uploads volume (VPS).** In `deploy/docker-compose.yml` the backend stores uploads on the named volume
+`uploads` mounted at `/data/uploads` (`UPLOAD_DIR` is fixed there); a one-shot `uploads-init` service hands
+the volume to the backend's non-root user before it starts. Keep the volume: stored analysis runs point at
+those files. `deploy/backup.sh` backs up the database only, so copy the uploads too, for example
+`docker compose exec -T backend tar czf - -C /data uploads > uploads-$(date +%F).tgz` from `deploy/`.
+
+**Telegram groups.** To use event cards in a group or channel:
+1. Make sure the bot receives `my_chat_member` updates. In polling mode this is automatic. In webhook mode a
+   bot connected before this version must be re-registered once (`docker compose exec backend python
+   scripts/reregister_webhooks.py`, or `uv run python scripts/reregister_webhooks.py` locally) or
+   disconnected and connected again; otherwise the Groups list in Settings stays empty.
+2. Add the bot to the group (Telegram: group, Add member), preferably as an administrator. A channel needs
+   the administrator right to post.
+3. Privacy mode (BotFather, `/setprivacy`) can stay on: the bot only reads button presses on its own cards
+   and its own membership changes, never group conversations. Group messages are ignored by design.
+4. The group then appears in Settings, Groups; publish an event card from there. The card's buttons are
+   checked against the pressed message's own keyboard, so a forged button press is ignored.
+
+**Staff and managers.** Settings, Team creates a staff invite link; a person who opens it becomes staff.
+Staff run order and request queues; on internal (staff or managers audience) workflows only managers
+decide. Staff and managers may also send a spreadsheet to the bot as a file when Spreadsheet Intelligence
+is enabled.
+
+**Demo path (the Business OS story).** Use a bot with the workshop spec (or a new one) and the simulator;
+steps marked (Telegram) need a connected bot and a phone:
+- [ ] Capability Center: enable Events, read the dependency preview, confirm; a new active revision appears.
+- [ ] Data tab: create an event with a capacity and a category.
+- [ ] Simulator: RSVP to the event as a customer; a second customer joins the waitlist when it is full.
+- [ ] Reports: the RSVP and category breakdowns show it (Reports is on by default).
+- [ ] Data Analyst: upload a workbook (xlsx or csv); the profile is created (one LLM call, needs the API key
+      or the headless login).
+- [ ] Upload the same layout again: the run is deterministic, with metrics and any anomalies.
+- [ ] Upload a file with a changed column: the run is `schema_changed` and says which column is missing.
+- [ ] Copilot: ask a business question; the answer comes from reporting tools (enable Copilot first).
+- [ ] Orders: enable Orders with a catalog, then browse, add to cart and check out in the simulator; change
+      the order status as the owner; the order report counts it (a cancelled order does not count as revenue).
+- [ ] (Telegram) Team: open the staff link on a second phone (that person becomes staff and sees the
+      order queue); as the owner, who is a manager, open the manager panel (a button in the bot's main menu)
+      and read a report. With the ticker on, an announcement or a scheduled report arrives.
+- [ ] (Telegram) Add the bot to a group, publish the event card, RSVP from the group.
 
 ### Running the agent against headless Claude Code
 
@@ -256,7 +319,7 @@ it exits non-zero on failure. Nightly at 03:15 (`crontab -e`, adjust the path):
 15 3 * * * /home/deploy/BotForge/deploy/backup.sh >> /home/deploy/botforge-backup.log 2>&1
 ```
 
-Copy `deploy/backups/` off the server too (a dump on the same disk does not survive losing the server).
+Copy `deploy/backups/` off the server too (a dump on the same disk does not survive losing the server). The dump covers the database only: also copy the `uploads` volume (see Business OS settings and operator notes).
 Restore with `docker compose stop backend`, then
 `./restore.sh backups/<file>.dump.gz --yes-overwrite`, then `docker compose start backend`. Add
 `--database scratch` to restore into a separate database instead and leave the live one untouched.
