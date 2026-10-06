@@ -1,22 +1,32 @@
-"""Small async Telegram Bot API client (roadmap K15: httpx directly, seven methods, no framework).
+"""Small async Telegram Bot API client (roadmap K15: httpx directly, a handful of methods, no framework).
 
-Security: the bot token lives in the request URL (``/bot<token>/<method>``). It is held only in a
-private attribute of the client, is never part of an exception message or a log line written here,
-and exception text for transport failures is built from the exception *type* only (httpx messages
-can echo the URL). The ``httpx`` loggers are raised to WARNING because their INFO lines contain the
-URL; the log-redaction filter (``app.security.redact``) is the second line of defense.
+Security: the bot token lives in the request URL (``/bot<token>/<method>``, and for file downloads
+``/file/bot<token>/<path>``). It is held only in a private attribute of the client, is never part of
+an exception message or a log line written here, and exception text for transport failures is built
+from the exception *type* only (httpx messages can echo the URL). The ``httpx`` loggers are raised to
+WARNING because their INFO lines contain the URL; the log-redaction filter (``app.security.redact``)
+is the second line of defense.
 
 Behavior: short timeouts; one retry on a network error and on HTTP 429 (sleeping ``retry_after``
 seconds, only when it is small enough not to stall a webhook request). Telegram's ``description``
 travels in ``TelegramError`` so callers can show or record it. ``get_updates`` (polling mode, see
 ``poller.py``) is the exception: a long poll whose read timeout exceeds its ``timeout``, with no
 retry of its own, because the poller owns the backoff and ``retry_after`` handling for it.
+
+File downloads (``get_file`` + ``download_file``, the Telegram document path): the file path that
+``getFile`` returns is checked against a strict pattern before it is put into a URL (so it can never
+reach another API path with the token), the download goes through the same pooled httpx client (and
+so the same proxy settings) to the fixed API host, never follows a redirect, asks for and accepts only
+an unencoded body (no decompression bombs), is refused on a declared ``Content-Length`` over the cap,
+is cut off as soon as the streamed bytes pass the cap (``TelegramFileTooLarge``), and is bounded by
+one wall-clock timeout. Nothing of the content is logged.
 """
 
 import asyncio
 import contextlib
 import logging
 import math
+import re
 from collections.abc import Callable
 from typing import Any, Protocol
 
@@ -26,9 +36,19 @@ API_BASE = "https://api.telegram.org"
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MAX_RETRY_AFTER = 5.0  # seconds; a longer 429 is raised instead of stalling the caller
 # The update types BotForge handles (app.api.webhook); setWebhook and getUpdates ask for exactly these.
-ALLOWED_UPDATES = ["message", "callback_query"]
+# ``my_chat_member``: the bot was added to or removed from a group or channel (``bot_chats``).
+ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
 # getUpdates holds the request open for up to its ``timeout``; the read timeout must exceed that.
 LONG_POLL_GRACE = 15.0
+# answerCallbackQuery allows 200 characters of toast text; stay below it.
+MAX_TOAST_CHARS = 180
+# File downloads: one wall-clock limit for the whole transfer (connect, headers and every chunk).
+DOWNLOAD_TIMEOUT_SECONDS = 60.0
+DOWNLOAD_TIMEOUT = httpx.Timeout(DOWNLOAD_TIMEOUT_SECONDS, connect=5.0)
+DOWNLOAD_METHOD = "downloadFile"  # the name download errors carry (not a Bot API method)
+MAX_FILE_PATH_CHARS = 256
+# What getFile returns, e.g. "documents/file_12.xlsx": relative segments of a conservative alphabet.
+_FILE_PATH = re.compile(r"[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*")
 
 log = logging.getLogger(__name__)
 for _name in ("httpx", "httpcore"):  # their INFO request lines include the token-bearing URL
@@ -55,6 +75,30 @@ class TelegramError(Exception):
         self.network = network  # no HTTP answer from Telegram (timeout, DNS, connection)
 
 
+class TelegramFileTooLarge(TelegramError):
+    """A download refused or cut off because the file is larger than the caller's ``max_bytes``."""
+
+
+def toast_text(text: str | None) -> str | None:
+    """Toast text for ``answerCallbackQuery``: ``None`` for nothing to show, else at most
+    ``MAX_TOAST_CHARS`` characters (plain text: the toast has no parse mode, nothing is escaped)."""
+    if text is None or not text.strip():
+        return None
+    text = text.strip()
+    return text if len(text) <= MAX_TOAST_CHARS else text[: MAX_TOAST_CHARS - 1] + "…"
+
+
+def valid_file_path(path: object) -> bool:
+    """Whether ``path`` (from ``getFile``) is safe to put after ``/file/bot<token>/``: relative, of
+    the conservative alphabet, no empty, ``.`` or ``..`` segment, bounded length."""
+    return (
+        isinstance(path, str)
+        and len(path) <= MAX_FILE_PATH_CHARS
+        and _FILE_PATH.fullmatch(path) is not None
+        and all(segment not in (".", "..") for segment in path.split("/"))
+    )
+
+
 class TelegramApi(Protocol):
     """What the rest of the backend needs from Telegram. Implemented by the real and fake clients."""
 
@@ -78,7 +122,13 @@ class TelegramApi(Protocol):
         self, chat_id: int | str, message_id: int, text: str, reply_markup: dict[str, Any] | None = None
     ) -> dict[str, Any]: ...
 
-    async def answer_callback_query(self, callback_query_id: str) -> None: ...
+    async def answer_callback_query(
+        self, callback_query_id: str, text: str | None = None, show_alert: bool = False
+    ) -> None: ...
+
+    async def get_file(self, file_id: str) -> str: ...
+
+    async def download_file(self, file_path: str, max_bytes: int) -> bytes: ...
 
 
 # Builds a client for a bot token. Dependency-injected so tests can substitute the fake.
@@ -199,8 +249,72 @@ class TelegramClient:
             payload["reply_markup"] = reply_markup
         return await self._call("editMessageText", payload)
 
-    async def answer_callback_query(self, callback_query_id: str) -> None:
-        await self._call("answerCallbackQuery", {"callback_query_id": callback_query_id})
+    async def answer_callback_query(
+        self, callback_query_id: str, text: str | None = None, show_alert: bool = False
+    ) -> None:
+        """Stop the button's spinner; with ``text``, show it as a toast (or an alert) to the presser
+        only. The text is cut to ``MAX_TOAST_CHARS``."""
+        payload: dict[str, Any] = {"callback_query_id": callback_query_id}
+        toast = toast_text(text)
+        if toast is not None:
+            payload["text"] = toast
+            if show_alert:
+                payload["show_alert"] = True
+        await self._call("answerCallbackQuery", payload)
+
+    async def get_file(self, file_id: str) -> str:
+        """The ``file_path`` to download ``file_id`` with. ``TelegramError`` when Telegram has none
+        (for example a file over the 20 MB bot download limit) or it is not a safe relative path."""
+        result = await self._call("getFile", {"file_id": file_id})
+        path = result.get("file_path") if isinstance(result, dict) else None
+        if not valid_file_path(path):
+            raise TelegramError("getFile", "no usable file path")
+        return path  # type: ignore[return-value]  # checked by valid_file_path
+
+    async def download_file(self, file_path: str, max_bytes: int) -> bytes:
+        """The bytes of ``file_path`` (from ``get_file``), at most ``max_bytes`` of them (see the
+        module docstring). Raises ``TelegramFileTooLarge`` past the cap and ``TelegramError`` for
+        anything else; neither carries the token or the URL."""
+        if not valid_file_path(file_path):
+            raise TelegramError(DOWNLOAD_METHOD, "invalid file path")
+        http = self._http or shared_http_client()
+        url = f"{API_BASE}/file/bot{self.__token}/{file_path}"
+        chunks: list[bytes] = []
+        total = 0
+        try:
+            async with (
+                asyncio.timeout(DOWNLOAD_TIMEOUT_SECONDS),
+                http.stream(
+                    "GET",
+                    url,
+                    headers={"Accept-Encoding": "identity"},
+                    timeout=DOWNLOAD_TIMEOUT,
+                    follow_redirects=False,
+                ) as response,
+            ):
+                if response.status_code != 200:
+                    raise TelegramError(
+                        DOWNLOAD_METHOD, f"HTTP {response.status_code}", error_code=response.status_code
+                    )
+                encoding = response.headers.get("content-encoding", "").strip().lower()
+                if encoding not in ("", "identity"):
+                    raise TelegramError(DOWNLOAD_METHOD, "unexpected content encoding")
+                declared = response.headers.get("content-length", "").strip()
+                if declared.isascii() and declared.isdigit() and int(declared) > max_bytes:
+                    raise TelegramFileTooLarge(DOWNLOAD_METHOD, "file too large", error_code=413)
+                # identity only (checked above), so these are the bytes as sent: nothing is inflated
+                async for chunk in response.aiter_bytes():
+                    total += len(chunk)
+                    if total > max_bytes:
+                        raise TelegramFileTooLarge(DOWNLOAD_METHOD, "file too large", error_code=413)
+                    chunks.append(chunk)
+        except TimeoutError:
+            raise TelegramError(DOWNLOAD_METHOD, "timed out", network=True) from None
+        except (httpx.HTTPError, httpx.InvalidURL) as exc:
+            # type name only: httpx messages may include the request URL, which holds the token
+            description = f"network error ({type(exc).__name__})"
+            raise TelegramError(DOWNLOAD_METHOD, description, network=True) from None
+        return b"".join(chunks)
 
 
 def parse_retry_after(value: Any) -> float | None:
@@ -247,6 +361,10 @@ class FakeTelegramClient:
     (an ``offset`` confirms and drops every queued update below it; with nothing queued it waits up
     to ``poll_wait`` seconds for a push, a stand-in for the long poll). ``get_updates_errors`` are
     raised by the next calls, one per call, before anything is returned.
+
+    Files: ``files`` maps a ``file_id`` to the canned bytes ``download_file`` serves (``get_file``
+    of an unknown id fails like Telegram's); ``download_file`` enforces ``max_bytes`` like the real
+    client (``TelegramFileTooLarge``). Both are recorded (``getFile``, ``downloadFile``).
     """
 
     def __init__(self, *, bot_id: int = 424242, username: str = "fake_bot") -> None:
@@ -259,6 +377,8 @@ class FakeTelegramClient:
         self.pending_updates: list[dict[str, Any]] = []
         self.get_updates_errors: list[Exception] = []
         self.poll_wait = 0.05
+        self.files: dict[str, bytes] = {}
+        self._file_paths: dict[str, str] = {}  # file_path handed out by get_file -> file_id
         self._pushed = asyncio.Event()
         self._message_id = 1000
 
@@ -333,5 +453,30 @@ class FakeTelegramClient:
         )
         return {"message_id": message_id}
 
-    async def answer_callback_query(self, callback_query_id: str) -> None:
-        self._record("answerCallbackQuery", callback_query_id=callback_query_id)
+    async def answer_callback_query(
+        self, callback_query_id: str, text: str | None = None, show_alert: bool = False
+    ) -> None:
+        self._record(
+            "answerCallbackQuery",
+            callback_query_id=callback_query_id,
+            text=toast_text(text),
+            show_alert=show_alert,
+        )
+
+    async def get_file(self, file_id: str) -> str:
+        self._record("getFile", file_id=file_id)
+        if file_id not in self.files:
+            raise TelegramError("getFile", "Bad Request: invalid file_id", error_code=400)
+        path = f"documents/file_{len(self._file_paths)}"
+        self._file_paths[path] = file_id
+        return path
+
+    async def download_file(self, file_path: str, max_bytes: int) -> bytes:
+        self._record(DOWNLOAD_METHOD, file_path=file_path, max_bytes=max_bytes)
+        file_id = self._file_paths.get(file_path)
+        if file_id is None:
+            raise TelegramError(DOWNLOAD_METHOD, "HTTP 404", error_code=404)
+        data = self.files[file_id]
+        if len(data) > max_bytes:
+            raise TelegramFileTooLarge(DOWNLOAD_METHOD, "file too large", error_code=413)
+        return data

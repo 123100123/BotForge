@@ -60,7 +60,7 @@ async def test_get_updates_payload_and_a_read_timeout_above_the_long_poll() -> N
     assert request.url.path == f"/bot{TOKEN}/getUpdates"
     assert json.loads(request.content) == {
         "timeout": 25,
-        "allowed_updates": ["message", "callback_query"],
+        "allowed_updates": ["message", "callback_query", "my_chat_member"],
         "offset": 7,
     }
     assert stub.timeouts[0]["read"] > 25  # the request outlives Telegram's hold

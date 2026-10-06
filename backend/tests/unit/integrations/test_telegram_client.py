@@ -67,7 +67,7 @@ async def test_set_webhook_payload() -> None:
     assert body == {
         "url": "https://h.example/tg/1",
         "secret_token": "sec",
-        "allowed_updates": ["message", "callback_query"],
+        "allowed_updates": ["message", "callback_query", "my_chat_member"],
         "drop_pending_updates": True,
     }
     assert stub.requests[0].url.path.endswith("/setWebhook")

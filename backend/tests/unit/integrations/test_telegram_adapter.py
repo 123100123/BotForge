@@ -105,7 +105,9 @@ def test_ignored_updates() -> None:
     assert parse(msg(None)) is None  # a photo, sticker...: no text
     assert parse(msg("   ")) is None
     assert parse(msg("hi", is_bot=True)) is None
-    assert parse(cb(chat_type="group")) is None
+    # a button press in a group is a group-context event since W2-TG (tests/unit/integrations/test_groups.py)
+    assert parse(cb(chat_type="group")).event.chat_type == "group"  # type: ignore[union-attr]
+    assert parse(cb(chat_type="secret")) is None  # any other chat type stays ignored
     assert parse(cb(data=None)) is None
     assert parse({"update_id": 3, "edited_message": {"text": "x"}}) is None
     assert parse({"update_id": 4, "inline_query": {"id": "1"}}) is None
