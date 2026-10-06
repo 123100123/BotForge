@@ -35,7 +35,7 @@ let announcements: AnnouncementOut[] = [
 ];
 let schedules: ScheduleOut[] = [
   { id: "mock-schedule-1", kind: "daily_summary", time: "20:00", weekday: null, enabled: true, metrics: ["bookings", "orders"] },
-  { id: "mock-schedule-2", kind: "weekly_summary", time: "09:00", weekday: 6, enabled: false, metrics: ["revenue"] },
+  { id: "mock-schedule-2", kind: "weekly_summary", time: "17:00", weekday: 4, enabled: false, metrics: ["revenue"] },
 ];
 
 const GROUPS: GroupOut[] = [

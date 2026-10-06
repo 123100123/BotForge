@@ -122,7 +122,7 @@ export default function BotWorkspacePage() {
             <VersionsTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="settings">
-            <SettingsTab bot={bot} onBotChanged={reload} />
+            <SettingsTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
           </TabsContent>
         </div>
       </Tabs>
