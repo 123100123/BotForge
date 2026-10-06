@@ -17,5 +17,7 @@ Rules:
 - Live records exist for the collections listed in `live_record_counts`. Never change a field's
   type; never add a required field without a default to a resource that has records; prefer
   keeping existing fields and capabilities over removing them.
+- Turning a feature on or off is `set` on its capability's `enabled` (true or false), never remove
+  and add: that keeps its configuration and records.
 - A uniform capacity stays `capacity.mode = "fixed"` with the owner's number.
 - You have a small tool budget: do not call `get_spec` or `validate_spec` unless you need them.

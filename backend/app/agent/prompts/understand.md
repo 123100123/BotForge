@@ -16,6 +16,12 @@ Requirements:
   each rule (waitlist, automatic promotion, cancellation, deadlines, limits), each notification.
   Add assumed items for the defaults you will build (for example "one active booking per person
   per item", "the owner is told about each booking and cancellation").
+- Map each need to the capability registry first, preferring existing types, presets and modules
+  over anything custom. Name the recommended registry capabilities in `business_summary` or in one
+  assumed `capability` item, e.g. «اسپردشیت + گزارش کارکنان + رویدادها + اعلان‌ها» for Spreadsheet
+  Intelligence + Staff Reporting + Events + Notifications. Needs served by modules (reports, Excel
+  analysis, daily staff reports, scheduled reports, copilot, announcements, staff roles) are
+  assumed `capability` items, and the message tells the owner to enable them in the Capability Center.
 - `unsupported`: things the owner asked for that the catalog cannot build, each with a Persian
   `statement`, a Persian `reason`, and the closest supported `alternative` (or null). Do not also
   list them as items.
@@ -32,5 +38,6 @@ something is unsupported, say so plainly and name the alternative. If you ask qu
 need a short answer before building (the questions themselves are shown separately).
 
 If the request contains no buildable workflow at all, return no items and explain in the message
-what kinds of bots you can build (show items and book them, take requests the owner approves,
-show information pages, show a list of services or products).
+what kinds of bots you can build (show items and book them, sell products with a cart, events
+with registration, requests and forms the owner approves, information pages, a list of services
+or products, reports from the data).

@@ -10,4 +10,6 @@ SeedRecord: `{"ref": "s1", "collection": "<resource key>", "values": [{"key": "<
 - Datetime fields must be relative to now and in the future: "+48h", "+3d", "+7d".
 - integer and decimal: plain ASCII digits (prices in toman, e.g. "1500000"). boolean: "true"/"false".
   choice: exactly one of the listed choices. phone: "09121234567".
+- Always fill integer price fields (even optional ones) and stock fields (for example 5 to 50), so
+  items can be ordered in the sandbox. A choice field such as an event category: vary the choices.
 - Titles and descriptions are short, plausible Persian for this business.

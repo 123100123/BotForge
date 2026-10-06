@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import ValidationError
 
 from app.agent.requirements import Requirements
-from app.botspec.models import BookingCapability, BotSpec, FieldType, RequestCapability
+from app.botspec.models import BookingCapability, BotSpec, FieldType, OrdersCapability, RequestCapability
 from app.botspec.records import validate_record
 from app.testing.scenario import Scenario, SeedRecord, resolve_relative
 
@@ -84,32 +84,58 @@ def check_acceptance(raw: Any, *, req_ids: set[str], spec: BotSpec) -> tuple[Sce
                 continue
             if step.capability not in step_caps:
                 step_caps.append(step.capability)
-            if step.do in ("book", "cancel", "expect_booking", "expect_counts") and not isinstance(
-                cap, BookingCapability
+            # orders reuse the step kinds: book = add to cart, submit_request = add + check out,
+            # cancel = cancel the latest order, expect_request = latest order status.
+            if step.do in ("book", "cancel") and not isinstance(cap, BookingCapability | OrdersCapability):
+                issues.append(f"step {i}: '{step.do}' needs a booking or orders capability")
+            if step.do in ("expect_booking", "expect_counts") and not isinstance(cap, BookingCapability):
+                issues.append(f"step {i}: '{step.do}' needs a booking capability (events included)")
+            if step.do in ("submit_request", "expect_request") and not isinstance(
+                cap, RequestCapability | OrdersCapability
             ):
-                issues.append(f"step {i}: '{step.do}' needs a booking capability")
-            if step.do in ("submit_request", "expect_request") and not isinstance(cap, RequestCapability):
-                issues.append(f"step {i}: '{step.do}' needs a request capability")
+                issues.append(f"step {i}: '{step.do}' needs a request or orders capability")
             if step.do == "owner_action":
                 if isinstance(cap, BookingCapability):
                     if step.action != "cancel" or step.item is None:
                         issues.append(f"step {i}: owner_action on a booking needs action 'cancel' and item")
-                elif isinstance(cap, RequestCapability) and step.action not in {
+                elif isinstance(cap, RequestCapability | OrdersCapability) and step.action not in {
                     a.key for a in cap.owner_actions
                 }:
                     issues.append(f"step {i}: unknown owner action '{step.action}'")
             if (
                 step.do == "expect_request"
-                and isinstance(cap, RequestCapability)
+                and isinstance(cap, RequestCapability | OrdersCapability)
                 and step.expect not in {s.key for s in cap.statuses}
+                and not (isinstance(cap, OrdersCapability) and step.expect == "none")
             ):
                 issues.append(f"step {i}: '{step.expect}' is not a status of '{cap.key}'")
+            if isinstance(cap, OrdersCapability) and step.item is not None:
+                issues.extend(_unpriced_item(sc, spec, cap, step.item, i))
         if step.do == "expect_notified" and step.contains is not None:
             issues.append(f"step {i}: match notifications with 'event', never 'contains'")
+        if step.do == "expect_notified" and step.event in ("reminder", "announcement"):
+            issues.append(
+                f"step {i}: '{step.event}' notices come from the scheduler; steps cannot trigger them"
+            )
     if issues:
         return None, issues
     keys = [k for k in sc.capability_keys if k in caps] or step_caps
     return sc.model_copy(update={"requirement_ids": valid_ids, "capability_keys": keys}), []
+
+
+def _unpriced_item(sc: Scenario, spec: BotSpec, cap: OrdersCapability, ref: str, i: int) -> list[str]:
+    """An orders step on a seed whose price field is empty: the runtime treats the item as unpriced."""
+    seed = next((s for s in sc.seed if s.ref == ref), None)
+    if seed is None:
+        return []
+    if seed.collection != cap.resource:
+        return [f"step {i}: orders '{cap.key}' sells items of '{cap.resource}', not '{seed.collection}'"]
+    if not any(kv.key == cap.price_field and kv.value.strip() for kv in seed.values):
+        return [
+            f"step {i}: seed '{ref}' must set the integer price field '{cap.price_field}' "
+            "(an item without a price cannot be ordered)"
+        ]
+    return []
 
 
 def check_sample_record(
@@ -136,6 +162,13 @@ def check_sample_record(
         return None, f"datetime fields {absolute} must be relative like '+48h'"
     if set(values) - known:
         return None, f"unknown fields {sorted(set(values) - known)}"
+    for cap in spec.capabilities:
+        if (
+            isinstance(cap, OrdersCapability)
+            and cap.resource == seed.collection
+            and not values.get(cap.price_field, "").strip()
+        ):
+            return None, f"orders '{cap.key}' needs the integer price field '{cap.price_field}' filled"
     _, errors = validate_record(resource.fields, values)
     if errors:
         return None, " ".join(errors)

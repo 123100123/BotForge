@@ -1,6 +1,6 @@
 # Capability catalog
 
-A BotSpec has five parts:
+A BotSpec has five parts (capability types: info, catalog, booking, request, orders):
 
 ```
 {"spec_version": 1,
@@ -86,6 +86,14 @@ Parameters (defaults in brackets):
 Menu: give a booking a "main" menu item (browse and book) and, when cancellation is enabled, a
 "mine" menu item (my reservations) - otherwise users cannot reach their bookings to cancel.
 Sensible defaults: owner notified on "booked" and "cancelled"; duplicates blocked.
+Events preset (registry id events): `preset: "events"` (default "booking") is the same booking
+capability shaped for the events of a team, club or company: RSVP = booking, "mine" = my RSVPs.
+Extras: `category_field` [null] (a `choice` field of the resource, e.g. آموزشی / سازمانی / اجتماعی;
+users filter the list by it and can subscribe to a category), `reminder_hours_before` [null] (1 to
+720, needs `start_field`; attendees are reminded automatically). Use per_item capacity with a
+required integer capacity field, a `start_field`, a waitlist and cancellation. Publishing an event
+card to a Telegram group is done by the owner in the web admin after the bot is built, not in the
+spec.
 Example:
 ```
 {"type": "booking", "key": "book_workshop", "title": "ثبت‌نام در کارگاه", "resource": "workshop",
@@ -107,7 +115,16 @@ Parameters: `type: "request"`, `key`, `title`, `form_fields` (FieldDefs, no date
 `initial_status` (a status key), `owner_actions` (`[{"key", "label", "from_statuses": [...],
 "to_status"}]`), `notify_owner_on` [["submitted"]], `notify_user_on` [["status_changed"]], `texts` [[]].
 Capability key + owner action key must stay short (callback data limit): keep both under ~12 chars.
-When: repair or service requests, applications, simple single-item orders that the owner confirms.
+When: repair or service requests, applications, forms, simple single-item orders that the owner
+confirms (several items or a cart: use `orders`).
+Templates (registry ids forms, approvals, support and feedback are all `request` capabilities):
+- forms / approvals: any key (e.g. `leave` for a leave request: statuses pending, approved,
+  rejected; actions approve and reject from pending). Staff submit and managers decide, so for
+  internal forms use `audience: "staff"`.
+- support: key exactly `support`; fields subject (text) + text (long_text); statuses open, answered,
+  closed; actions answer (open -> answered), close (open, answered -> closed).
+- feedback: key exactly `feedback`; fields rating (choice ۱ to ۵) + comment (long_text, optional);
+  statuses new, seen; action seen (new -> seen); `notify_user_on: []`.
 Example:
 ```
 {"type": "request", "key": "repair", "title": "درخواست تعمیر",
@@ -123,11 +140,65 @@ Example:
  "notify_owner_on": ["submitted"], "notify_user_on": ["status_changed"], "texts": []}
 ```
 
+## orders - catalog items, cart, checkout, order statuses
+
+What: customers browse the items of a catalog resource, add them to a cart, check out and follow
+"my orders"; the owner moves each order along its statuses (in Telegram or the web admin). There is
+NO payment yet: every order is recorded with payment_status "unpaid" and the owner settles payment
+outside the bot.
+Parameters: `type: "orders"`, `key`, `title`, `resource` (the catalog items; also give that resource
+a `catalog` capability so items can be browsed), `price_field` (an INTEGER field of the resource,
+toman), `stock_field` [null] (an INTEGER field of the resource; each order decrements it and a
+cancellation restocks it; null = unlimited), `checkout_fields` [[]] (FieldDefs asked at checkout,
+at most 5, no datetime: e.g. address, phone), `statuses`, `initial_status`, `owner_actions` (like
+request), `cancellable_statuses` [[]] (statuses in which the customer may cancel),
+`notify_owner_on` [["placed"]] (any of "placed", "cancelled"), `notify_user_on`
+[["status_changed"]], `texts` [[]].
+Records (you never write them): orders are records of collection `<key>` (items, total,
+payment_status), carts of `<key>.cart`, order lines of `<key>.lines`. Price and stock are integer
+fields on the resource's items, so the owner edits them in the Data tab.
+Menu: a "main" item (shop and cart) and a "mine" item (my orders, cancel).
+When: the owner sells several products or wants carts and stock. Online payment is NOT available.
+Default shape (use it unless the owner says otherwise):
+```
+{"type": "orders", "key": "shop", "title": "فروشگاه", "resource": "product", "price_field": "price",
+ "stock_field": "stock", "checkout_fields": [{"key": "address", "label": "نشانی", "type": "long_text", "required": true, "choices": null, "default": null}],
+ "statuses": [{"key": "new", "label": "جدید"}, {"key": "confirmed", "label": "تأییدشده"},
+              {"key": "delivered", "label": "تحویل‌شده"}, {"key": "cancelled", "label": "لغوشده"}],
+ "initial_status": "new",
+ "owner_actions": [{"key": "confirm", "label": "تأیید سفارش", "from_statuses": ["new"], "to_status": "confirmed"},
+                   {"key": "deliver", "label": "تحویل شد", "from_statuses": ["confirmed"], "to_status": "delivered"},
+                   {"key": "cancel", "label": "لغو سفارش", "from_statuses": ["new", "confirmed"], "to_status": "cancelled"}],
+ "cancellable_statuses": ["new"], "notify_owner_on": ["placed", "cancelled"], "notify_user_on": ["status_changed"], "texts": []}
+```
+
 ## Menu
 
 `{"key", "label" (Persian button text), "capability" (capability key), "view": "main" | "mine"}`.
-1 to 8 items. "mine" is only for booking and request capabilities. Every capability should be
-reachable from the menu.
+1 to 8 items reaching ENABLED capabilities (items of disabled capabilities do not count). "mine"
+is only for booking, request and orders capabilities. Every enabled capability should be reachable
+from the menu.
+
+## enabled and audience (booking, request and orders capabilities)
+
+- `enabled` [true]: false hides the capability from users (menu, buttons) but keeps its
+  configuration and records. To turn a feature off, set `enabled` to false instead of removing it,
+  and set it back to true to turn it on again. Remove only when the owner wants it gone for good.
+- `audience` ["everyone"]: who may use it: "everyone", "staff" (staff and managers: internal forms
+  such as leave requests) or "managers" (managers only: approvals and internal tools). The bot
+  owner always counts as a manager. A staff audience is only useful once the owner has enabled the
+  `staff` module and invited staff.
+Examples: `{"op": "set", "path": ["capabilities", "leave", "audience"], "value": "staff"}`,
+`{"op": "set", "path": ["capabilities", "shop", "enabled"], "value": false}`.
+
+## Modules you cannot configure
+
+The registry at the end lists modules (kind module): inventory, approvals, announcements, staff,
+staff_reporting, reporting, spreadsheet_intelligence, scheduled_reports, copilot. They are not
+part of the spec. The owner switches them on in the Capability Center (مرکز قابلیت‌ها) of the web
+app, which is deterministic. When a requirement needs one, record it as an assumed requirement,
+name it in the owner message and tell the owner to enable it there. Never write spec JSON for a
+module and never claim it is already running. Payments is listed but not available.
 
 ## Text overrides
 
@@ -157,9 +228,11 @@ Examples:
 
 ## Unsupported (record with a reason and the closest alternative)
 
-Payments or online checkout (alternative: a request the owner confirms, or show prices in a
-catalog); carts with several items (alternative: one request per item); arbitrary rules beyond the
-typed parameters; integrations or external APIs; file or photo uploads; broadcast messages to all
-users; free-text or AI chat inside the bot (bot users use buttons and short form answers);
-automatic recurring schedules (the owner adds each item); several admins or roles; languages other
-than Persian; platforms other than Telegram. Reminders before an item starts are not available yet.
+Online payment or a payment gateway (alternative: `orders`, which stay unpaid, or a request the
+owner confirms); external calendars (Google Calendar and the like), accounting, delivery or any
+other integration or external API; arbitrary code, scripts or rules beyond the typed parameters;
+file or photo uploads by bot users; free-text or AI chat inside the bot (bot users use buttons and
+short form answers; the manager Q&A is the owner-side copilot module); automatic recurring
+schedules (the owner adds each item); languages other than Persian; platforms other than Telegram.
+Supported, so never list them as unsupported: carts and stock (orders), reminders before an item
+starts (`reminder_hours_before`), broadcasts, staff roles, reports and Excel analysis (modules).
