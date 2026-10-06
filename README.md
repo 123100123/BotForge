@@ -9,7 +9,7 @@ The owner runs it from the Business Control Center; every change is a reviewable
 
 The V1 demo scenario is a workshop-registration bot (capacity, waitlist with automatic promotion,
 cancellation). `IMPLEMENTATION_ROADMAP.md` is the source of truth for scope, architecture and decisions
-(the Business OS expansion lives on branch `business-os`); this README only covers running and deploying
+(the Business OS expansion is merged into `main`); this README only covers running and deploying
 the project.
 
 ## Repository layout
