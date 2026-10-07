@@ -36,7 +36,13 @@ services:
       # --- secrets ---
       - key: TOKEN_ENC_KEY           # python -m app.security.crypto generate-key ; losing it orphans stored bot tokens
         sync: false
-      - key: ANTHROPIC_API_KEY
+      - key: ANTHROPIC_API_KEY       # LLM_PROVIDER=anthropic only
+        sync: false
+      - key: LLM_API_KEY             # LLM_PROVIDER=openai: the plain endpoint (last in the chain)
+        sync: false
+      - key: LLM_1_API_KEY           # LLM_PROVIDER=openai: chain entry 1 (e.g. Gemini key A)
+        sync: false
+      - key: LLM_2_API_KEY           # chain entry 2 (e.g. Gemini key B); leave empty if unused
         sync: false
       # --- public addresses ---
       - key: PUBLIC_BASE_URL         # this service's public https URL; Telegram webhooks are registered under it
@@ -45,11 +51,38 @@ services:
         sync: false
       - key: FRONTEND_ORIGIN_REGEX   # optional, leave empty unless deploy previews must reach this API (README step 5)
         sync: false
-      # --- LLM ---
-      - key: LLM_MODEL_STRONG
+      # --- LLM (README, Environment, "LLM provider") ---
+      # anthropic: ANTHROPIC_API_KEY + LLM_MODEL_STRONG/FAST. openai: an ordered endpoint chain
+      # LLM_1_*, LLM_2_* (up to LLM_5_*, stops at the first empty BASE_URL), then LLM_BASE_URL last;
+      # each call fails over to the next endpoint. Example: LLM_1/LLM_2 = Gemini keys A/B with
+      # BASE_URL https://generativelanguage.googleapis.com/v1beta/openai, then
+      # LLM_BASE_URL=https://top-tools-ai.com/v1 with LLM_MODEL_STRONG/FAST=Qwen-3.8-Max.
+      - key: LLM_PROVIDER            # anthropic | openai
+        sync: false
+      - key: LLM_BASE_URL            # openai: the plain endpoint, with the version path
+        sync: false
+      - key: LLM_MODEL_STRONG        # the model of the plain endpoint (or the Anthropic model)
         sync: false
       - key: LLM_MODEL_FAST
         sync: false
+      - key: LLM_1_BASE_URL
+        sync: false
+      - key: LLM_1_MODEL_STRONG      # e.g. gemini-2.5-flash; set it explicitly
+        sync: false
+      - key: LLM_1_MODEL_FAST        # optional; defaults to LLM_1_MODEL_STRONG
+        sync: false
+      - key: LLM_2_BASE_URL
+        sync: false
+      - key: LLM_2_MODEL_STRONG
+        sync: false
+      - key: LLM_2_MODEL_FAST
+        sync: false
+      - key: LLM_TIMEOUT_SECONDS     # per HTTP attempt (openai)
+        value: "180"
+      - key: LLM_MAX_RETRIES         # retries per endpoint for transient errors (openai)
+        value: "4"
+      - key: LLM_COOLDOWN_SECONDS    # skip an endpoint this long after an auth/quota/rate failure
+        value: "60"
       - key: LOG_LLM_BODIES          # keep false in production: bodies contain owner chat text
         value: "false"
       # --- agent limits (defaults shown; lower AGENT_DAILY_RUN_CAP before a public demo) ---

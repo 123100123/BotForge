@@ -83,8 +83,48 @@ $env:PUBLIC_BASE_URL = 'http://localhost:8000'
 $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 ```
 
-`ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. With
-`SUPABASE_JWKS_URL` unset the backend verifies HS256 tokens signed with `SUPABASE_JWT_SECRET`.
+The LLM settings are needed only for agent runs. With `SUPABASE_JWKS_URL` unset the backend verifies
+HS256 tokens signed with `SUPABASE_JWT_SECRET`.
+
+**LLM provider.** `LLM_PROVIDER` chooses how the agent reaches a model:
+
+- `anthropic` (default): the Anthropic API with `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`.
+- `openai`: an ordered chain of OpenAI chat-completions compatible endpoints (`POST <base>/chat/completions`
+  only). The chain is `LLM_1_*`, `LLM_2_*`, ... up to `LLM_5_*` (it stops at the first index without a
+  `BASE_URL`), then the plain `LLM_BASE_URL` / `LLM_API_KEY` / `LLM_MODEL_STRONG` / `LLM_MODEL_FAST`
+  endpoint last. Each entry has `LLM_n_BASE_URL` (with the version path), `LLM_n_API_KEY`,
+  `LLM_n_MODEL_STRONG` and optionally `LLM_n_MODEL_FAST` (defaults to the strong model). An entry
+  without a model uses `gemini-2.5-flash` on Gemini's host and `Qwen-3.8-Max` elsewhere; set the model
+  explicitly. Every model call tries the endpoints in order: transient errors (HTTP 429, 5xx,
+  `"retryable": true`, timeouts) are retried on the same endpoint up to `LLM_MAX_RETRIES` times
+  (default 4) with backoff; then, or at once on 401/402/403/404, or after an empty or invalid answer
+  was retried, the call moves to the next endpoint. An endpoint that failed on auth, quota, an unknown
+  model or rate limits is skipped for `LLM_COOLDOWN_SECONDS` (default 60) while another one is
+  available. Runs fail only when every endpoint failed; the run's error lists each endpoint's failure.
+  Optional: `LLM_TIMEOUT_SECONDS` (per attempt, default 180), `LLM_MAX_TOKENS` (default 16384),
+  `LLM_PRICE_INPUT_PER_M` / `LLM_PRICE_OUTPUT_PER_M` (USD per million tokens for the cost figures;
+  default 0, tokens are always counted against the run budgets).
+
+Example chain: two Gemini keys, then the top-tools-ai gateway:
+
+```
+LLM_PROVIDER=openai
+LLM_1_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+LLM_1_API_KEY=<Gemini key A>
+LLM_1_MODEL_STRONG=gemini-2.5-flash
+LLM_2_BASE_URL=https://generativelanguage.googleapis.com/v1beta/openai
+LLM_2_API_KEY=<Gemini key B>
+LLM_2_MODEL_STRONG=gemini-2.5-flash
+LLM_BASE_URL=https://top-tools-ai.com/v1
+LLM_API_KEY=<gateway key>
+LLM_MODEL_STRONG=Qwen-3.8-Max
+LLM_MODEL_FAST=Qwen-3.8-Max
+```
+
+A missing key or base URL never stops the app from starting: the bad entry is left out and logged,
+and with no usable entry agent runs fail with a configuration error. One live check per endpoint
+(costs a little): `uv run python scripts/spike_structured_output.py --provider openai --endpoint LLM_1
+--modes structured,tool`.
 
 ### Run the API
 
@@ -140,7 +180,8 @@ app shows a configuration error naming the missing variables instead of fake dat
 ## Deployment checklist
 
 Architecture: the frontend (a Render Node service, or Vercel) calls the backend (one always-on Render container) with a Supabase
-access token; the backend talks to Supabase Postgres, the Anthropic API and Telegram. The backend must
+access token; the backend talks to Supabase Postgres, the LLM provider (the Anthropic API or
+OpenAI-compatible endpoints) and Telegram. The backend must
 run as a single instance with a single worker (agent runs and rate limits are in-process).
 
 1. **Supabase project.**
@@ -162,8 +203,12 @@ run as a single instance with a single worker (agent runs and rate limits are in
    root directory `backend`, health check `/healthz`, auto-deploy off; the free plan for testing,
    `starter` (paid, always-on) for the demo; and the `botforge-web` service of step 4). Fill the
    `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
-   `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
-   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. Check in the service settings that the Dockerfile path
+   `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`, and the LLM
+   variables of your provider (see "Environment", LLM provider): `ANTHROPIC_API_KEY`,
+   `LLM_MODEL_STRONG`, `LLM_MODEL_FAST` for Anthropic; or `LLM_PROVIDER=openai` with the endpoint
+   chain (`LLM_1_BASE_URL`, `LLM_1_API_KEY`, `LLM_1_MODEL_STRONG`, ... and/or `LLM_BASE_URL`,
+   `LLM_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`). Keys are secrets: set them only in the
+   dashboard. Unused `LLM_n_*` fields stay empty. Check in the service settings that the Dockerfile path
    resolves to `backend/Dockerfile`. The container runs `alembic upgrade head` on every start. Deploy
    and confirm `https://<service>.onrender.com/healthz` returns `{"status":"ok"}`.
 4. **Vercel.** Import the repository as a Next.js project; set **Root Directory** to `frontend` (no

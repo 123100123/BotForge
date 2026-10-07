@@ -2,6 +2,7 @@
 
 from functools import lru_cache
 
+from pydantic import SecretStr, ValidationInfo, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -27,8 +28,67 @@ class Settings(BaseSettings):
     LLM_MODEL_STRONG: str | None = None
     LLM_MODEL_FAST: str | None = None
 
+    # LLM provider (app.agent.llm.make_llm): "anthropic" (default, the official SDK) or "openai"
+    # (an ordered chain of OpenAI chat-completions compatible endpoints; app.agent.llm_openai).
+    # Chain order: LLM_1_*, LLM_2_*, ... (up to LLM_5_*, stopping at the first index without a
+    # BASE_URL), then the plain LLM_BASE_URL/LLM_API_KEY/LLM_MODEL_* endpoint last. Bad or missing
+    # values fail agent runs, never the app's boot.
+    LLM_PROVIDER: str = "anthropic"
+    LLM_BASE_URL: str | None = None  # including the version path, e.g. https://gateway.example/v1
+    LLM_API_KEY: SecretStr | None = None
+    LLM_1_BASE_URL: str | None = None
+    LLM_1_API_KEY: SecretStr | None = None
+    LLM_1_MODEL_STRONG: str | None = None
+    LLM_1_MODEL_FAST: str | None = None  # defaults to the entry's strong model
+    LLM_2_BASE_URL: str | None = None
+    LLM_2_API_KEY: SecretStr | None = None
+    LLM_2_MODEL_STRONG: str | None = None
+    LLM_2_MODEL_FAST: str | None = None
+    LLM_3_BASE_URL: str | None = None
+    LLM_3_API_KEY: SecretStr | None = None
+    LLM_3_MODEL_STRONG: str | None = None
+    LLM_3_MODEL_FAST: str | None = None
+    LLM_4_BASE_URL: str | None = None
+    LLM_4_API_KEY: SecretStr | None = None
+    LLM_4_MODEL_STRONG: str | None = None
+    LLM_4_MODEL_FAST: str | None = None
+    LLM_5_BASE_URL: str | None = None
+    LLM_5_API_KEY: SecretStr | None = None
+    LLM_5_MODEL_STRONG: str | None = None
+    LLM_5_MODEL_FAST: str | None = None
+    LLM_COOLDOWN_SECONDS: float = 60.0  # skip an endpoint this long after an auth/quota/rate failure
+    LLM_TIMEOUT_SECONDS: float = 180.0  # per HTTP attempt ("openai" provider)
+    LLM_MAX_RETRIES: int = 4  # retries after the first attempt, for transient failures only
+    LLM_MAX_TOKENS: int = 16384  # max output tokens per call ("openai" provider)
+    LLM_PRICE_INPUT_PER_M: float = 0.0  # USD per million tokens, for cost reporting only
+    LLM_PRICE_OUTPUT_PER_M: float = 0.0
+
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False
+
+    @field_validator("LLM_PROVIDER", mode="before")
+    @classmethod
+    def _provider(cls, value: object) -> object:
+        if value is None or (isinstance(value, str) and not value.strip()):
+            return "anthropic"
+        return value.strip().lower() if isinstance(value, str) else value
+
+    @field_validator(
+        "LLM_TIMEOUT_SECONDS",
+        "LLM_MAX_RETRIES",
+        "LLM_MAX_TOKENS",
+        "LLM_PRICE_INPUT_PER_M",
+        "LLM_PRICE_OUTPUT_PER_M",
+        "LLM_COOLDOWN_SECONDS",
+        mode="before",
+    )
+    @classmethod
+    def _empty_is_default(cls, value: object, info: ValidationInfo) -> object:
+        # An empty variable (a blank dashboard field, a copied .env.example) means "use the default"
+        # instead of failing every request that reads the settings.
+        if isinstance(value, str) and not value.strip():
+            return cls.model_fields[info.field_name].default
+        return value
 
     @property
     def async_database_url(self) -> str | None:

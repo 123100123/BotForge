@@ -53,7 +53,7 @@ async def run(ctx: RunContext) -> Next:
         )
     except LLMError as exc:
         ctx.charge(exc.usage)
-        return await fail(ctx, TRIAGE_FAILED, f"triage: {exc}")
+        return await fail(ctx, exc.owner_message or TRIAGE_FAILED, f"triage: {exc}")
     ctx.charge(usage)
     assert isinstance(out, TriageOut)
     state.triage = out.intent

@@ -1,12 +1,16 @@
 """LLM boundary for the agent (roadmap: "LLM Strategy").
 
-``LLMClient`` is the only way phases reach a model. Two implementations:
+``LLMClient`` is the only way phases reach a model. ``make_llm`` picks the implementation for real
+runs from ``LLM_PROVIDER``:
 
-- ``AnthropicLLM``: the official async ``anthropic`` SDK. Streaming requests (``get_final_message``),
-  a cached system prefix, adaptive thinking with per-task effort, structured output through
-  ``output_config.format`` (schema prepared with ``anthropic.transform_schema``), tools with
-  ``tool_choice`` left at ``auto`` (forced tool use is rejected by current models), server-side
-  refusal fallback (``fallbacks="default"``), and ``stop_reason`` checked before content is read.
+- ``OpenAICompatLLM`` (``app.agent.llm_openai``, ``LLM_PROVIDER=openai``): an ordered chain of
+  OpenAI chat-completions compatible endpoints (gateways, Gemini's compatibility endpoint) over httpx.
+- ``AnthropicLLM`` (the default): the official async ``anthropic`` SDK. Streaming requests
+  (``get_final_message``), a cached system prefix, adaptive thinking with per-task effort,
+  structured output through ``output_config.format`` (schema prepared with
+  ``anthropic.transform_schema``), tools with ``tool_choice`` left at ``auto`` (forced tool use is
+  rejected by current models), server-side refusal fallback (``fallbacks="default"``), and
+  ``stop_reason`` checked before content is read.
 - ``FakeLLM``: scripted structured results and scripted tool-call turns. Every automated test uses it.
 
 The tool loop is append-only: assistant turns (thinking blocks included) go back unchanged, tool
@@ -59,6 +63,17 @@ PRICES: dict[str, tuple[float, float, float, float]] = {
 
 NUDGE_TEXT = "Continue with the tools. When the work is complete, call the finish tool."
 LIMIT_TEXT = "Tool call limit reached for this phase; the call was not executed."
+
+# Persian texts for provider failures (``LLMError.owner_message``); shown when a run fails on one.
+PROVIDER_OWNER_MESSAGES: dict[str, str] = {
+    "llm_config": "سرویس مدل زبانی هنوز تنظیم نشده است. لطفاً به پشتیبانی اطلاع دهید.",
+    "llm_auth": "دسترسی به سرویس مدل زبانی برقرار نشد. لطفاً به پشتیبانی اطلاع دهید.",
+    "llm_quota": "اعتبار سرویس مدل زبانی تمام شده است. لطفاً بعداً دوباره تلاش کنید یا به پشتیبانی اطلاع دهید.",
+    "llm_not_found": "مدل زبانی تنظیم‌شده در دسترس نیست. لطفاً به پشتیبانی اطلاع دهید.",
+    "llm_bad_request": "سرویس مدل زبانی این درخواست را نپذیرفت. لطفاً دوباره تلاش کنید.",
+    "llm_rate_limited": "سرویس مدل زبانی فعلاً شلوغ است. لطفاً چند دقیقه بعد دوباره تلاش کنید.",
+    "llm_unavailable": "سرویس مدل زبانی فعلاً در دسترس نیست. لطفاً چند دقیقه بعد دوباره تلاش کنید.",
+}
 
 
 class Usage(BaseModel):
@@ -148,14 +163,20 @@ class LoopResult:
 class LLMError(Exception):
     """A model call that produced no usable result.
 
-    code: refusal | max_tokens | invalid_output | api_error
+    code: refusal | max_tokens | invalid_output | api_error, and for provider failures
+    (``OpenAICompatLLM``, ``make_llm``): llm_config | llm_auth | llm_quota | llm_not_found |
+    llm_bad_request | llm_rate_limited | llm_unavailable. ``owner_message`` is a Persian text safe
+    to show the owner, when there is one.
     """
 
-    def __init__(self, code: str, message: str, *, usage: Usage | None = None) -> None:
+    def __init__(
+        self, code: str, message: str, *, usage: Usage | None = None, owner_message: str | None = None
+    ) -> None:
         super().__init__(f"{code}: {message}")
         self.code = code
         self.message = message
         self.usage = usage or Usage()
+        self.owner_message = owner_message
 
 
 class LLMClient(Protocol):
@@ -597,3 +618,83 @@ class FakeLLM:
                 return LoopResult("finished", state["calls"], total, last_text)
             if result.limit_hit:
                 return LoopResult("tool_limit", state["calls"], total, last_text)
+
+
+# --------------------------------------------------------------------------- provider selection
+
+
+class UnavailableLLM:
+    """Stands in when the configured provider cannot work (missing or invalid settings).
+
+    The app still boots and serves everything else; every agent model call fails with
+    ``LLMError("llm_config")``, which ends the run with a Persian explanation.
+    """
+
+    def __init__(self, reason: str) -> None:
+        self.reason = reason
+
+    def _error(self) -> LLMError:
+        return LLMError("llm_config", self.reason, owner_message=PROVIDER_OWNER_MESSAGES["llm_config"])
+
+    async def structured(
+        self,
+        *,
+        task: str,
+        system: str,
+        messages: list[Any],
+        schema: type[BaseModel],
+        tier: Tier = "strong",
+    ) -> tuple[BaseModel, Usage]:
+        raise self._error()
+
+    async def tool_loop(
+        self,
+        *,
+        task: str,
+        system: str,
+        messages: list[Any],
+        tools: list[ToolDef],
+        handler: ToolHandler,
+        max_tool_calls: int,
+        tier: Tier = "strong",
+        on_usage: UsageHook | None = None,
+    ) -> LoopResult:
+        raise self._error()
+
+
+def make_llm(settings: Any | None = None) -> LLMClient:
+    """The ``LLMClient`` for real runs, chosen by ``LLM_PROVIDER`` (``anthropic`` or ``openai``).
+
+    Never raises for bad configuration: it logs the problem and returns an ``UnavailableLLM``.
+    """
+    from app.config import get_settings
+
+    s = settings or get_settings()
+    provider = s.LLM_PROVIDER
+    if provider == "anthropic":
+        return AnthropicLLM(strong_model=s.LLM_MODEL_STRONG, fast_model=s.LLM_MODEL_FAST)
+    if provider == "openai":
+        from app.agent.llm_openai import OpenAICompatLLM, endpoints_from_settings
+
+        endpoints, problems = endpoints_from_settings(s)
+        for problem in problems:
+            log.error("LLM configuration: %s", problem)
+        if not endpoints:
+            reason = "; ".join(problems) or "LLM_PROVIDER=openai needs LLM_BASE_URL and LLM_API_KEY"
+            log.error("LLM_PROVIDER=openai has no usable endpoint; agent runs will fail (%s)", reason)
+            return UnavailableLLM(reason)
+        llm = OpenAICompatLLM(
+            endpoints=endpoints,
+            timeout=s.LLM_TIMEOUT_SECONDS,
+            max_retries=s.LLM_MAX_RETRIES,
+            max_tokens=s.LLM_MAX_TOKENS,
+            price_input_per_m=s.LLM_PRICE_INPUT_PER_M,
+            price_output_per_m=s.LLM_PRICE_OUTPUT_PER_M,
+            cooldown_seconds=s.LLM_COOLDOWN_SECONDS,
+            log_bodies=s.LOG_LLM_BODIES,
+        )
+        log.info("LLM provider openai, endpoint chain: %s", llm.describe())
+        return llm
+    reason = f"unknown LLM_PROVIDER '{provider}' (expected 'anthropic' or 'openai')"
+    log.error("%s; agent runs will fail", reason)
+    return UnavailableLLM(reason)

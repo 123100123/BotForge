@@ -417,7 +417,8 @@ class Orchestrator:
                 state = (await self.repo.load_run(run_id)).state
             state.error = f"{type(exc).__name__}: {exc}"[:2000]
             state.phase = "failed"
-            await self._emit(run_id, ev.error(UNEXPECTED_ERROR))
+            # Provider failures (LLMError from a tool loop) carry an owner-safe Persian text.
+            await self._emit(run_id, ev.error(getattr(exc, "owner_message", None) or UNEXPECTED_ERROR))
             await self._save(run_id, state, "failed")
         except Exception:
             log.exception("could not record the failure of run %s", run_id)

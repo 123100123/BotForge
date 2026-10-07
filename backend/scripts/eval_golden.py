@@ -15,7 +15,8 @@ revision is exactly the expected change (capacity value 12; cancellation.deadlin
 scenario passed; for the capacity change only ``golden_capacity_10_real`` was superseded (nothing
 for the deadline); at least one new acceptance scenario exists; activation succeeded.
 
-Usage (from backend/, needs ANTHROPIC_API_KEY; each run costs real money):
+Usage (from backend/, needs ANTHROPIC_API_KEY, or LLM_PROVIDER=openai with an endpoint chain as in
+README "Environment"; each run costs real money):
     uv run python scripts/eval_golden.py --create [--runs N] [--verbose]
     uv run python scripts/eval_golden.py --modify [--runs N] [--verbose]
 """
@@ -34,7 +35,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from app.agent.context import Limits
 from app.agent.events import EventBus
-from app.agent.llm import AnthropicLLM, LLMClient, Usage
+from app.agent.llm import LLMClient, Usage, make_llm
 from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.repository import InMemoryAgentRepository
 from app.agent.requirements import Requirements
@@ -211,7 +212,7 @@ def answer_for(questions: list[dict[str, Any]]) -> str:
     return " ".join(dict.fromkeys(lines)) or DEFAULT_ANSWER
 
 
-async def one_run(index: int, llm: AnthropicLLM, verbose: bool) -> dict[str, Any]:
+async def one_run(index: int, llm: LLMClient, verbose: bool) -> dict[str, Any]:
     repo = InMemoryAgentRepository()
     orch = Orchestrator(repo, llm, limits=Limits.from_settings(), bus=EventBus())
     bot_id = repo.add_bot("ارزیابی")
@@ -286,9 +287,14 @@ async def one_run(index: int, llm: AnthropicLLM, verbose: bool) -> dict[str, Any
 
 
 def api_key_available() -> bool:
+    """The configured provider has credentials: ANTHROPIC_API_KEY, or an LLM_PROVIDER=openai chain."""
+    from app.agent.llm_openai import endpoints_from_settings
     from app.config import get_settings
 
-    return bool(os.environ.get("ANTHROPIC_API_KEY") or get_settings().ANTHROPIC_API_KEY)
+    settings = get_settings()
+    if settings.LLM_PROVIDER == "openai":
+        return bool(endpoints_from_settings(settings)[0])
+    return bool(os.environ.get("ANTHROPIC_API_KEY") or settings.ANTHROPIC_API_KEY)
 
 
 async def main() -> int:
@@ -307,16 +313,17 @@ async def main() -> int:
         parser.error("choose a flow to evaluate: --create or --modify")
     if not api_key_available():
         print(
-            "ANTHROPIC_API_KEY is not set (environment or backend/.env). This script calls the live "
-            "model and costs real money; set the key and run it again.",
+            "ANTHROPIC_API_KEY is not set (environment or backend/.env), or with LLM_PROVIDER=openai "
+            "no endpoint has both a BASE_URL and an API_KEY. This script calls the live model and "
+            "costs real money; set the credentials and run it again.",
             file=sys.stderr,
         )
         return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    llm = AnthropicLLM()
+    llm: Any = make_llm()
     print(
-        f"mode={'modify' if args.modify else 'create'} strong={llm.strong_model} "
-        f"fast={llm.fast_model} runs={args.runs}"
+        f"mode={'modify' if args.modify else 'create'} provider={type(llm).__name__} "
+        f"strong={llm.strong_model} fast={llm.fast_model} runs={args.runs}"
     )
     results = []
     for i in range(1, args.runs + 1):

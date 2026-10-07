@@ -24,7 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.agent.context import Limits, get_agent_settings
 from app.agent.events import EventEnvelope
-from app.agent.llm import AnthropicLLM
+from app.agent.llm import make_llm
 from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.repository import ActiveRunExists, RepositoryError, RunRecord, SqlAgentRepository
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot, get_owned_run
@@ -93,11 +93,12 @@ _orchestrator: Orchestrator | None = None
 
 
 def get_orchestrator() -> Orchestrator:
-    """The process-wide orchestrator (SQL repository, Anthropic client). Tests override this."""
+    """The process-wide orchestrator (SQL repository, the ``LLM_PROVIDER`` client). Tests override
+    this. A misconfigured provider still yields an orchestrator; its runs fail with a clear error."""
     global _orchestrator
     if _orchestrator is None:
         _orchestrator = Orchestrator(
-            SqlAgentRepository(get_sessionmaker()), AnthropicLLM(), limits=Limits.from_settings()
+            SqlAgentRepository(get_sessionmaker()), make_llm(), limits=Limits.from_settings()
         )
     return _orchestrator
 

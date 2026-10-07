@@ -113,7 +113,9 @@ async def run(ctx: RunContext) -> Next:
     except LLMError as exc:
         ctx.charge(exc.usage)
         return await fail(
-            ctx, "نتوانستم درخواست تغییر را تحلیل کنم. لطفاً دوباره تلاش کنید.", f"understand_change: {exc}"
+            ctx,
+            exc.owner_message or "نتوانستم درخواست تغییر را تحلیل کنم. لطفاً دوباره تلاش کنید.",
+            f"understand_change: {exc}",
         )
     ctx.charge(usage)
     assert isinstance(out, UnderstandChangeOut)

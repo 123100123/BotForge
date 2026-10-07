@@ -6,7 +6,7 @@ import pytest
 
 from app.agent.checks import fa
 from app.agent.context import Limits
-from app.agent.llm import ToolCall, Usage
+from app.agent.llm import PROVIDER_OWNER_MESSAGES, LLMError, ToolCall, Usage
 from app.agent.orchestrator import OrchestratorError
 from app.agent.repository import ActiveRunExists
 from tests.unit.agent.helpers import (
@@ -426,6 +426,27 @@ async def test_exception_inside_a_phase_marks_the_run_failed() -> None:
     assert error["message"].startswith("خطای غیرمنتظره")
     assert h.types(run.id)[-2:] == ["error", "run_status"]
     assert h.of_type(run.id, "run_status")[-1] == {"status": "failed", "phase": "failed"}
+
+
+async def test_provider_error_in_understand_shows_its_persian_message() -> None:
+    quota = PROVIDER_OWNER_MESSAGES["llm_quota"]
+    h = harness(structured={"understand": [LLMError("llm_quota", "HTTP 402", owner_message=quota)]})
+    run = await h.start()
+    assert run.status == "failed" and "llm_quota" in run.state.error
+    assert h.of_type(run.id, "error")[0]["message"] == quota
+
+
+async def test_provider_error_in_a_tool_loop_fails_the_run_with_its_persian_message() -> None:
+    unavailable = PROVIDER_OWNER_MESSAGES["llm_unavailable"]
+    h = harness()
+
+    async def failing_loop(**kwargs: object) -> None:
+        raise LLMError("llm_unavailable", "all endpoints failed", owner_message=unavailable)
+
+    h.llm.tool_loop = failing_loop  # type: ignore[method-assign]
+    run = await h.start()
+    assert run.status == "failed" and "llm_unavailable" in run.state.error
+    assert h.of_type(run.id, "error")[-1]["message"] == unavailable
 
 
 async def test_exception_in_a_tool_handler_is_reported_to_the_model_not_raised() -> None:

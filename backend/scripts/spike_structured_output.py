@@ -10,11 +10,18 @@ and semantically valid BotSpec came back, and the token counts and cost:
 
 Usage (from backend/, needs ANTHROPIC_API_KEY; costs real money, roughly a few cents per mode):
     uv run python scripts/spike_structured_output.py [--modes structured,tool,tool_strict] [--model ...]
+
+With ``--provider openai`` (default: LLM_PROVIDER) the same modes go through the OpenAI-compatible
+endpoint chain (README "Environment"): structured = response_format json_schema, tool = a set_spec
+function, tool_strict = the same with "strict": true. ``--endpoint LLM_1`` keeps only that chain
+entry (one of LLM_1..LLM_5, or LLM for the plain LLM_BASE_URL endpoint), to check one key at a time.
 """
 
 import argparse
 import asyncio
+import dataclasses
 import json
+import logging
 import sys
 import time
 from pathlib import Path
@@ -24,11 +31,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 import anthropic
 
-from app.agent.llm import AnthropicLLM, ToolDef
+from app.agent.llm import AnthropicLLM, LLMError, ToolDef, _extract_json
+from app.agent.llm_openai import OpenAICompatLLM, _content_text, _to_openai, endpoints_from_settings
 from app.agent.prompts import load, system_prompt
 from app.agent.tools import TOOL_DEFS
 from app.botspec.models import BotSpec
 from app.botspec.validate import check_spec, has_errors
+from app.config import get_settings
 
 EXAMPLES = Path(__file__).resolve().parents[2] / "examples"
 
@@ -107,13 +116,97 @@ async def run_mode(llm: AnthropicLLM, mode: str) -> dict[str, Any]:
     return result
 
 
+async def run_mode_openai(llm: OpenAICompatLLM, mode: str) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "messages": _to_openai(system_prompt(), [user_message(mode)]),
+        "max_tokens": llm.max_tokens,
+    }
+    if mode == "structured":
+        body["response_format"] = {
+            "type": "json_schema",
+            "json_schema": {"name": "BotSpec", "schema": BotSpec.model_json_schema(), "strict": False},
+        }
+    else:
+        base = TOOL_DEFS["set_spec"]
+        tool: dict[str, Any] = {
+            "type": "function",
+            "function": {"name": base.name, "description": base.description, "parameters": base.input_schema},
+        }
+        if mode == "tool_strict":
+            tool["function"]["strict"] = True
+        body["tools"] = [tool]
+    started = time.perf_counter()
+    try:
+        message, finish, usage, endpoint = await llm.complete("spike", "strong", body)
+    except LLMError as exc:
+        return {"mode": mode, "accepted": False, "error": f"{exc.code}: {exc.message}"[:600]}
+    result: dict[str, Any] = {
+        "mode": mode,
+        "accepted": True,
+        "stop_reason": finish,
+        "served_by": f"{endpoint.label} {endpoint.strong_model}",
+        "seconds": round(time.perf_counter() - started, 1),
+        "usage": usage.model_dump(),
+    }
+    if finish in ("length", "content_filter"):
+        result["valid"] = False
+        return result
+    raw: Any = None
+    if mode == "structured":
+        try:
+            raw = _extract_json(_content_text(message.get("content")))
+        except json.JSONDecodeError as exc:
+            result["parse_error"] = str(exc)
+    else:
+        calls = message.get("tool_calls") or []
+        result["tool_called"] = bool(calls)
+        if calls:
+            try:
+                args = json.loads(calls[0]["function"]["arguments"] or "{}")
+                raw = args.get("spec") if isinstance(args, dict) else None
+            except (json.JSONDecodeError, KeyError, TypeError) as exc:
+                result["parse_error"] = str(exc)
+    result.update(evaluate(raw))
+    return result
+
+
 async def main() -> int:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--modes", default="structured,tool,tool_strict")
-    parser.add_argument("--model", default=None, help="override LLM_MODEL_STRONG")
+    parser.add_argument("--model", default=None, help="override the strong model")
+    parser.add_argument(
+        "--provider", choices=("anthropic", "openai"), default=None, help="default: LLM_PROVIDER"
+    )
+    parser.add_argument("--endpoint", default=None, help="openai provider: keep only this chain entry")
     args = parser.parse_args()
+    provider = args.provider or get_settings().LLM_PROVIDER
+    if provider == "openai":
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        endpoints, problems = endpoints_from_settings(get_settings())
+        for problem in problems:
+            print(f"config problem: {problem}", file=sys.stderr)
+        if args.endpoint:
+            endpoints = [e for e in endpoints if e.name == args.endpoint]
+        if args.model:
+            endpoints = [dataclasses.replace(e, strong_model=args.model) for e in endpoints]
+        if not endpoints:
+            print("no usable OpenAI-compatible endpoint (README, Environment)", file=sys.stderr)
+            return 2
+        settings = get_settings()
+        compat = OpenAICompatLLM(
+            endpoints=endpoints,
+            timeout=settings.LLM_TIMEOUT_SECONDS,
+            max_retries=settings.LLM_MAX_RETRIES,
+            max_tokens=settings.LLM_MAX_TOKENS,
+            price_input_per_m=settings.LLM_PRICE_INPUT_PER_M,
+            price_output_per_m=settings.LLM_PRICE_OUTPUT_PER_M,
+        )
+        print(f"chain: {compat.describe()}")
+        for mode in args.modes.split(","):
+            print(json.dumps(await run_mode_openai(compat, mode.strip()), ensure_ascii=False, indent=2))
+        return 0
     llm = AnthropicLLM(strong_model=args.model, max_tokens=32000)
     print(f"model: {llm.strong_model}")
     total_cost = 0.0

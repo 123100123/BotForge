@@ -112,3 +112,21 @@ async def test_spike_modes_evaluate_the_returned_spec() -> None:
     tool = await script.run_mode(llm, "tool")
     assert tool["valid"] is True and tool["tool_called"] is True
     assert stub.requests[1]["tools"][0]["name"] == "set_spec" and "strict" not in stub.requests[1]["tools"][0]
+
+
+async def test_spike_openai_modes_evaluate_the_returned_spec() -> None:
+    import json
+
+    from tests.unit.agent.test_llm_openai import call, completion, make
+
+    script = load_script("spike_structured_output")
+    spec = json.dumps(golden_spec(), ensure_ascii=False)
+    llm, gw, _ = make(
+        [completion(spec), completion(None, [call("c1", "set_spec", {"spec": golden_spec()})], "tool_calls")]
+    )
+    structured = await script.run_mode_openai(llm, "structured")
+    assert structured["valid"] is True and structured["capacity"]["value"] == 10
+    assert gw.bodies()[0]["response_format"]["json_schema"]["name"] == "BotSpec"
+    tool = await script.run_mode_openai(llm, "tool_strict")
+    assert tool["valid"] is True and tool["tool_called"] is True
+    assert gw.bodies()[1]["tools"][0]["function"]["strict"] is True
