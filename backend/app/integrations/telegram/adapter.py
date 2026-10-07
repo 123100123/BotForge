@@ -12,6 +12,7 @@ a recipient is its actor id (private chats only).
 
 import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -23,6 +24,7 @@ log = logging.getLogger(__name__)
 
 MAX_TEXT_CHARS = 4000  # Telegram allows 4096 after entity parsing; stay below it
 NOT_MODIFIED = "message is not modified"
+_CHAT_ID = re.compile(r"-?[0-9]+")
 
 
 @dataclass(frozen=True)
@@ -141,8 +143,12 @@ def reply_markup(message: OutMessage) -> dict[str, Any] | None:
 
 
 def chat_id_for(actor_id: str) -> int | str | None:
-    """The Telegram chat id of a recipient: its actor id. ``None`` for a non-Telegram id."""
-    return int(actor_id) if actor_id.lstrip("-").isdigit() else None
+    """The Telegram chat id of a recipient: its actor id. ``None`` for a non-Telegram id.
+
+    Only ASCII digits with at most one leading minus count: ``str.isdigit`` also accepts characters
+    such as "²" that ``int`` rejects, and a ValueError here would escape dispatch after its commit.
+    """
+    return int(actor_id) if _CHAT_ID.fullmatch(actor_id) else None
 
 
 async def send_out_message(
