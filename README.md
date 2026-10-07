@@ -104,6 +104,8 @@ uv run python scripts/load_spec.py --spec ../examples/workshop.botspec.json --ow
 uv run python scripts/seed_demo.py --bot-id <bot id>            # --reset removes it again
 ```
 
+`load_spec.py` also stores sample data on the revision and loads it into the simulator sandbox. By default it takes the seed records of `workshop.scenarios.json` beside the spec; `--sample-data <file>` overrides that.
+
 ### Smoke test of the whole HTTP stack
 
 ```powershell
