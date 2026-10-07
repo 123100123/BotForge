@@ -4,7 +4,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fa, formatNumber } from "@/lib/format";
 import type { PhaseEntry, PhaseState, ToolEntry } from "@/lib/agent-state";
 import type { RunStatus, Usage } from "@/lib/types";
-import { phaseLabel, RUN_STATUS_LABELS } from "./labels";
+import { phaseLabel, RUN_STATUS_LABELS, RUN_STATUS_VARIANT } from "./labels";
 import { cn } from "@/lib/utils";
 
 function StateIcon({ state }: { state: PhaseState }) {
@@ -86,16 +86,6 @@ function PhaseRow({ entry, last }: { entry: PhaseEntry; last: boolean }) {
   );
 }
 
-const STATUS_VARIANT: Record<RunStatus, "accent" | "success" | "warning" | "destructive" | "secondary"> = {
-  running: "accent",
-  waiting_user: "warning",
-  waiting_approval: "warning",
-  done: "success",
-  failed: "destructive",
-  rejected: "secondary",
-  interrupted: "destructive",
-};
-
 interface ActivityTimelineProps {
   phases: PhaseEntry[];
   status: RunStatus | null;
@@ -108,7 +98,7 @@ export function ActivityTimeline({ phases, status, usage }: ActivityTimelineProp
     <Card>
       <CardHeader className="flex-row items-center justify-between gap-2">
         <CardTitle>فعالیت ایجنت</CardTitle>
-        {status && <Badge variant={STATUS_VARIANT[status]}>{RUN_STATUS_LABELS[status]}</Badge>}
+        {status && <Badge variant={RUN_STATUS_VARIANT[status]}>{RUN_STATUS_LABELS[status]}</Badge>}
       </CardHeader>
       <CardContent>
         {phases.length === 0 ? (

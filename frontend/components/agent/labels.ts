@@ -1,4 +1,4 @@
-import type { CapabilityType, Phase, RequirementKind, RiskLevel, RunStatus } from "@/lib/types";
+import type { CapabilityType, Phase, RequirementKind, RiskLevel, RunKind, RunStatus } from "@/lib/types";
 
 export const PHASE_LABELS: Record<Phase, string> = {
   triage: "بررسی پیام شما",
@@ -28,6 +28,26 @@ export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   rejected: "رد شد",
   interrupted: "قطع شد",
 };
+
+export const RUN_STATUS_VARIANT: Record<RunStatus, "accent" | "success" | "warning" | "destructive" | "secondary"> = {
+  running: "accent",
+  waiting_user: "warning",
+  waiting_approval: "warning",
+  done: "success",
+  failed: "destructive",
+  rejected: "secondary",
+  interrupted: "destructive",
+};
+
+export const RUN_KIND_LABELS: Record<RunKind, string> = {
+  create: "ساخت ربات",
+  modify: "درخواست تغییر",
+};
+
+/** Label for any run kind; a kind this client does not know gets a generic label. */
+export function runKindLabel(kind: string): string {
+  return (RUN_KIND_LABELS as Record<string, string>)[kind] ?? "گفت‌وگو با ایجنت";
+}
 
 export const REQUIREMENT_KIND_LABELS: Record<RequirementKind, string> = {
   capability: "قابلیت",
