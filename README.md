@@ -158,8 +158,9 @@ run as a single instance with a single worker (agent runs and rate limits are in
      are all accepted, and a libpq `sslmode=require` is translated to asyncpg's `ssl=require`.
 2. **Generate `TOKEN_ENC_KEY`** (encrypts Telegram bot tokens; losing it orphans stored tokens):
    `uv run python -m app.security.crypto generate-key` in `backend/`. Keep a copy in a password manager.
-3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (one Docker web service,
-   root directory `backend`, health check `/healthz`, paid always-on plan, auto-deploy off). Fill the
+3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (the API: one Docker web service,
+   root directory `backend`, health check `/healthz`, auto-deploy off; the free plan for testing,
+   `starter` (paid, always-on) for the demo; and the `botforge-web` service of step 4). Fill the
    `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
    `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
    `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. Check in the service settings that the Dockerfile path

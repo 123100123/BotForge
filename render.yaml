@@ -2,9 +2,10 @@
 # The database is Supabase, so there is no database resource here. The web app can also run on Vercel
 # (README, Deployment checklist, step 4); then drop the botforge-web service below.
 #
-# The service must stay always-on and single-instance: agent runs, rate limits and the Telegram
-# webhook handler live in one process. Use a paid plan that does not sleep (a free instance spins
-# down and drops in-flight agent runs). Never set numInstances above 1.
+# The API must stay single-instance: agent runs, rate limits and the Telegram webhook handler live in
+# one process. Never set numInstances above 1. The current test deployment uses the free plan (owner's
+# decision, 2026-10-07): it sleeps after idle, so the first Telegram update waits for a cold start and
+# in-flight agent runs are lost when it spins down. Switch to "starter" (paid, always-on) for the demo.
 #
 # Every variable is declared here; `sync: false` ones are asked for in the Render dashboard when the
 # Blueprint is applied and are never stored in git.
@@ -13,7 +14,7 @@ services:
     name: botforge-api
     runtime: docker
     rootDir: backend           # uses backend/Dockerfile with backend/ as the build context
-    plan: starter              # paid, always-on (a free instance works for testing; see the note above)
+    plan: free                 # test deployment; "starter" (paid, always-on) for the demo, see above
     numInstances: 1
     healthCheckPath: /healthz
     autoDeploy: false          # deploy deliberately from the dashboard
