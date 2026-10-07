@@ -31,7 +31,7 @@ As of 2026-10-07, the integration branch is `staging` of `github.com/123100123/B
 - **Backend suite:** 1159 passed, none skipped, with the database tests running and ruff clean (branch `staging`, 2026-10-07). It needs Python 3.12: `pgserver` has no 3.13 wheel, so use `uv sync --python 3.12 --group dbtest`. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
 - **Local smoke test:** `scripts/smoke_local.py` passes 15 of 15 steps against the real HTTP stack, with no LLM, no Telegram, and no cloud.
 - **Frontend:** all six tabs are built and work in mock mode (`NEXT_PUBLIC_MOCK=1`). Mock mode is now only on when `NEXT_PUBLIC_MOCK=1`; real mode with a missing Supabase variable shows a configuration-error page.
-- **Fix batch of 2026-10-07 on `staging`** (one branch and one commit each): `fix/dispatch-non-numeric-actor`, `fix/load-spec-sample-data`, `fix/seed-demo-reset`, `fix/database-url-supabase`, `fix/startup-interrupt-zero-downtime`, `fix/cors-multi-origin`, `fix/cors-on-error-responses`, `fix/frontend-explicit-mock`, `fix/simulator-active-revision`, `fix/frontend-401-logout`, `chore/deploy-render-frontend`. Behaviour changes are in the Decision Log.
+- **Fix batch of 2026-10-07 on `staging`** (one branch and one commit each): `fix/dispatch-non-numeric-actor`, `fix/load-spec-sample-data`, `fix/seed-demo-reset`, `fix/database-url-supabase`, `fix/startup-interrupt-zero-downtime`, `fix/cors-multi-origin`, `fix/cors-on-error-responses`, `fix/frontend-explicit-mock`, `fix/simulator-active-revision`, `fix/frontend-401-logout`, `chore/deploy-render-frontend`, `fix/agent-run-history`. Behaviour changes are in the Decision Log.
 - **Supabase project created:** `botforge` (ref `nlwekbfpxnvxlwiforpr`, eu-central-1, free plan, ES256 JWT signing keys, so only `SUPABASE_JWKS_URL` is needed).
 
 ### Built but not yet proven
@@ -1588,6 +1588,7 @@ Not part of the hackathon build.
 | 2026-10-07 | A 401 from the backend signs the user out and redirects to `/login?next=<same-origin path>` | An expired session left the app failing every request | Active |
 | 2026-10-07 | Test deployment: backend and web app both on Render's free plan, Supabase for database and Auth, no custom domain (supersedes Vercel and the paid always-on plan for now) | Owner's decision; zero cost while testing | Active |
 | 2026-10-07 | UI/UX update direction "guided launch": a persistent launch checklist (describe, test, approve, data, connect Telegram), fewer top-level tabs with Tests and Versions under technical details, mobile fixes, contrast and Telegram-blue brand tokens | Owner's choice after a UI audit: the main barrier is not knowing how to go live | Planned |
+| 2026-10-07 | The Agent tab shows every run of the bot. Only the latest run is streamed and acted on; each earlier run is loaded once by replaying `GET /runs/{id}/events` (the stream closes because the run is not running) and shown read-only, with its cards folded | The owner lost the conversation history whenever a new change request started a run | Active |
 
 ---
 
