@@ -14,7 +14,9 @@ class Settings(BaseSettings):
     DATABASE_URL: str | None = None
     TEST_DATABASE_URL: str | None = None
 
+    # CORS (app.security.cors): comma-separated origins; the optional regex is for preview URLs.
     FRONTEND_ORIGIN: str = "http://localhost:3000"
+    FRONTEND_ORIGIN_REGEX: str | None = None
     PUBLIC_BASE_URL: str = "http://localhost:8000"
 
     SUPABASE_URL: str | None = None

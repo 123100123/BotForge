@@ -170,9 +170,22 @@ run as a single instance with a single worker (agent runs and rate limits are in
    `NEXT_PUBLIC_MOCK=0`, `NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com` (no trailing slash),
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Deploy.
 5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
-   webhooks are registered under it, so it must be the public https address) and
-   `FRONTEND_ORIGIN=https://<your-app>.vercel.app` (exactly one origin, no trailing slash; CORS allows
-   only this). Redeploy the backend. Preview deployments on other Vercel URLs will be rejected by CORS.
+   webhooks are registered under it, so it must be the public https address) and `FRONTEND_ORIGIN`
+   to the web app's origins, comma-separated, e.g.
+   `https://<your-app>.vercel.app,https://bot-forge.ir,https://www.bot-forge.ir`. CORS allows only
+   these. Each entry is `scheme://host[:port]` without a path (a trailing slash is dropped); an entry
+   that is not an http(s) origin, `*` included, is ignored with a warning in the log. Redeploy the
+   backend. Preview deployments have other URLs and are rejected by CORS unless they are listed or
+   match `FRONTEND_ORIGIN_REGEX`.
+   - `FRONTEND_ORIGIN_REGEX` (optional, unset by default) allows every https origin it matches as a
+     whole, e.g. for Netlify deploy previews `https://deploy-preview-[0-9]+--<site>\.netlify\.app`.
+     Name your own site in it and escape the dots; a pattern that also matches other sites (`.*`,
+     `https://.*\.netlify\.app`) is ignored with a warning. Risk: whoever can get a page served at a
+     matching origin (a site with a matching name, or a deploy preview built from their pull request)
+     can call the API from a browser. Sign-in is a Bearer token, not a cookie, so such a page cannot
+     act as a signed-in user without that user's token: low impact, but leave the variable unset
+     unless previews must reach this backend, and then do not build previews for pull requests
+     from forks.
 6. **Seed the demo** (after a bot with the workshop spec is active; see Gate B):
    point `DATABASE_URL` at Supabase in your shell, then
    `uv run python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes the seeded data.
