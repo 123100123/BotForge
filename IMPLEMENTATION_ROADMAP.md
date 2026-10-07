@@ -14,7 +14,7 @@
 >
 > Two kinds of statement appear below. **Fixed competition constraints** cannot be changed by us. Everything else is a **current design decision** and can be changed through the process above.
 
-Last updated: 2026-10-05 (Day 3 of 7).
+Last updated: 2026-10-07.
 
 ---
 
@@ -22,15 +22,17 @@ Last updated: 2026-10-05 (Day 3 of 7).
 
 **Start here.** This section is the handoff between working sessions. It says what is done, what is unproven, and what to do next. Whoever ends a session updates it.
 
-As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Development moved from Windows to Linux at this point. The agent worktrees that existed on the Windows machine were all merged before the move; nothing is left on them.
+As of 2026-10-07, the integration branch is `staging` of `github.com/123100123/BotForge`: `fix/deploy-sse-booking-expiry` plus one branch per fix, each with exactly one commit, merged with `--no-ff` so any fix can be reverted alone. `main` is unchanged. Development is on Windows again: the machine has 8 GB RAM, so run one heavy job (test suite, frontend build) at a time; Windows reserves port 3000, so the dev web app runs with `npx next dev -p 4000`.
 
 ### Done
 
 - **Work packages:** WP0 through WP11 are built and merged. WP5 and WP4b had security reviews. A batch-2 verification found eight defects, and all eight have fixes merged (see "Open work", item 1).
 - **Gate A:** passed and independently verified. The golden workshop spec passes 9 hand-written and 11 derived scenarios through the real runtime. The repair-request spec passes 9 derived scenarios.
-- **Backend suite:** 1081 passed, none skipped, with the database tests running and ruff clean (branch `fix/deploy-sse-booking-expiry`, 2026-10-07). It needs Python 3.12: `pgserver` has no 3.13 wheel, so use `uv sync --python 3.12 --group dbtest`. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
+- **Backend suite:** 1159 passed, none skipped, with the database tests running and ruff clean (branch `staging`, 2026-10-07). It needs Python 3.12: `pgserver` has no 3.13 wheel, so use `uv sync --python 3.12 --group dbtest`. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
 - **Local smoke test:** `scripts/smoke_local.py` passes 15 of 15 steps against the real HTTP stack, with no LLM, no Telegram, and no cloud.
-- **Frontend:** all six tabs are built and work in mock mode (`NEXT_PUBLIC_MOCK=1`).
+- **Frontend:** all six tabs are built and work in mock mode (`NEXT_PUBLIC_MOCK=1`). Mock mode is now only on when `NEXT_PUBLIC_MOCK=1`; real mode with a missing Supabase variable shows a configuration-error page.
+- **Fix batch of 2026-10-07 on `staging`** (one branch and one commit each): `fix/dispatch-non-numeric-actor`, `fix/load-spec-sample-data`, `fix/seed-demo-reset`, `fix/database-url-supabase`, `fix/startup-interrupt-zero-downtime`, `fix/cors-multi-origin`, `fix/cors-on-error-responses`, `fix/frontend-explicit-mock`, `fix/simulator-active-revision`, `fix/frontend-401-logout`, `chore/deploy-render-frontend`. Behaviour changes are in the Decision Log.
+- **Supabase project created:** `botforge` (ref `nlwekbfpxnvxlwiforpr`, eu-central-1, free plan, ES256 JWT signing keys, so only `SUPABASE_JWKS_URL` is needed).
 
 ### Built but not yet proven
 
@@ -65,10 +67,7 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
      - the Tests tab handles revisions with no stored scenarios;
      - the Data tab uses the new fields;
      - Settings handles the single-use owner link.
-2. **Small fixes:**
-   - `FRONTEND_ORIGIN` should accept comma-separated origins, for Vercel preview URLs.
-   - `scripts/load_spec.py` should store sample data, so the simulator sandbox of a spec loaded by script is not empty.
-   - Dispatch should skip Telegram delivery to non-numeric actor ids. The seeded demo customers have ids like `demo-01`, and a delivery attempt to them is recorded as the bot's last Telegram error.
+2. **Small fixes:** the `FRONTEND_ORIGIN` list, `load_spec.py` sample data and the dispatch skip for non-numeric actors are done (2026-10-07, see Done). Still open:
    - The roadmap's event payload table needs `run_status` and `diff.requirements` added. Its "Response shapes" table needs the data-API additions: `timezone`, `statuses`, `actions`, `actor_name`, `item_title`, `field_errors`.
 3. **Live LLM** (needs `ANTHROPIC_API_KEY`; costs real money; ask the owner before running):
    - Run `scripts/spike_structured_output.py` and decide O5.
@@ -76,8 +75,8 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
    - Then run `scripts/eval_golden.py --modify --runs 3`. Together with a manual check on real Telegram this is **Gate D**.
    - Fix the prompts until both pass.
 4. **Deploy** (needs the owner's accounts):
-   - Set up Supabase (project, Auth with email confirmation off), Render (`render.yaml`), and Vercel (root `frontend`), following the README "Deployment checklist".
-   - Register two BotFather bots.
+   - Owner's decision (2026-10-07): a test deployment with both parts on Render's free plan (`botforge-api` Docker, `botforge-web` Node, see `render.yaml`) and Supabase for the database and Auth; no custom domain. The Supabase project exists; the owner turns email confirmation off and enters the secrets (`DATABASE_URL`, `TOKEN_ENC_KEY`) in Render. A free instance sleeps, so the first Telegram update after idle waits for a cold start.
+   - Two BotFather bots: registered by the owner.
    - Do the manual **Gate B** check: the golden spec serves real Telegram.
    - Then **Gate E**: a new account completes the golden path using only the deployed UI.
 5. **Demo** (Days 6–7): feature freeze at the end of Day 6. Then work through the Demo Preparation Checklist, record the video early on Day 7, and verify the live link.
@@ -85,8 +84,8 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
 ### Needs the owner
 
 - An Anthropic API key with billing.
-- Accounts for Supabase, Render (a paid always-on instance) and Vercel, or approval for an agent to create them through connectors.
-- Two BotFather bot tokens.
+- Secrets in the Render dashboard: `DATABASE_URL` (Supabase session pooler with the database password) and `TOKEN_ENC_KEY`.
+- Two BotFather bot tokens (the owner has them; entered in the deployed Settings tab).
 - Answers from the organizers on O1 (deadline, video rules) and O2 (whether the "agent builders" rule restricts only build tooling).
 
 ### Setting up a new machine
@@ -1570,6 +1569,17 @@ Not part of the hackathon build.
 | 2026-10-04 | Risk rule as implemented: high = any compatibility warning; medium = an element added to or removed from a keyed list (text overrides excepted) or a whole element replaced; low = everything else | Deterministic and explainable (WP7) | Active |
 | 2026-10-04 | `tests_generated` events carry an extra `notes` list (dropped or corrected scenarios) | Makes test-authoring problems visible to the owner (WP6) | Active |
 | 2026-10-07 | Bookings on an item that has started are history: they no longer count towards `max_active_per_user`; a customer cannot cancel them even without `deadline_hours` (refused as `cancel_deadline_passed`, so no waitlisted user is promoted into a past event); "my reservations" labels them «برگزار شده». The owner's admin cancel still ignores this, like the deadline | A customer who attended N past items could never book again, and a cancel after the event promoted and notified a waitlisted user | Active |
+| 2026-10-07 | Dispatch skips actors that have no Telegram chat id (seeded `demo-` customers) before counting an attempt; nothing is recorded in `tg_last_error` for them | A delivery to a demo customer overwrote the bot's real last Telegram error | Active |
+| 2026-10-07 | `scripts/load_spec.py` stores the spec's sample data like the activation path does | The simulator sandbox of a script-loaded spec was empty | Active |
+| 2026-10-07 | The `seed_demo.py` marker lives in its own `sessions` env, `demo_seed`, instead of the live sessions; a marker left in `live` by the older script is still read and removed | Activating a revision deletes every live session, so `--reset` lost track of the seeded data | Active |
+| 2026-10-07 | `DATABASE_URL` is normalised in one function used by the app and alembic: any Postgres scheme becomes `postgresql+asyncpg://` and libpq `sslmode=` becomes asyncpg `ssl=`. Deployment uses Supabase's session pooler (5432) with `?ssl=require`, not the transaction pooler (6543) | asyncpg rejects `sslmode`, and its prepared statements break in transaction mode | Active |
+| 2026-10-07 | Agent runs are no longer all interrupted at startup. An executing run refreshes `updated_at` every 20 s; a sweep at startup and every 60 s interrupts only running runs silent for more than 120 s. Cost: after a crash a run stays `running` (and blocks a new run on that bot) for up to about 3 minutes | A zero-downtime deploy on Render starts the new container while the old one still executes runs | Active |
+| 2026-10-07 | `FRONTEND_ORIGIN` is a comma-separated list normalised to the browser's Origin form; invalid entries, `*` included, are ignored with a warning. Optional `FRONTEND_ORIGIN_REGEX` (unset by default; anchored, https-only, ignored if it matches other sites) admits preview origins. Unhandled 500 responses now pass through CORS; body and logging unchanged | Several web origins (Render, previews); the web app saw opaque CORS errors instead of the JSON error | Active |
+| 2026-10-07 | Frontend mock mode only when `NEXT_PUBLIC_MOCK=1`; in real mode a missing Supabase variable shows a configuration-error page | A misconfigured deployment silently showed fake data | Active |
+| 2026-10-07 | The simulator follows the bot's current revision and resets its session with a notice when that revision changes (also after a 409 `revision_not_simulatable`) | After an activation the simulator kept the old revision id and got 409 | Active |
+| 2026-10-07 | A 401 from the backend signs the user out and redirects to `/login?next=<same-origin path>` | An expired session left the app failing every request | Active |
+| 2026-10-07 | Test deployment: backend and web app both on Render's free plan, Supabase for database and Auth, no custom domain (supersedes Vercel and the paid always-on plan for now) | Owner's decision; zero cost while testing | Active |
+| 2026-10-07 | UI/UX update direction "guided launch": a persistent launch checklist (describe, test, approve, data, connect Telegram), fewer top-level tabs with Tests and Versions under technical details, mobile fixes, contrast and Telegram-blue brand tokens | Owner's choice after a UI audit: the main barrier is not knowing how to go live | Planned |
 
 ---
 
@@ -1584,3 +1594,4 @@ Not part of the hackathon build.
 | 2026-10-04 | WP5, WP6, WP7, WP8, WP10 integrated on `feat/botforge-v1` (3dd61f7): 1023 backend tests pass with the database tests running; golden workshop spec 20 scenarios, repair spec 9. **Not yet proven:** nothing has run against the real LLM (Gates C and D need an API key) or real Telegram (Gate B needs a deployment). Remaining work: verification findings, frontend/backend contract gaps, WP11 deployment, live evaluation. |
 | 2026-10-05 | Batch-2 verification fixes (build agent, platform, frontend) and WP11 (Dockerfile, Render blueprint, dev database, demo seed, local smoke test, README) merged. Repository published to GitHub as `main`, made Linux-ready (`.gitattributes`, Linux setup notes), and given a "Current Status" handoff section at the top of this document. |
 | 2026-10-07 | Fixes on `fix/deploy-sse-booking-expiry`: `httpx` runtime dependency (deploy blocker), SSE stream closes when a run pauses (the hanging test), bookings on started items treated as history. |
+| 2026-10-07 | Fix batch merged on `staging` (one branch per fix): dispatch skip, load_spec sample data, seed_demo reset, DATABASE_URL normalisation, heartbeat-based run interruption, CORS origin list and CORS on 500s, explicit frontend mock mode, simulator revision follow, 401 sign-out, Render web service in the Blueprint. Supabase project `botforge` created. Owner chose a free Render test deployment without a custom domain and the "guided launch" UI direction. |
