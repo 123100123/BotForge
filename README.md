@@ -6,11 +6,13 @@ BotForge is a Persian AI Business OS for Telegram: the owner describes the busin
 builds and maintains a modular bot (orders, bookings, events, forms, reports, spreadsheet analysis) from
 a validated BotSpec that a deterministic runtime executes with no LLM calls for routine operations.
 The owner runs it from the Business Control Center; every change is a reviewable, reversible revision.
+It is deployed on Render + Supabase (the API and the web app as two Render services, Supabase for
+Postgres and Auth); a self-hosted Docker Compose stack is the alternative.
 
 The V1 demo scenario is a workshop-registration bot (capacity, waitlist with automatic promotion,
 cancellation). `IMPLEMENTATION_ROADMAP.md` is the source of truth for scope, architecture and decisions
-(the Business OS expansion is merged into `main`); this README only covers running and deploying
-the project.
+(`main` is the single integration branch and holds the Business OS); this README only covers running and
+deploying the project.
 
 ## Repository layout
 
@@ -23,7 +25,8 @@ the project.
 | `backend/Dockerfile` | Production image (one container, one worker) |
 | `frontend/` | Business Control Center (Next.js, Persian, RTL) |
 | `examples/` | Golden workshop BotSpec, scenarios and prompts |
-| `render.yaml` | Render Blueprint for the backend |
+| `render.yaml` | Render Blueprint: the API (`botforge-api`) and the web app (`botforge-web`); the primary deployment |
+| `deploy/` | Self-hosted alternative: Docker Compose with Caddy, `backup.sh` / `restore.sh`, local rehearsal (`LOCAL-REHEARSAL.md`) |
 | `conductor/` | Claude Code orchestration config used to build this project (not part of the product); install with `conductor/install/AGENT-INSTALL.md` |
 
 ## Local setup (Linux, macOS or Windows; no Docker, no cloud)
@@ -89,11 +92,16 @@ $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. Owners
 sign in with the backend's own accounts (email and password, a `bf_session` cookie); see Run the API.
 
+Authentication has a switch: `AUTH_PROVIDER=local|supabase` on the backend and `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase`
+in the frontend build, both defaulting to `local`. Local development uses `local` (the own login above); `supabase`
+is for the Render deployment (see "Deployment on Render + Supabase", step 6). The switch is landing in the auth
+unit (2026-10-08).
+
 ### Business OS settings and operator notes
 
 The Business OS modules (notifications, spreadsheet analysis, Copilot) are configured with these
-environment variables (all optional; the defaults work locally, and `deploy/.env.example` lists them for
-the VPS):
+environment variables (all optional; the defaults work locally, `render.yaml` declares them for Render and
+`deploy/.env.example` lists them for the VPS):
 
 | Variable | Default | What it does |
 |---|---|---|
@@ -106,12 +114,15 @@ the VPS):
 | `SPREADSHEET_MAX_COLUMNS` | `100` | Columns read from a sheet. |
 | `COPILOT_DAILY_CAP` | `50` | Copilot questions per owner account per rolling 24 hours (cost control; 0 disables). |
 
+On Render the same variables are set in the Blueprint (`render.yaml` carries the defaults); on the free
+plan the upload directory is ephemeral (see "Free-plan caveats (Render)").
+
 Uploads are limited further to 4 at once per process and 120 seconds to receive a file; an xlsx is
 structure-checked before it is parsed, and macro workbooks are refused. The Copilot and scheduled reports
 only work for a bot whose module is enabled in the Capability Center, and scheduled reports are sent only
 while the ticker is on.
 
-**Uploads volume (VPS).** In `deploy/docker-compose.yml` the backend stores uploads on the named volume
+**Uploads volume (VPS; on Render the disk is ephemeral).** In `deploy/docker-compose.yml` the backend stores uploads on the named volume
 `uploads` mounted at `/data/uploads` (`UPLOAD_DIR` is fixed there); a one-shot `uploads-init` service hands
 the volume to the backend's non-root user before it starts. Keep the volume: stored analysis runs point at
 those files. `deploy/backup.sh` backs up the database only, so copy the uploads too, for example
@@ -119,8 +130,9 @@ those files. `deploy/backup.sh` backs up the database only, so copy the uploads 
 
 **Telegram groups.** To use event cards in a group or channel:
 1. Make sure the bot receives `my_chat_member` updates. In polling mode this is automatic. In webhook mode a
-   bot connected before this version must be re-registered once (`docker compose exec backend python
-   scripts/reregister_webhooks.py`, or `uv run python scripts/reregister_webhooks.py` locally) or
+   bot connected before this version must be re-registered once (`python scripts/reregister_webhooks.py` in a
+   Render shell, `docker compose exec backend python scripts/reregister_webhooks.py` on the VPS, or
+   `uv run python scripts/reregister_webhooks.py` locally) or
    disconnected and connected again; otherwise the Groups list in Settings stays empty.
 2. Add the bot to the group (Telegram: group, Add member), preferably as an administrator. A channel needs
    the administrator right to post.
@@ -218,20 +230,25 @@ npm run dev                  # http://localhost:3000
 With `NEXT_PUBLIC_MOCK=1` (the default in `.env.example`) the web app runs entirely on fixtures: fake
 sign-in and a scripted agent stream, no backend needed. Real mode (`NEXT_PUBLIC_MOCK=0` or unset) talks to
 the backend through `/api`, which `npm run dev` proxies to `http://localhost:8000` (so start the backend
-first); sign-in uses the backend's own accounts (`/auth/signup`, or `scripts/create_user.py`).
+first); with the default `NEXT_PUBLIC_AUTH_PROVIDER=local`, sign-in uses the backend's own accounts
+(`/auth/signup`, or `scripts/create_user.py`).
 
-## Deployment on Render + Supabase (from staging, 2026-10-07)
+## Deployment on Render + Supabase
 
-> Taken verbatim from the `staging` branch (the hosted test deployment: `render.yaml`, Supabase
-> Postgres through the session pooler). It still describes staging's Supabase Auth sign-in; this
-> branch uses the backend's own login until the `AUTH_PROVIDER` switch lands. A docs pass will merge
-> it with the sections below.
+This is the primary deployment (the hosted test deployment, `render.yaml`): Render.com runs the API
+(`botforge-api`, a Docker web service) and the web app (`botforge-web`, a Node web service) as two
+separate services, and Supabase provides Postgres (through the session pooler) and Supabase Auth. Use
+the free plan for testing and `starter` (paid, always-on) for the demo. The self-hosted Docker Compose
+stack ([Alternative: self-hosting on a VPS](#alternative-self-hosting-on-a-vps-docker-compose)) uses the
+same code with the product's own login.
 
 ### Deployment checklist
 
-Architecture: the frontend (a Render Node service, or Vercel) calls the backend (one always-on Render container) with a Supabase
-access token; the backend talks to Supabase Postgres, the Anthropic API and Telegram. The backend must
-run as a single instance with a single worker (agent runs and rate limits are in-process).
+Architecture: the web app (a Render Node service, or Vercel) calls the API (one always-on Render container)
+with a Supabase access token; the API talks to Supabase Postgres, the Anthropic API and Telegram, which
+posts webhooks to the API's public address. The API must run as a single instance with a single worker
+(agent runs, rate limits, the notification ticker and the Telegram webhook handler are in-process); never set
+`numInstances` above 1.
 
 1. **Supabase project.**
    - Authentication, Sign In / Providers, Email: turn **Confirm email off** (sign-up must give a session at once).
@@ -248,50 +265,109 @@ run as a single instance with a single worker (agent runs and rate limits are in
      are all accepted, and a libpq `sslmode=require` is translated to asyncpg's `ssl=require`.
 2. **Generate `TOKEN_ENC_KEY`** (encrypts Telegram bot tokens; losing it orphans stored tokens):
    `uv run python -m app.security.crypto generate-key` in `backend/`. Keep a copy in a password manager.
-3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (the API: one Docker web service,
-   root directory `backend`, health check `/healthz`, auto-deploy off; the free plan for testing,
-   `starter` (paid, always-on) for the demo; and the `botforge-web` service of step 4). Fill the
-   `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
+3. **Render Blueprint and the API's variables.** New, Blueprint, pick this repository; it reads
+   `render.yaml` (the API: one Docker web service, root directory `backend`, health check `/healthz`,
+   auto-deploy off, free plan for testing and `starter` for the demo; and the `botforge-web` service of
+   step 4). Fill the `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
    `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
-   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. Check in the service settings that the Dockerfile path
-   resolves to `backend/Dockerfile`. The container runs `alembic upgrade head` on every start. Deploy
-   and confirm `https://<service>.onrender.com/healthz` returns `{"status":"ok"}`.
-4. **Vercel.** Import the repository as a Next.js project; set **Root Directory** to `frontend` (no
-   `vercel.json` is needed; build and output settings are the defaults). Environment variables:
-   `NEXT_PUBLIC_MOCK=0`, `NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com` (no trailing slash),
-   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Deploy.
-   **Or Render** (the `botforge-web` service in `render.yaml`): a Node web service with root directory
-   `frontend`, build `npm ci && npm run build`, start `npm start`, `NODE_VERSION=22` and the same four
-   variables. The `NEXT_PUBLIC_*` values are inlined at build time, so changing one needs a new build.
+   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. The remaining variables have defaults in the Blueprint (agent
+   limits, `TELEGRAM_MODE=webhook`, the Business OS variables of step 7). Add `AUTH_PROVIDER=supabase` (step 6).
+   Check in the service settings that the Dockerfile path resolves to `backend/Dockerfile`.
+4. **The web app.** Render (the `botforge-web` service in `render.yaml`): a Node web service with root
+   directory `frontend`, build `npm ci && npm run build`, start `npm start`, `NODE_VERSION=22`. Variables
+   (all public and inlined at build time, so changing one needs a new build): `NEXT_PUBLIC_MOCK=0`,
+   `NEXT_PUBLIC_AUTH_PROVIDER=supabase`, `NEXT_PUBLIC_API_BASE_URL=https://<api service>.onrender.com`
+   (no trailing slash), `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`.
+   **Or Vercel:** import the repository as a Next.js project, set **Root Directory** to `frontend` (no
+   `vercel.json` is needed) and set the same variables.
    With `NEXT_PUBLIC_MOCK=0` and a Supabase variable missing, the app shows a configuration-error page.
-5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
+5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<api service>.onrender.com` (Telegram
    webhooks are registered under it, so it must be the public https address) and `FRONTEND_ORIGIN`
    to the web app's origins, comma-separated, e.g.
-   `https://<your-app>.vercel.app,https://bot-forge.ir,https://www.bot-forge.ir`. CORS allows only
+   `https://<web service>.onrender.com,https://bot-forge.ir,https://www.bot-forge.ir`. CORS allows only
    these. Each entry is `scheme://host[:port]` without a path (a trailing slash is dropped); an entry
    that is not an http(s) origin, `*` included, is ignored with a warning in the log. Redeploy the
-   backend. Preview deployments have other URLs and are rejected by CORS unless they are listed or
+   API. Preview deployments have other URLs and are rejected by CORS unless they are listed or
    match `FRONTEND_ORIGIN_REGEX`.
    - `FRONTEND_ORIGIN_REGEX` (optional, unset by default) allows every https origin it matches as a
      whole, e.g. for Netlify deploy previews `https://deploy-preview-[0-9]+--<site>\.netlify\.app`.
      Name your own site in it and escape the dots; a pattern that also matches other sites (`.*`,
-     `https://.*\.netlify\.app`) is ignored with a warning. Risk: whoever can get a page served at a
-     matching origin (a site with a matching name, or a deploy preview built from their pull request)
-     can call the API from a browser. Sign-in is a Bearer token, not a cookie, so such a page cannot
-     act as a signed-in user without that user's token: low impact, but leave the variable unset
-     unless previews must reach this backend, and then do not build previews for pull requests
-     from forks.
-6. **Seed the demo** (after a bot with the workshop spec is active; see Gate B):
-   point `DATABASE_URL` at Supabase in your shell, then
-   `uv run python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes the seeded data.
+     `https://.*\.netlify\.app`) is ignored with a warning. It grants CORS reads only: the CSRF origin
+     check for cookie sessions admits listed origins only, so the regex never grants writes in `local`
+     mode. Risk: whoever can get a page served at a matching origin (a site with a matching name, or a
+     deploy preview built from their pull request) can call the API from a browser; sign-in is a Bearer
+     token, not a cookie, so such a page cannot act as a signed-in user without that user's token. Leave
+     the variable unset unless previews must reach this API, and then do not build previews for pull
+     requests from forks.
+6. **The auth switch.** Authentication is chosen by `AUTH_PROVIDER=local|supabase` on the API (default
+   `local`) and, at build time, `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase` on the web app (default
+   `local`). *This switch is landing in the auth unit (2026-10-08).*
 
-## Self-hosting on a VPS (Docker Compose)
+   | Where | Render (this section) | Docker stack and local development |
+   |---|---|---|
+   | API | `AUTH_PROVIDER=supabase`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or legacy `SUPABASE_JWT_SECRET`) | `AUTH_PROVIDER=local` (the default) |
+   | Web app | `NEXT_PUBLIC_AUTH_PROVIDER=supabase`, `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `NEXT_PUBLIC_API_BASE_URL` | `NEXT_PUBLIC_AUTH_PROVIDER=local` (the default) |
+
+   - Why two modes: the two Render services are different sites, so the `SameSite=Lax` cookie of the
+     product's own login cannot travel from the web app to the API. The Docker stack serves everything
+     on one origin through Caddy and has no Supabase, so it keeps the own login.
+   - In `supabase` mode the browser sends a Supabase access token as `Authorization: Bearer`, the API
+     verifies it (issuer pinned by `SUPABASE_URL`) and keeps a matching `app.users` row so that bot
+     ownership works, and `/auth/signup`, `/auth/login` and `/auth/logout` are disabled.
+   - Public signup is controlled in the Supabase dashboard (Authentication, Sign In / Providers, and the
+     "Allow new users to sign up" switch); turn it off for the demo, because open signup multiplies
+     every per-account LLM cap. `AUTH_ALLOW_SIGNUP` applies only to `local`.
+   - The `?next=` return after login works in both modes.
+7. **Business OS variables.** All have defaults in `render.yaml`; set them on the API:
+   `NOTIFICATIONS_TICKER=true` (exactly one process), `NOTIFICATIONS_TICK_SECONDS`,
+   `NOTIFICATIONS_SEND_RATE_PER_SECOND`, `UPLOAD_DIR`, `UPLOAD_MAX_BYTES`, `SPREADSHEET_MAX_ROWS`,
+   `SPREADSHEET_MAX_COLUMNS`, `COPILOT_DAILY_CAP` (the table under "Business OS settings and operator
+   notes" says what each does), and `TELEGRAM_MODE=webhook` (Render is reachable inbound; polling is for
+   hosts Telegram cannot reach).
+8. **First deploy and migrations.** Deploy the API from the Render dashboard (auto-deploy is off) and
+   confirm `https://<api service>.onrender.com/healthz` returns `{"status":"ok"}`. The container runs
+   `alembic upgrade head` on every start. The hosted database
+   is at migration 0002; the first deploy of `main` applies 0003 to 0005:
+   - 0003 creates `users` and `auth_sessions` and adopts every existing Supabase owner id as a placeholder
+     user with the same UUID (no password), so existing owners keep their bots and sign in through
+     Supabase as before;
+   - 0004 adds the Telegram polling offset; 0005 adds the Business OS tables.
+
+   **Take a Supabase backup before that first deploy** (and rehearse the migrations on a copy of the
+   database if you can). Then deploy the web app.
+9. **Re-register the Telegram webhooks.** A bot connected before this version has a webhook that does not
+   deliver `my_chat_member` (group membership changes), so its Groups list stays empty. After the first
+   deploy, run `python scripts/reregister_webhooks.py` in a shell of the API service, or disconnect and
+   connect each bot again. Add the demo bot to the demo group as an administrator.
+10. **Seed the demo** (after a bot with the workshop spec is active; see Gate B): point `DATABASE_URL` at
+    Supabase in your shell, then `uv run python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes
+    the seeded data.
+
+### Free-plan caveats (Render)
+
+The free plan is for testing; use `starter` for the demo.
+
+- **Ephemeral disk.** Uploaded spreadsheets (`UPLOAD_DIR`) are lost on every redeploy or restart. The
+  analysis results stored in Postgres survive, but a rerun needs the file uploaded again. The planned fix is
+  to move the files to Supabase Storage behind the existing `FileStorage` boundary (not built).
+- **Sleeping instance.** A free instance sleeps after idle. While it sleeps the notification ticker does not
+  run, so reminders, announcements and scheduled reports go out late (when the next request wakes it), and
+  the first Telegram update after idle waits for a cold start.
+- **Lost runs.** In-flight agent runs are lost when the instance spins down; the heartbeat sweep marks
+  them `interrupted` and the owner starts the change again.
+- **Pool size.** The database pool (5 + 10 overflow) can exceed Supabase's free session-pooler client cap
+  during a deploy overlap under load.
+
+## Alternative: self-hosting on a VPS (Docker Compose)
 
 One server runs everything: Postgres, the backend (one container, one worker), the frontend and Caddy,
 which terminates HTTPS on port 443 (Telegram webhooks need valid HTTPS there) and routes by path:
 `/api/*` goes to the backend with the prefix stripped, `/tg/*` goes to the backend unchanged, everything
 else goes to the frontend. Login is BotForge's own (email and password, a server-side session in the
-HttpOnly `bf_session` cookie); no outside auth service is involved. Files: `deploy/docker-compose.yml`,
+HttpOnly `bf_session` cookie); no outside auth service is involved, so this stack runs with
+`AUTH_PROVIDER=local` (the default) and the frontend with `NEXT_PUBLIC_AUTH_PROVIDER=local`. It is the
+alternative to the Render + Supabase deployment above and needs its own Postgres, hostname and backups.
+Files: `deploy/docker-compose.yml`,
 `deploy/Caddyfile`, `deploy/.env.example`, `deploy/backup.sh`, `deploy/restore.sh`, `backend/Dockerfile`,
 `frontend/Dockerfile`.
 
@@ -475,50 +551,14 @@ sent the request. The backend port is not published, so nothing else can reach i
 `git pull`, then `docker compose up -d --build` from `deploy/`. Keep `docker compose` runs on the one
 backend container; do not scale it.
 
-### Fallback
-
-The Render and Vercel checklist below is now the fallback deployment. It is unchanged.
-
-## Deployment checklist (fallback: Render and Vercel)
-
-Architecture: the frontend (Vercel) and the backend (one always-on Render container) with an external
-Postgres (`DATABASE_URL`: Render Postgres or any managed Postgres). Accounts are the backend's own
-(`users` and `auth_sessions` tables, the HttpOnly `bf_session` cookie, `SameSite=Lax`). The cookie is
-same-origin only, so the browser must reach the backend under the frontend's own origin: the frontend
-host has to proxy `/api/*` to the backend with the prefix stripped (as Caddy does in the VPS stack).
-This split-host setup has not been built or tested; the VPS stack above is the supported path. The
-backend must run as a single instance with a single worker (agent runs and rate limits are in-process).
-
-1. **Database.** Create a Postgres database and copy its connection string (`DATABASE_URL`). Use a direct
-   or session-pooler connection, not a transaction pooler (port 6543): asyncpg's prepared statements do
-   not work through it.
-2. **Generate `TOKEN_ENC_KEY`** (encrypts Telegram bot tokens; losing it orphans stored tokens):
-   `uv run python -m app.security.crypto generate-key` in `backend/`. Keep a copy in a password manager.
-3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (one Docker web service,
-   root directory `backend`, health check `/healthz`, paid always-on plan, auto-deploy off). Fill the
-   `sync: false` variables: `DATABASE_URL`, `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`,
-   `LLM_MODEL_FAST`, `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. Check in the service settings that the
-   Dockerfile path resolves to `backend/Dockerfile`. The container runs `alembic upgrade head` on every
-   start. Deploy and confirm `https://<service>.onrender.com/healthz` returns `{"status":"ok"}`.
-   Create your account with `python scripts/create_user.py --email ...` from a Render shell, then
-   consider `AUTH_ALLOW_SIGNUP=false`.
-4. **Vercel.** Import the repository as a Next.js project; set **Root Directory** to `frontend`.
-   Environment variables: `NEXT_PUBLIC_MOCK=0` and `NEXT_PUBLIC_API_BASE_URL=/api`, plus a rewrite of
-   `/api/:path*` to `https://<service>.onrender.com/:path*` so the cookie stays same-origin. Deploy.
-5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
-   webhooks are registered under it, so it must be the public https address) and
-   `FRONTEND_ORIGIN=https://<your-app>.vercel.app` (no trailing slash; CORS allows only the listed origins).
-   `FRONTEND_ORIGIN` accepts several origins separated by commas. Redeploy the backend.
-6. **Seed the demo** (after a bot with the workshop spec is active; see Gate B): in a Render shell,
-   `python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes the seeded data.
-
 ## Manual gates
 
-Gate definitions are in `IMPLEMENTATION_ROADMAP.md`, Milestone Gates. Both need the real deployment.
+Gate definitions are in `IMPLEMENTATION_ROADMAP.md`, Milestone Gates. Both need the real deployment (Render + Supabase; the
+VPS stack works too).
 
 **Gate B: the golden spec serves a real Telegram bot.**
 1. Sign up in the deployed web app (or create the account with `scripts/create_user.py`) and create a bot. Note the account email and the bot id (the URL).
-2. On the VPS, from `deploy/`: `docker compose exec backend python scripts/load_spec.py --spec /examples/workshop.botspec.json --owner-email <account email> --bot-id <bot id> --sample-data scripts/workshop.sample_data.json`.
+2. On Render, from a shell of `botforge-api` (or `python scripts/load_spec.py` with `DATABASE_URL` pointing at Supabase), or on the VPS, from `deploy/`: `docker compose exec backend python scripts/load_spec.py --spec /examples/workshop.botspec.json --owner-email <account email> --bot-id <bot id> --sample-data scripts/workshop.sample_data.json`.
 3. Create a bot in BotFather, paste its token in the bot's Settings tab; the bot goes live.
 4. Add two workshops in the Data tab (or run `seed_demo.py`).
 5. With two Telegram accounts: browse, book, fill the capacity, join the waitlist, cancel one booking
@@ -535,6 +575,7 @@ revisions. Do not use scripts or the database during this run.
 
 ## Notes
 
-- `render.yaml` and `backend/Dockerfile` have not been built or deployed from this repository's
-  development machine (no Docker there); the first Render deploy is the real test.
+- `render.yaml` and `backend/Dockerfile` have not been deployed from this repository's development machine;
+  the first Render deploy is the real test. Supabase Auth with the switch is tested only with locally signed
+  tokens, and migrations 0003 to 0005 have not yet run on the hosted database.
 - Secrets live only in environment variables; `.env` is git-ignored.
