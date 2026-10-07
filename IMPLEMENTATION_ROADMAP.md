@@ -22,7 +22,7 @@ Last updated: 2026-10-07.
 
 **Start here.** This section is the handoff between working sessions. It says what is done, what is unproven, and what to do next. Whoever ends a session updates it.
 
-As of 2026-10-07, the integration branch is `staging` of `github.com/123100123/BotForge`: `fix/deploy-sse-booking-expiry` plus one branch per fix, each with exactly one commit, merged with `--no-ff` so any fix can be reverted alone. `main` is unchanged. Development is on Windows again: the machine has 8 GB RAM, so run one heavy job (test suite, frontend build) at a time; Windows reserves port 3000, so the dev web app runs with `npx next dev -p 4000`.
+As of 2026-10-07, the integration branch is `staging` of `github.com/123100123/BotForge`: `fix/deploy-sse-booking-expiry` plus one branch per fix, merged with `--no-ff` so any fix can be reverted alone (revert its merge commit). Each fix branch has one commit, except `fix/dispatch-non-numeric-actor` and `chore/deploy-render-frontend`, which each got a follow-up commit from the verification. `main` is unchanged. Development is on Windows again: the machine has 8 GB RAM, so run one heavy job (test suite, frontend build) at a time; Windows reserves port 3000, so the dev web app runs with `npx next dev -p 4000`.
 
 ### Done
 
@@ -67,19 +67,27 @@ As of 2026-10-07, the integration branch is `staging` of `github.com/123100123/B
      - the Tests tab handles revisions with no stored scenarios;
      - the Data tab uses the new fields;
      - Settings handles the single-use owner link.
-2. **Small fixes:** the `FRONTEND_ORIGIN` list, `load_spec.py` sample data and the dispatch skip for non-numeric actors are done (2026-10-07, see Done). Still open:
+2. **Found by the staging verification (2026-10-07), fix later:**
+   - `save_run` (`app/agent/repository.py`) writes without checking the status, so a run the sweep marked `interrupted` while its process was still alive (event loop stalled for more than 120 s; Render free has 0.1 CPU) can be overwritten back to `running`/`completed`; `approve()` runs the deploy phase without a heartbeat. Make the save conditional on the run not being `interrupted`.
+   - Shutdown cancels only the sweeper; it does not drain orchestrator tasks (`wait_idle`), so runs of a stopping container are lost anyway.
+   - `FRONTEND_ORIGIN_REGEX`'s foreign-origin guard accepts loose patterns (`https://.*-botforge\.onrender\.com`, unescaped dots). Unset by default; keep it unset or pin the pattern.
+   - After a 401, `RequireAuth` may redirect to `/login` before the expiry handler adds `?next=` (UX only, not verified at runtime).
+   - The SQLAlchemy pool (5 + 10 overflow per process) can exceed the Supabase free session-pooler client cap during a deploy overlap under load; consider a smaller pool.
+   - `backend/Dockerfile` uses `ghcr.io/astral-sh/uv:0.8` while `uv.lock` was written by uv 0.12; check the first Render build log.
+   - The test suite reads a developer's `backend/.env`; two tests fail when it points at a stopped database.
+3. **Small fixes:** the `FRONTEND_ORIGIN` list, `load_spec.py` sample data and the dispatch skip for non-numeric actors are done (2026-10-07, see Done). Still open:
    - The roadmap's event payload table needs `run_status` and `diff.requirements` added. Its "Response shapes" table needs the data-API additions: `timezone`, `statuses`, `actions`, `actor_name`, `item_title`, `field_errors`.
-3. **Live LLM** (needs `ANTHROPIC_API_KEY`; costs real money; ask the owner before running):
+4. **Live LLM** (needs `ANTHROPIC_API_KEY`; costs real money; ask the owner before running):
    - Run `scripts/spike_structured_output.py` and decide O5.
    - Then run `scripts/eval_golden.py --create --runs 3`, which is **Gate C**.
    - Then run `scripts/eval_golden.py --modify --runs 3`. Together with a manual check on real Telegram this is **Gate D**.
    - Fix the prompts until both pass.
-4. **Deploy** (needs the owner's accounts):
+5. **Deploy** (needs the owner's accounts):
    - Owner's decision (2026-10-07): a test deployment with both parts on Render's free plan (`botforge-api` Docker, `botforge-web` Node, see `render.yaml`) and Supabase for the database and Auth; no custom domain. The Supabase project exists; the owner turns email confirmation off and enters the secrets (`DATABASE_URL`, `TOKEN_ENC_KEY`) in Render. A free instance sleeps, so the first Telegram update after idle waits for a cold start.
    - Two BotFather bots: registered by the owner.
    - Do the manual **Gate B** check: the golden spec serves real Telegram.
    - Then **Gate E**: a new account completes the golden path using only the deployed UI.
-5. **Demo** (Days 6–7): feature freeze at the end of Day 6. Then work through the Demo Preparation Checklist, record the video early on Day 7, and verify the live link.
+6. **Demo** (Days 6–7): feature freeze at the end of Day 6. Then work through the Demo Preparation Checklist, record the video early on Day 7, and verify the live link.
 
 ### Needs the owner
 
@@ -1573,7 +1581,7 @@ Not part of the hackathon build.
 | 2026-10-07 | `scripts/load_spec.py` stores the spec's sample data like the activation path does | The simulator sandbox of a script-loaded spec was empty | Active |
 | 2026-10-07 | The `seed_demo.py` marker lives in its own `sessions` env, `demo_seed`, instead of the live sessions; a marker left in `live` by the older script is still read and removed | Activating a revision deletes every live session, so `--reset` lost track of the seeded data | Active |
 | 2026-10-07 | `DATABASE_URL` is normalised in one function used by the app and alembic: any Postgres scheme becomes `postgresql+asyncpg://` and libpq `sslmode=` becomes asyncpg `ssl=`. Deployment uses Supabase's session pooler (5432) with `?ssl=require`, not the transaction pooler (6543) | asyncpg rejects `sslmode`, and its prepared statements break in transaction mode | Active |
-| 2026-10-07 | Agent runs are no longer all interrupted at startup. An executing run refreshes `updated_at` every 20 s; a sweep at startup and every 60 s interrupts only running runs silent for more than 120 s. Cost: after a crash a run stays `running` (and blocks a new run on that bot) for up to about 3 minutes | A zero-downtime deploy on Render starts the new container while the old one still executes runs | Active |
+| 2026-10-07 | Agent runs are no longer all interrupted at startup. An executing run refreshes `updated_at` every 20 s; a sweep at startup and every 60 s interrupts only running runs silent for more than 120 s. Cost: after a crash a run stays `running` (and blocks a new run on that bot) for up to about 3 minutes | A zero-downtime deploy on Render starts the new container while the old one still executes runs. This protects runs only during the overlap: shutdown does not drain the orchestrator, so the old container's runs still end `interrupted` when it stops | Active |
 | 2026-10-07 | `FRONTEND_ORIGIN` is a comma-separated list normalised to the browser's Origin form; invalid entries, `*` included, are ignored with a warning. Optional `FRONTEND_ORIGIN_REGEX` (unset by default; anchored, https-only, ignored if it matches other sites) admits preview origins. Unhandled 500 responses now pass through CORS; body and logging unchanged | Several web origins (Render, previews); the web app saw opaque CORS errors instead of the JSON error | Active |
 | 2026-10-07 | Frontend mock mode only when `NEXT_PUBLIC_MOCK=1`; in real mode a missing Supabase variable shows a configuration-error page | A misconfigured deployment silently showed fake data | Active |
 | 2026-10-07 | The simulator follows the bot's current revision and resets its session with a notice when that revision changes (also after a 409 `revision_not_simulatable`) | After an activation the simulator kept the old revision id and got 409 | Active |
