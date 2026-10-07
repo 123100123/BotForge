@@ -28,7 +28,7 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
 
 - **Work packages:** WP0 through WP11 are built and merged. WP5 and WP4b had security reviews. A batch-2 verification found eight defects, and all eight have fixes merged (see "Open work", item 1).
 - **Gate A:** passed and independently verified. The golden workshop spec passes 9 hand-written and 11 derived scenarios through the real runtime. The repair-request spec passes 9 derived scenarios.
-- **Backend suite:** 1076 passed and 1 skipped (open item 0), with the database tests running and ruff clean. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
+- **Backend suite:** 1081 passed, none skipped, with the database tests running and ruff clean (branch `fix/deploy-sse-booking-expiry`, 2026-10-07). It needs Python 3.12: `pgserver` has no 3.13 wheel, so use `uv sync --python 3.12 --group dbtest`. Run it with `uv sync --group dbtest && uv run pytest -q`; it starts its own temporary Postgres.
 - **Local smoke test:** `scripts/smoke_local.py` passes 15 of 15 steps against the real HTTP stack, with no LLM, no Telegram, and no cloud.
 - **Frontend:** all six tabs are built and work in mock mode (`NEXT_PUBLIC_MOCK=1`).
 
@@ -45,12 +45,10 @@ As of 2026-10-05, on branch `main` of `github.com/123100123/BotForge`. Developme
 
 ### Open work, in order
 
-0. **Fix a hanging test** (do this first):
-   - **Symptom:** `tests/integration/test_runs_api.py::test_run_status_events_and_startup_interruption_over_the_api` never finishes, and it hangs the whole suite. It was added in the last agent-fix round and is now marked `skip`.
-   - **Isolation:** run on its own, it hangs. The other seven tests in that file pass on their own.
-   - **Suspect (unconfirmed):** the SSE stream for a run marked `interrupted` at startup never closes. Look at `orchestrator.ensure_status_event`, called from `api/runs.py` `stream_events`.
-   - **Why it matters:** if the stream really does stay open, every client watching an interrupted run holds a connection forever. It is therefore possibly a product bug, not only a test bug.
-   - **To finish:** fix it, remove the `skip`, and confirm the full suite still passes.
+0. **Done on `fix/deploy-sse-booking-expiry` (2026-10-07), one commit each:**
+   - `httpx` was a dev-only dependency but `integrations/telegram/client.py` imports it, so the production image (`--no-dev`) would crash on import. Moved to runtime dependencies.
+   - The hanging test was not about interrupted runs: `stream_events` closed only for terminal statuses, so a stream on a run waiting for the owner never ended (a real leak, one open connection per watcher). The stream now ends when the run is not `running`; the test is re-enabled.
+   - Bookings on started items no longer count towards `max_active_per_user` and cannot be cancelled by the customer (see the Decision Log).
 1. **Re-verify the batch-2 fixes** with a fresh `verifier`. This is revision round 1 of the 2 allowed by the conductor policy. Each check below is a defect found in batch-2 verification:
    - **Modification safety:**
      - the change delta is cumulative across review rounds;
@@ -1585,3 +1583,4 @@ Not part of the hackathon build.
 | 2026-10-04 | Security review of WP5 (Telegram integration): request bodies capped before authentication, SQL bound parameters hidden from error text, single-use owner link re-issued by connect, owner flag decided under the bot's lock, simulator text/data bounded by Telegram's limits, ASCII-only token format. |
 | 2026-10-04 | WP5, WP6, WP7, WP8, WP10 integrated on `feat/botforge-v1` (3dd61f7): 1023 backend tests pass with the database tests running; golden workshop spec 20 scenarios, repair spec 9. **Not yet proven:** nothing has run against the real LLM (Gates C and D need an API key) or real Telegram (Gate B needs a deployment). Remaining work: verification findings, frontend/backend contract gaps, WP11 deployment, live evaluation. |
 | 2026-10-05 | Batch-2 verification fixes (build agent, platform, frontend) and WP11 (Dockerfile, Render blueprint, dev database, demo seed, local smoke test, README) merged. Repository published to GitHub as `main`, made Linux-ready (`.gitattributes`, Linux setup notes), and given a "Current Status" handoff section at the top of this document. |
+| 2026-10-07 | Fixes on `fix/deploy-sse-booking-expiry`: `httpx` runtime dependency (deploy blocker), SSE stream closes when a run pauses (the hanging test), bookings on started items treated as history. |
