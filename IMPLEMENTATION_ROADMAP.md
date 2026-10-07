@@ -1571,6 +1571,7 @@ Not part of the hackathon build.
 | 2026-10-04 | A modification with no valid new acceptance scenario cannot be approved; compatibility errors are fed back into the build loop for at most three rounds sharing one tool-call budget | An untested change is unproven (WP7) | Active |
 | 2026-10-04 | Risk rule as implemented: high = any compatibility warning; medium = an element added to or removed from a keyed list (text overrides excepted) or a whole element replaced; low = everything else | Deterministic and explainable (WP7) | Active |
 | 2026-10-04 | `tests_generated` events carry an extra `notes` list (dropped or corrected scenarios) | Makes test-authoring problems visible to the owner (WP6) | Active |
+| 2026-10-07 | Bookings on an item that has started are history: they no longer count towards `max_active_per_user`; a customer cannot cancel them even without `deadline_hours` (refused as `cancel_deadline_passed`, so no waitlisted user is promoted into a past event); "my reservations" labels them «برگزار شده». The owner's admin cancel still ignores this, like the deadline | A customer who attended N past items could never book again, and a cancel after the event promoted and notified a waitlisted user | Active |
 
 ---
 
