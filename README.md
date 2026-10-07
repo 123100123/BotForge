@@ -129,9 +129,11 @@ copy .env.example .env.local
 npm run dev                  # http://localhost:3000
 ```
 
-With `NEXT_PUBLIC_MOCK=1` (the default, also used whenever the Supabase variables are empty) the web
-app runs entirely on fixtures: fake sign-in and a scripted agent stream, no backend needed. Real mode
-(`NEXT_PUBLIC_MOCK=0`) needs a Supabase project, because sign-in goes through Supabase Auth.
+With `NEXT_PUBLIC_MOCK=1` (the default in `.env.example`) the web app runs entirely on fixtures: fake
+sign-in and a scripted agent stream, no backend needed. Mock mode is used only when this variable is
+exactly `1`. Real mode (`NEXT_PUBLIC_MOCK=0`, or unset) needs a Supabase project, because sign-in goes
+through Supabase Auth; if `NEXT_PUBLIC_SUPABASE_URL` or `NEXT_PUBLIC_SUPABASE_ANON_KEY` is empty, the
+app shows a configuration error naming the missing variables instead of fake data.
 
 ## Deployment checklist
 
