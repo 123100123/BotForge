@@ -26,6 +26,7 @@ from app.config import get_settings
 from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.security.body_limit import BodyLimitMiddleware
+from app.security.cors import allowed_origin_regex, allowed_origins
 from app.security.redact import install_log_redaction
 
 log = logging.getLogger(__name__)
@@ -126,7 +127,8 @@ def create_app() -> FastAPI:
     app.add_middleware(BodyLimitMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=[settings.FRONTEND_ORIGIN],
+        allow_origins=allowed_origins(settings.FRONTEND_ORIGIN),
+        allow_origin_regex=allowed_origin_regex(settings.FRONTEND_ORIGIN_REGEX),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

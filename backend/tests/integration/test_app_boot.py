@@ -188,3 +188,72 @@ async def test_cors_allows_only_the_frontend_origin(monkeypatch: pytest.MonkeyPa
         )
     assert allowed.headers.get("access-control-allow-origin") == "https://app.example.com"
     assert "access-control-allow-origin" not in denied.headers
+
+
+def preflight(origin: str) -> dict[str, str]:
+    """The preflight a browser sends before the web app's authenticated JSON POST."""
+    return {
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization, content-type",
+    }
+
+
+async def test_cors_allows_every_listed_frontend_origin_and_no_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        " https://botforge.netlify.app/, https://bot-forge.ir,,https://www.bot-forge.ir, *",
+    )
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", "")
+    get_settings.cache_clear()
+    listed = ["https://botforge.netlify.app", "https://bot-forge.ir", "https://www.bot-forge.ir"]
+    others = ["https://evil.example.com", "https://bot-forge.ir.evil.com", "http://bot-forge.ir", "null"]
+    async with make_client(create_app()) as client:
+        for origin in listed:
+            allowed = await client.options("/bots", headers=preflight(origin))
+            assert allowed.status_code == 200, origin
+            assert allowed.headers["access-control-allow-origin"] == origin
+            assert allowed.headers["access-control-allow-credentials"] == "true"
+            assert "authorization" in allowed.headers["access-control-allow-headers"].lower()
+            simple = await client.get("/healthz", headers={"Origin": origin})
+            assert simple.headers["access-control-allow-origin"] == origin
+        for origin in others:
+            denied = await client.options("/bots", headers=preflight(origin))
+            assert denied.status_code == 400, origin
+            assert "access-control-allow-origin" not in denied.headers
+            simple = await client.get("/healthz", headers={"Origin": origin})
+            assert "access-control-allow-origin" not in simple.headers
+
+
+async def test_cors_regex_allows_matching_preview_origins_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://botforge.netlify.app")
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"https://deploy-preview-[0-9]+--botforge\.netlify\.app")
+    get_settings.cache_clear()
+    async with make_client(create_app()) as client:
+        for origin in ("https://botforge.netlify.app", "https://deploy-preview-12--botforge.netlify.app"):
+            allowed = await client.options("/bots", headers=preflight(origin))
+            assert allowed.status_code == 200, origin
+            assert allowed.headers["access-control-allow-origin"] == origin
+        for origin in (
+            "https://deploy-preview-12--botforge.netlify.app.evil.com",
+            "https://deploy-preview-12--evil.netlify.app",
+            "http://deploy-preview-12--botforge.netlify.app",
+            "https://main--botforge.netlify.app",
+        ):
+            denied = await client.options("/bots", headers=preflight(origin))
+            assert denied.status_code == 400, origin
+            assert "access-control-allow-origin" not in denied.headers
+
+
+async def test_a_loose_cors_regex_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://botforge.netlify.app")
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"https://.*\.netlify\.app")
+    get_settings.cache_clear()
+    async with make_client(create_app()) as client:
+        listed = await client.options("/bots", headers=preflight("https://botforge.netlify.app"))
+        other = await client.options("/bots", headers=preflight("https://evil.netlify.app"))
+    assert listed.headers["access-control-allow-origin"] == "https://botforge.netlify.app"
+    assert other.status_code == 400
+    assert "access-control-allow-origin" not in other.headers
