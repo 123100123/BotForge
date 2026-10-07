@@ -249,7 +249,7 @@ async def stream_events(
     except ValueError:
         after = None
 
-    # Runs that ended outside the orchestrator (marked interrupted at startup) get their
+    # Runs that ended outside the orchestrator (marked interrupted by app.main) get their
     # run_status event before the replay, so clients never wait on a silent status.
     await orchestrator.ensure_status_event(run_id)
 
