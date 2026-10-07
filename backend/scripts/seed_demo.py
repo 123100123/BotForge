@@ -13,10 +13,13 @@ environment the script creates five upcoming workshops (Persian titles and teach
 * one partly booked, one with a single booking, one empty.
 
 The bookings belong to demo customers with ids ``demo-*`` and Persian display names (``bot_users``).
-Idempotent: a marker (a ``sessions`` row for the actor ``__demo_seed__``) records the ids this script
-created, so a second run changes nothing and ``--reset`` removes exactly those workshops, their
-bookings (including any made on them since), the demo customers and the marker. All writes go through
-``PgStore``; the sandbox environment is never touched.
+Idempotent: a marker records the ids this script created, so a second run changes nothing and
+``--reset`` removes exactly those workshops, their bookings (including any made on them since), the
+demo customers and the marker. The marker is a ``sessions`` row for the actor ``__demo_seed__`` in a
+bookkeeping environment of its own (``env = "demo_seed"``), not in ``live``: activating a revision
+deletes every live session, and the marker must survive that. No runtime code reads that environment.
+(A marker left in ``live`` by an older version of this script is still honoured by ``--reset``.)
+All record writes go through ``PgStore``; the sandbox environment is never touched.
 """
 
 import argparse
@@ -26,22 +29,26 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import Any
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-from sqlalchemy import delete
+from sqlalchemy import delete, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.botspec.models import BookingCapability, FieldDef
 from app.botspec.records import validate_record_detailed
-from app.db.models import Bot, BotUser
+from app.db.models import Bot, BotUser, SessionRow
 from app.db.session import dispose_engine, get_sessionmaker
 from app.runtime.contracts import Actor
 from app.runtime.pg_store import PgStore, advisory_lock
 from app.services.specs import load_active_spec
 
 MARKER_ACTOR = "__demo_seed__"
+MARKER_ENV = "demo_seed"  # not "live": activation clears live sessions (revisions.service.activate)
+LEGACY_MARKER_ENV = "live"
 DEMO_ACTOR_PREFIX = "demo-"
 DEFAULT_CAPACITY = 10
 STATUS_CONFIRMED = "confirmed"
@@ -133,6 +140,40 @@ PLANS: list[WorkshopPlan] = [
 ]
 
 
+async def _get_marker(session: AsyncSession, bot_id: uuid.UUID, env: str) -> dict[str, Any] | None:
+    stmt = select(SessionRow.state).where(
+        SessionRow.bot_id == bot_id, SessionRow.env == env, SessionRow.actor_id == MARKER_ACTOR
+    )
+    state = (await session.execute(stmt)).scalar_one_or_none()
+    return dict(state) if state is not None else None
+
+
+async def _set_marker(session: AsyncSession, bot_id: uuid.UUID, state: dict[str, Any]) -> None:
+    stmt = pg_insert(SessionRow).values(bot_id=bot_id, env=MARKER_ENV, actor_id=MARKER_ACTOR, state=state)
+    stmt = stmt.on_conflict_do_update(
+        index_elements=[SessionRow.bot_id, SessionRow.env, SessionRow.actor_id],
+        set_={"state": stmt.excluded.state},
+    )
+    await session.execute(stmt)
+
+
+async def _delete_markers(session: AsyncSession, bot_id: uuid.UUID) -> None:
+    await session.execute(
+        delete(SessionRow).where(
+            SessionRow.bot_id == bot_id,
+            SessionRow.env.in_([MARKER_ENV, LEGACY_MARKER_ENV]),
+            SessionRow.actor_id == MARKER_ACTOR,
+        )
+    )
+
+
+async def _find_marker(session: AsyncSession, bot_id: uuid.UUID) -> dict[str, Any] | None:
+    marker = await _get_marker(session, bot_id, MARKER_ENV)
+    if marker is None:
+        marker = await _get_marker(session, bot_id, LEGACY_MARKER_ENV)
+    return marker
+
+
 class SeedError(Exception):
     """The bot cannot be seeded; the message says why."""
 
@@ -177,7 +218,7 @@ async def seed(session: AsyncSession, bot: Bot, now: datetime | None = None) -> 
     cap, fields, tz = await _booking_target(session, bot)
     await advisory_lock(session, bot.id)
     store = PgStore(session, bot.id, "live", bot.owner_actor_id)
-    if await store.get_session(MARKER_ACTOR) is not None:
+    if await _find_marker(session, bot.id) is not None:
         return SeedResult(seeded=False)
 
     capacity = cap.capacity.value if cap.capacity.mode == "fixed" and cap.capacity.value else DEFAULT_CAPACITY
@@ -214,8 +255,9 @@ async def seed(session: AsyncSession, bot: Bot, now: datetime | None = None) -> 
                 if actor_id not in result.actor_ids:
                     result.actor_ids.append(actor_id)
 
-    await store.set_session(
-        MARKER_ACTOR,
+    await _set_marker(
+        session,
+        bot.id,
         {
             "workshops": result.workshop_ids,
             "bookings": result.booking_ids,
@@ -232,7 +274,7 @@ async def reset(session: AsyncSession, bot: Bot) -> int:
     """Remove what ``seed`` created (caller commits). Returns the number of workshops removed."""
     await advisory_lock(session, bot.id)
     store = PgStore(session, bot.id, "live", bot.owner_actor_id)
-    marker = await store.get_session(MARKER_ACTOR)
+    marker = await _find_marker(session, bot.id)
     if marker is None:
         return 0
     resource, collection = marker["resource"], marker["booking_collection"]
@@ -249,7 +291,7 @@ async def reset(session: AsyncSession, bot: Bot) -> int:
                 BotUser.bot_id == bot.id, BotUser.env == "live", BotUser.actor_id.in_(marker["actors"])
             )
         )
-    await store.set_session(MARKER_ACTOR, None)
+    await _delete_markers(session, bot.id)
     return len(marker["workshops"])
 
 
