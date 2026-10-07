@@ -1,5 +1,6 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
 import { authHeaders, parseErrorResponse } from "@/lib/api";
+import { handleUnauthorized } from "@/lib/session-expiry";
 import * as engine from "@/lib/mock/engine";
 import type { RawAgentEvent } from "@/lib/types";
 
@@ -151,6 +152,7 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       });
       if (!res.ok) {
         const err = await parseErrorResponse(res);
+        if (res.status === 401) void handleUnauthorized(); // expired session: sign out and go to /login
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           opts.onFatal?.(err.message);
           return;

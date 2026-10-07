@@ -10,6 +10,7 @@ import { Label } from "@/components/ui/label";
 import { useAuth } from "@/lib/auth";
 import { IS_MOCK } from "@/lib/config";
 import { errorMessage } from "@/lib/errors";
+import { postLoginPath } from "@/lib/session-expiry";
 
 type Mode = "login" | "signup";
 
@@ -56,13 +57,13 @@ export function AuthForm({ mode }: { mode: Mode }) {
     try {
       if (isLogin) {
         await signIn(email.trim(), password);
-        router.replace("/bots");
+        router.replace(postLoginPath());
       } else {
         const { needsConfirmation } = await signUp(email.trim(), password);
         if (needsConfirmation) {
           setNotice("ثبت‌نام انجام شد. برای ادامه، پیوند تأییدی که به ایمیل شما فرستادیم را باز کنید.");
         } else {
-          router.replace("/bots");
+          router.replace(postLoginPath());
         }
       }
     } catch (err) {

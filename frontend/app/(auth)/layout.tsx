@@ -3,14 +3,15 @@
 import { useEffect, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/lib/auth";
+import { postLoginPath } from "@/lib/session-expiry";
 
-/** Centered shell for the auth pages; signed-in users are sent to the bots list. */
+/** Centered shell for the auth pages; signed-in users are sent to `?next=` (validated) or the bots list. */
 export default function AuthLayout({ children }: { children: ReactNode }) {
   const { user, loading } = useAuth();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) router.replace("/bots");
+    if (!loading && user) router.replace(postLoginPath());
   }, [loading, user, router]);
 
   return (
