@@ -269,6 +269,15 @@ export function applyServerStatus(state: RunView, status: RunStatus, atEventId: 
   return { ...state, status, statusSource: "server" };
 }
 
+/**
+ * The view of a run loaded in one go (an earlier run of the conversation history). The server's status
+ * (from the run list or GET /runs/{id}) is the truth, as for the live run.
+ */
+export function viewFromEvents(events: RawAgentEvent[], serverStatus: RunStatus): RunView {
+  const view = events.reduce(reduceEvent, emptyRunView);
+  return applyServerStatus(view, serverStatus, view.lastEventId);
+}
+
 /** The most recent report across the feed, or null. */
 export function latestReport(view: RunView): TestReportPayload | null {
   for (let i = view.feed.length - 1; i >= 0; i--) {

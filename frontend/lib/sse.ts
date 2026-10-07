@@ -30,6 +30,36 @@ export function streamRunEvents(runId: string, opts: StreamOptions): Promise<voi
   return IS_MOCK ? streamMock(runId, opts) : streamReal(runId, opts);
 }
 
+/**
+ * Reads every event of a run that is no longer running, once: the server replays the run's events
+ * and closes the stream as soon as the run is not running. No reconnect. Used for the conversation
+ * history of earlier runs; only the latest run is streamed live (streamRunEvents).
+ */
+export async function loadRunEvents(runId: string, signal: AbortSignal): Promise<RawAgentEvent[]> {
+  if (IS_MOCK) {
+    await engine.sleep(150);
+    return engine.eventsAfter(runId, 0);
+  }
+  const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
+    headers: { ...(await authHeaders()), Accept: "text/event-stream" },
+    signal,
+  });
+  if (!res.ok) {
+    const err = await parseErrorResponse(res);
+    if (res.status === 401) void handleUnauthorized(); // expired session: sign out and go to /login
+    throw err;
+  }
+  if (!res.body) throw new Error("no body");
+  const events: RawAgentEvent[] = [];
+  let last = 0;
+  await readEvents(runId, res.body, (event) => {
+    if (event.id <= last) return;
+    last = event.id;
+    events.push(event);
+  });
+  return events;
+}
+
 /* ------------------------------------------------------------------ mock */
 
 function streamMock(runId: string, opts: StreamOptions): Promise<void> {
@@ -119,6 +149,30 @@ function toEvent(runId: string, frame: Frame): RawAgentEvent | null {
   return null;
 }
 
+/** Reads SSE frames from a response body until the server closes it, passing each event on. */
+async function readEvents(
+  runId: string,
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: RawAgentEvent) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let split: number;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const frame = parseFrame(buffer.slice(0, split));
+      buffer = buffer.slice(split + 2);
+      if (!frame) continue;
+      const event = toEvent(runId, frame);
+      if (event) onEvent(event);
+    }
+  }
+}
+
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -164,24 +218,11 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       delay = RETRY_MIN_MS;
       broken = false;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-        let split: number;
-        while ((split = buffer.indexOf("\n\n")) !== -1) {
-          const frame = parseFrame(buffer.slice(0, split));
-          buffer = buffer.slice(split + 2);
-          if (!frame) continue;
-          const event = toEvent(runId, frame);
-          if (!event || event.id <= last) continue;
-          last = event.id;
-          opts.onEvent(event);
-        }
-      }
+      await readEvents(runId, res.body, (event) => {
+        if (event.id <= last) return;
+        last = event.id;
+        opts.onEvent(event);
+      });
     } catch {
       if (signal.aborted) return;
       broken = true;
