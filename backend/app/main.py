@@ -20,6 +20,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from sqlalchemy import update
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import app.api as api_package
 from app.config import get_settings
@@ -55,6 +56,46 @@ def _error(
     return JSONResponse({"error": body}, status_code=status_code, headers=headers)
 
 
+def _internal_error() -> JSONResponse:
+    """The answer to an unhandled exception. It never carries exception details."""
+    return _error(500, "internal_error", "خطای داخلی سرور رخ داد.")
+
+
+class InternalErrorMiddleware:
+    """Sends the generic 500 answer for an unhandled exception from inside the CORS layer.
+
+    Starlette runs the ``Exception`` handler in ``ServerErrorMiddleware``, which wraps every
+    middleware added in ``create_app``, CORS included, so that 500 answer had no CORS headers and a
+    browser showed an opaque CORS error instead of the JSON body. Added directly inside CORS, this
+    sends the same body through CORS and re-raises. The outer middleware then sees that the response
+    has started: it does not answer again, but still runs the handler, which logs the exception, and
+    the server still sees the exception, as before. An exception raised after the response has
+    started (a broken event stream) cannot get an answer of its own and is only re-raised.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        response_started = False
+
+        async def send_and_track(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_and_track)
+        except Exception:
+            if not response_started:
+                await _internal_error()(scope, receive, send)
+            raise
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -78,7 +119,7 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error", exc_info=exc)
-        return _error(500, "internal_error", "خطای داخلی سرور رخ داد.")
+        return _internal_error()
 
 
 async def mark_interrupted_runs() -> int:
@@ -124,6 +165,8 @@ def create_app() -> FastAPI:
     # SECURITY: FastAPI parses a body before authentication runs, so bodies are capped up front.
     # Added before CORS so that CORS stays the outer layer and also decorates 413 answers.
     app.add_middleware(BodyLimitMiddleware)
+    # Directly inside CORS, so that the 500 answer to an unhandled exception gets CORS headers too.
+    app.add_middleware(InternalErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=[settings.FRONTEND_ORIGIN],
