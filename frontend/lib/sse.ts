@@ -38,7 +38,8 @@ function streamMock(runId: string, opts: StreamOptions): Promise<void> {
       if (event.id <= last) return;
       last = event.id;
       opts.onEvent(event);
-      // The real server closes the stream once a run is terminal; the caller then reads the run's status.
+      // The real server closes the stream once a run stops running (finished or waiting for the owner);
+      // the caller then reads the run's status.
       if (event.type === "run_status") {
         const status = (event.payload as { status?: string }).status;
         if (status === "done" || status === "failed" || status === "rejected" || status === "interrupted") {
@@ -184,7 +185,7 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       broken = true;
     }
     if (signal.aborted) return;
-    // The stream ended: ask the caller whether the run still needs it (the server closes it for finished runs).
+    // The stream ended: ask the caller whether the run still needs it (the server closes it once a run stops running).
     if (opts.onClosed && !(await opts.onClosed())) return;
     if (signal.aborted) return;
     if (broken) opts.onConnection?.("reconnecting"); // a normal close of a running run reconnects silently
