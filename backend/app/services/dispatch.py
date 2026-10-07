@@ -18,7 +18,8 @@ that a delivery failure cannot undo the booking: it is logged and recorded in ``
 
 Delivery is skipped entirely for the sandbox. For ``kind="admin"`` events messages addressed to the
 acting owner are not sent to Telegram either: the web admin receives them in the returned response,
-and only notifications to other people (for example a promoted customer) go out.
+and only notifications to other people (for example a promoted customer) go out. Messages to actors
+whose id is not a Telegram chat id (the seeded demo customers, ``demo-01`` ...) are skipped silently.
 """
 
 import logging
@@ -30,7 +31,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.botspec.models import BotSpec
 from app.db.models import Bot
-from app.integrations.telegram.adapter import TelegramOrigin, render_text, send_out_message
+from app.integrations.telegram.adapter import TelegramOrigin, chat_id_for, render_text, send_out_message
 from app.integrations.telegram.client import TelegramApi, TelegramError, TelegramProvider, default_provider
 from app.runtime.contracts import RuntimeEvent, RuntimeResponse
 from app.runtime.pg_store import PgStore, advisory_lock
@@ -163,6 +164,10 @@ async def _deliver(
     for message in response.messages:
         if event.kind == "admin" and message.to_actor_id == event.actor.id:
             continue  # the web admin gets its own reply in the HTTP response
+        if chat_id_for(message.to_actor_id) is None:
+            # not a Telegram chat (e.g. a seeded demo customer "demo-01"): nothing to send, and not
+            # an attempt, so it neither records nor clears the bot's real last error
+            continue
         attempts += 1
         try:
             await send_out_message(client, message, event, origin)
