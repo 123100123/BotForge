@@ -45,11 +45,12 @@ export function parseFieldErrors(error: { details?: unknown; field_errors?: unkn
  * Error codes the tabs react to (backend/app/api/deps.py, data.py). Others are shown by message.
  *   401: auth_required, invalid_token  |  503: auth_unavailable
  *   404: bot_not_found, run_not_found, revision_not_found, collection_not_found, record_not_found
- *   409: no_active_revision, record_has_active_bookings
+ *   409: no_active_revision, revision_not_simulatable, record_has_active_bookings
  *   400: invalid_record (details: string[])  |  405: read_only_collection
  */
 export const ERROR_CODES = {
   noActiveRevision: "no_active_revision",
+  revisionNotSimulatable: "revision_not_simulatable",
   invalidRecord: "invalid_record",
   recordHasActiveBookings: "record_has_active_bookings",
   readOnlyCollection: "read_only_collection",

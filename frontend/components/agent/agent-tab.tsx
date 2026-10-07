@@ -14,6 +14,7 @@ import { DeployedState } from "./deployed-state";
 import { QuestionsCard } from "./questions-card";
 import { RequirementsCard } from "./requirements-card";
 import { ReviewCard, type ReviewDecision } from "./review-card";
+import { DeployedLine, PastRunGroup, RunDivider } from "./run-history";
 import { TestSummary } from "./test-summary";
 import { useAgentRun } from "./use-agent-run";
 
@@ -70,11 +71,11 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [deployed]);
 
-  const kind: RunKind = agent.kind ?? (view.feed.some((i) => i.kind === "review" && i.diff) ? "modify" : "create");
-  const report = latestReport(view);
-  const decision = reviewDecision(view, status, agent.decided);
-
-  function renderItem(item: FeedItem) {
+  /**
+   * Renders one feed item of a run. `live` is the latest run, which the owner acts on; an earlier run is
+   * read-only (its questions are closed, its review has no buttons, its deployment is one line).
+   */
+  function renderItem(item: FeedItem, runView: RunView, ctx: { live: boolean; kind: RunKind; decision: ReviewDecision }) {
     switch (item.kind) {
       case "owner":
       case "agent":
@@ -86,7 +87,7 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
           <QuestionsCard
             questions={item.questions}
             answer={item.answer}
-            disabled={status !== "waiting_user" || agent.busy}
+            disabled={!ctx.live || status !== "waiting_user" || agent.busy}
             onAnswer={(text) => void agent.send(text)}
           />
         );
@@ -95,20 +96,20 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
       case "review":
         return (
           <ReviewCard
-            kind={item.diff ? "modify" : kind}
+            kind={item.diff ? "modify" : ctx.kind}
             diff={item.diff}
             approval={item.approval}
-            requirements={view.requirements}
-            outline={view.outline}
-            report={report}
-            decision={decision}
+            requirements={runView.requirements}
+            outline={runView.outline}
+            report={latestReport(runView)}
+            decision={ctx.decision}
             busy={agent.busy}
             onApprove={() => void agent.approve()}
             onReject={() => void agent.reject()}
           />
         );
       case "deployed":
-        return <DeployedState number={item.number} onOpenTab={onOpenTab} />;
+        return ctx.live ? <DeployedState number={item.number} onOpenTab={onOpenTab} /> : <DeployedLine number={item.number} />;
       case "error":
         return (
           <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm leading-7">
@@ -119,7 +120,38 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
     }
   }
 
-  const items: ChatItem[] = view.feed.map((item) => ({ key: `${item.kind}-${item.id}`, node: renderItem(item) }));
+  // Earlier runs first (oldest at the top), each folded to its messages; then the latest run in full.
+  const items: ChatItem[] = agent.past.map((entry) => {
+    const { run, view: pastView } = entry;
+    let pastDecision: ReviewDecision = "closed";
+    if (pastView) {
+      const value = reviewDecision(pastView, pastView.status, null);
+      pastDecision = value === "pending" ? "closed" : value; // an earlier run can no longer be decided
+    }
+    return {
+      key: `run-${run.id}`,
+      node: (
+        <PastRunGroup
+          entry={entry}
+          renderItem={(item) =>
+            pastView && renderItem(item, pastView, { live: false, kind: run.kind, decision: pastDecision })
+          }
+          onRetry={() => agent.retryPast(run.id)}
+        />
+      ),
+    };
+  });
+  if (agent.run && agent.past.length > 0) {
+    items.push({ key: `divider-${agent.run.id}`, node: <RunDivider run={agent.run} status={status} /> });
+  }
+  const kind: RunKind = agent.kind ?? (view.feed.some((i) => i.kind === "review" && i.diff) ? "modify" : "create");
+  const decision = reviewDecision(view, status, agent.decided);
+  for (const item of view.feed) {
+    items.push({
+      key: `${agent.runId}-${item.kind}-${item.id}`,
+      node: renderItem(item, view, { live: true, kind, decision }),
+    });
+  }
 
   let disabledReason: string | null = null;
   if (agent.loading) disabledReason = "در حال بارگذاری…";

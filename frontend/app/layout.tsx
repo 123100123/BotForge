@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
+import { ConfigError } from "@/components/app/config-error";
 import { AuthProvider } from "@/lib/auth";
+import { MISSING_CONFIG } from "@/lib/config";
 import "./globals.css";
 
 // Vazirmatn (SIL OFL) is bundled in app/fonts so builds do not depend on the network.
@@ -21,7 +23,8 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="fa" dir="rtl" className={vazirmatn.variable}>
       <body className="min-h-dvh antialiased">
-        <AuthProvider>{children}</AuthProvider>
+        {/* Real mode without its required variables (lib/config.ts): tell the operator instead of failing later. */}
+        {MISSING_CONFIG.length > 0 ? <ConfigError missing={MISSING_CONFIG} /> : <AuthProvider>{children}</AuthProvider>}
       </body>
     </html>
   );

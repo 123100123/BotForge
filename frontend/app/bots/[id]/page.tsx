@@ -116,7 +116,7 @@ export default function BotWorkspacePage() {
             <ReportsSection bot={bot} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="simulator">
-            <SimulatorTab bot={bot} onOpenTab={openTab} />
+            <SimulatorTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />
           </TabsContent>
           <TabsContent value="versions">
             <VersionsTab bot={bot} onBotChanged={reload} onOpenTab={openTab} />

@@ -262,6 +262,25 @@ async def test_rsvp_flow_wording_and_mine() -> None:
     assert "هیچ رویدادی" in text(await h.tap("ali", f"{CAP}:mine:"))
 
 
+async def test_started_event_is_history_with_events_wording() -> None:
+    h = Harness(events_spec(cancellation={"enabled": True, "deadline_hours": None}))
+    past = await seed_event(h, "همایش وب", CATS[1], 1)
+    upcoming = await seed_event(h, "کنسرت", CATS[0], 30)
+    await h.tap("ali", f"{CAP}:book:{past}")
+    await h.tap("ali", f"{CAP}:book:{upcoming}")
+    h.advance(2)
+    mine = await h.tap("ali", f"{CAP}:mine:")
+    lines = text(mine).splitlines()
+    assert any(line.startswith("• همایش وب") and line.endswith("— برگزار شده") for line in lines)
+    assert any(line.startswith("• کنسرت") and line.endswith("— شرکت می‌کنید") for line in lines)
+    cancel = next(b.data for b in buttons(mine) if b.label == "لغو شرکت: همایش وب")
+    refused = await h.tap("ali", cancel)
+    assert text(refused) == "رویداد «همایش وب» شروع شده است و دیگر نمی‌توان شرکت در آن را لغو کرد."
+    outcome = refused.outcomes[-1]
+    assert outcome.action == "cancel" and outcome.result == "rejected"
+    assert outcome.reason == "cancel_deadline_passed"
+
+
 async def test_text_override_precedence_in_events_preset() -> None:
     plain = {"key": "confirmed", "value": "ثبت شد: {title}"}
     events = {"key": "events_confirmed", "value": "رویداد {title} ثبت شد"}

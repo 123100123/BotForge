@@ -13,14 +13,17 @@ Navigation (drivers locate buttons by parsed callback action/arg, never by label
   ``book:<id>``                checks -> rejected Outcome, or form (``data={"item_id": id}``) whose
                                completion re-runs every check, or immediate booking
   open mine / ``mine``         the actor's active bookings, one ``cancel:<booking id>`` each
-  ``cancel:<booking id>``      own active booking only (else ``not_found``); cancellation rules
+  ``cancel:<booking id>``      own active booking only (else ``not_found``); cancellation rules;
+                               after the item has started -> cancel_deadline_passed even
+                               without ``deadline_hours`` (the event is over: no late promotion)
   owner_action(id, "cancel")   any active booking; ignores ``cancellation``; same promotion rule
 
 Book checks, in order: item missing -> not_found; now > start, or now > start -
 closes_hours_before_start -> booking_closed; active booking on the item and
-one_active_per_user_per_item -> duplicate; active bookings in this capability >=
-max_active_per_user -> user_limit; confirmed < capacity -> confirmed; waitlist -> waitlisted;
-else capacity_full. Boundaries: exactly at a cutoff or deadline the action is still allowed.
+one_active_per_user_per_item -> duplicate; active bookings in this capability on items that
+have not started >= max_active_per_user -> user_limit; confirmed < capacity -> confirmed;
+waitlist -> waitlisted; else capacity_full. Boundaries: exactly at a cutoff or deadline the action
+is still allowed.
 
 Promotion: after a *confirmed* booking is cancelled, if the waitlist is enabled with
 auto_promote, waitlisted bookings on the item are confirmed oldest first (lowest id) while
@@ -268,6 +271,22 @@ class BookingEngine(EngineBase):
         hours = cap.closes_hours_before_start
         return hours is not None and ctx.now > start - timedelta(hours=hours)
 
+    def _started(self, ctx: Ctx, cap: BookingCapability, item: Record | None) -> bool:
+        start = self._start(cap, item)
+        return start is not None and ctx.now > start
+
+    async def _upcoming_active_count(self, ctx: Ctx, cap: BookingCapability, actor_id: str) -> int:
+        """Active bookings of ``actor_id`` that still hold a place. Bookings on an item that has
+        started are history and no longer count towards ``max_active_per_user``."""
+        bookings = await ctx.store.list_records(cap.key, status_in=ACTIVE, actor_id=actor_id)
+        if cap.start_field is None:
+            return len(bookings)
+        count = 0
+        for b in bookings:
+            if not self._started(ctx, cap, await self._get_item(ctx, cap, b.item_id)):
+                count += 1
+        return count
+
     @staticmethod
     async def _confirmed_count(ctx: Ctx, cap: BookingCapability, item_id: int) -> int:
         return await ctx.store.count_records(cap.key, status_in=[CONFIRMED], item_id=item_id)
@@ -396,7 +415,10 @@ class BookingEngine(EngineBase):
             when = _fill(tx.MINE_WHEN, when=ctx.fmt_datetime(start)) if start is not None else ""
             if b.status == WAITLISTED and b.item_id is not None and b.item_id not in waitlists:
                 waitlists[b.item_id] = await self._waitlist(ctx, cap, b.item_id)
-            status = self._status_label(cap, b, waitlists.get(b.item_id or -1, []))
+            if self._started(ctx, cap, item):
+                status = words(cap.preset).started_status  # history: the item has started
+            else:
+                status = self._status_label(cap, b, waitlists.get(b.item_id or -1, []))
             lines.append(_fill(tx.MINE_LINE, title=title, when=when, status=status))
             label = listing.truncate(_fill(words(cap.preset).cancel_button_for, title=title))
             rows.append([ctx.button(label, cap, ACT_CANCEL, b.id)])
@@ -419,9 +441,7 @@ class BookingEngine(EngineBase):
         ):
             return Decision(item, reason="duplicate", text=_t(ctx, cap, "duplicate", title=title))
         limit = cap.max_active_per_user
-        if limit is not None and (
-            await ctx.store.count_records(cap.key, status_in=ACTIVE, actor_id=actor) >= limit
-        ):
+        if limit is not None and await self._upcoming_active_count(ctx, cap, actor) >= limit:
             return Decision(
                 item, reason="user_limit", text=_t(ctx, cap, "user_limit", limit=formatting.format_int(limit))
             )
@@ -667,6 +687,8 @@ class BookingEngine(EngineBase):
                 "cancel_deadline_passed",
                 _t(ctx, cap, "cancel_deadline_passed", title=title, hours=formatting.format_int(deadline)),
             )
+        elif start is not None and ctx.now > start:
+            refusal = ("cancel_deadline_passed", _fill(words(cap.preset).cancel_after_start, title=title))
         if refusal is not None:
             rows = [self._mine_row(cap), ctx.home_row()]
             ctx.reject(cap, "cancel", refusal[0], refusal[1], rows, record_id=booking.id)

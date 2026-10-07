@@ -17,7 +17,7 @@ dependencies = [
     "argon2-cffi>=23.1.0",
     # app/integrations/telegram/client.py. The [socks] extras are needed when ALL_PROXY=socks5h://...
     # is set; without socksio the client cannot even be built.
-    "httpx[socks]",
+    "httpx[socks]>=0.28",
     # anthropic uses httpx2, which has its own socks extra (anthropic itself offers none).
     "httpx2[socks]",
     # app/spreadsheets/: reads uploaded .xlsx files (read-only mode). CSV uses the standard library.

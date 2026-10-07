@@ -7,27 +7,32 @@ Errors use one body shape: ``{"error": {"code", "message"}}``. Route code raises
 ``HTTPException(status, detail={"code": ..., "message": <Persian>})``.
 """
 
+import asyncio
+import contextlib
 import importlib
 import logging
 import pkgutil
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from datetime import timedelta
 from typing import Any
 
 from fastapi import APIRouter, FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from sqlalchemy import update
 from starlette.exceptions import HTTPException as StarletteHTTPException
+from starlette.types import ASGIApp, Message, Receive, Scope, Send
 
 import app.api as api_package
+from app.agent.events import default_bus
+from app.agent.repository import SqlAgentRepository
 from app.config import get_settings
-from app.db.models import AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.integrations.telegram import poller as telegram_poller
 from app.notifications import ticker as notification_ticker
 from app.security.body_limit import BodyLimitMiddleware
+from app.security.cors import allowed_origin_regex, allowed_origins
 from app.security.rate_limit import AuthRateLimits
 from app.security.redact import install_log_redaction
 from app.security.sessions import SessionCookieRefresh
@@ -59,6 +64,46 @@ def _error(
     return JSONResponse({"error": body}, status_code=status_code, headers=headers)
 
 
+def _internal_error() -> JSONResponse:
+    """The answer to an unhandled exception. It never carries exception details."""
+    return _error(500, "internal_error", "خطای داخلی سرور رخ داد.")
+
+
+class InternalErrorMiddleware:
+    """Sends the generic 500 answer for an unhandled exception from inside the CORS layer.
+
+    Starlette runs the ``Exception`` handler in ``ServerErrorMiddleware``, which wraps every
+    middleware added in ``create_app``, CORS included, so that 500 answer had no CORS headers and a
+    browser showed an opaque CORS error instead of the JSON body. Added directly inside CORS, this
+    sends the same body through CORS and re-raises. The outer middleware then sees that the response
+    has started: it does not answer again, but still runs the handler, which logs the exception, and
+    the server still sees the exception, as before. An exception raised after the response has
+    started (a broken event stream) cannot get an answer of its own and is only re-raised.
+    """
+
+    def __init__(self, app: ASGIApp) -> None:
+        self.app = app
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        response_started = False
+
+        async def send_and_track(message: Message) -> None:
+            nonlocal response_started
+            if message["type"] == "http.response.start":
+                response_started = True
+            await send(message)
+
+        try:
+            await self.app(scope, receive, send_and_track)
+        except Exception:
+            if not response_started:
+                await _internal_error()(scope, receive, send)
+            raise
+
+
 def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(StarletteHTTPException)
     async def _http_error(_: Request, exc: StarletteHTTPException) -> JSONResponse:
@@ -82,17 +127,42 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _unhandled(_: Request, exc: Exception) -> JSONResponse:
         log.exception("unhandled error", exc_info=exc)
-        return _error(500, "internal_error", "خطای داخلی سرور رخ داد.")
+        return _internal_error()
 
 
-async def mark_interrupted_runs() -> int:
-    """Agent runs left in ``running`` by a previous process become ``interrupted``."""
-    async with get_sessionmaker()() as session:
-        result = await session.execute(
-            update(AgentRun).where(AgentRun.status == "running").values(status="interrupted")
-        )
-        await session.commit()
-        return result.rowcount or 0  # type: ignore[attr-defined]
+# A ``running`` run whose heartbeat (app.agent.orchestrator.HEARTBEAT_SECONDS) is older than this
+# has no live process behind it. Not "every running run at startup": during a zero-downtime deploy
+# the new container starts while the old one still executes its runs, and those must not be cut
+# off. The price is that after a crash a run stays ``running`` (and blocks a new run on its bot)
+# for up to STALE_RUN_AFTER + SWEEP_SECONDS.
+STALE_RUN_AFTER = timedelta(seconds=120)
+SWEEP_SECONDS = 60.0
+
+
+async def mark_interrupted_runs(stale_after: timedelta = STALE_RUN_AFTER) -> int:
+    """Agent runs left in ``running`` by a process that is gone become ``interrupted``, each with
+    its ``run_status`` event (also published to live streams in this process)."""
+    envelopes = await SqlAgentRepository(get_sessionmaker()).interrupt_stale_runs(stale_after)
+    for envelope in envelopes:
+        default_bus.publish(envelope)
+    return len(envelopes)
+
+
+async def _sweep_interrupted_runs() -> None:
+    try:
+        count = await mark_interrupted_runs()
+        if count:
+            log.info("marked %d abandoned agent runs as interrupted", count)
+    except Exception:
+        log.exception("could not mark interrupted agent runs")
+
+
+async def _sweep_forever() -> None:
+    """A run abandoned while this process is up (the previous container stopped after this one
+    started) is found within SWEEP_SECONDS of going stale, not only at the next start."""
+    while True:
+        await asyncio.sleep(SWEEP_SECONDS)
+        await _sweep_interrupted_runs()
 
 
 def start_telegram_poller() -> telegram_poller.TelegramPoller | None:
@@ -132,13 +202,10 @@ def start_notification_ticker() -> notification_ticker.NotificationTicker | None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    sweeper: asyncio.Task[None] | None = None
     if database_configured():
-        try:
-            count = await mark_interrupted_runs()
-            if count:
-                log.info("marked %d running agent runs as interrupted", count)
-        except Exception:
-            log.exception("could not mark interrupted agent runs")
+        await _sweep_interrupted_runs()
+        sweeper = asyncio.create_task(_sweep_forever(), name="interrupted-run-sweeper")
     poller = start_telegram_poller()
     app.state.telegram_poller = poller
     ticker = start_notification_ticker()
@@ -150,6 +217,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
             await ticker.stop()
         if poller is not None:
             await poller.stop()
+        if sweeper is not None:
+            sweeper.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await sweeper
         await dispose_engine()
 
 
@@ -186,9 +257,12 @@ def create_app() -> FastAPI:
     # SECURITY: FastAPI parses a body before authentication runs, so bodies are capped up front.
     # Added before CORS so that CORS stays the outer layer and also decorates 413 answers.
     app.add_middleware(BodyLimitMiddleware)
+    # Directly inside CORS, so that the 500 answer to an unhandled exception gets CORS headers too.
+    app.add_middleware(InternalErrorMiddleware)
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=settings.frontend_origins,
+        allow_origins=allowed_origins(settings.FRONTEND_ORIGIN),
+        allow_origin_regex=allowed_origin_regex(settings.FRONTEND_ORIGIN_REGEX),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],

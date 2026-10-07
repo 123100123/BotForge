@@ -4,11 +4,13 @@ import importlib
 import re
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from fastapi.responses import StreamingResponse
 from pydantic import ValidationError
 
 import app.api as api_package
@@ -129,6 +131,54 @@ async def test_error_body_for_unhandled_exception(probe_app: Any) -> None:
     assert set(body) == {"error"}
     assert body["error"]["code"] == "internal_error"
     assert "boom" not in response.text
+
+
+async def test_an_unhandled_error_keeps_cors_headers_for_an_allowed_origin_only(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Without CORS headers on the 500, the browser hides the JSON error behind a CORS failure."""
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://app.example.com")
+    get_settings.cache_clear()
+    app = create_app()
+
+    @app.get("/boom")
+    async def boom() -> None:
+        raise RuntimeError("boom: internal detail")
+
+    async with make_client(app) as client:
+        allowed = await client.get("/boom", headers={"Origin": "https://app.example.com"})
+        denied = await client.get("/boom", headers={"Origin": "https://evil.example.com"})
+    for response in (allowed, denied):
+        assert response.status_code == 500
+        assert response.json() == {"error": {"code": "internal_error", "message": "خطای داخلی سرور رخ داد."}}
+        assert "internal detail" not in response.text
+    assert allowed.headers["access-control-allow-origin"] == "https://app.example.com"
+    assert allowed.headers["access-control-allow-credentials"] == "true"
+    assert "access-control-allow-origin" not in denied.headers
+    logged = [r for r in caplog.records if r.name == "app.main" and r.getMessage() == "unhandled error"]
+    assert len(logged) == 2  # once per error, by the existing handler, as before
+    # app.security.redact replaces exc_info with the redacted traceback text (exc_text)
+    assert all("RuntimeError: boom" in (r.exc_text or "") for r in logged)
+
+
+async def test_an_error_after_the_response_started_is_not_answered_twice(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = create_app()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"first"
+        raise RuntimeError("stream broke")
+
+    @app.get("/broken-stream")
+    async def broken_stream() -> StreamingResponse:
+        return StreamingResponse(chunks())
+
+    async with make_client(app) as client:
+        response = await client.get("/broken-stream")
+    assert response.status_code == 200  # the start already sent stands; no second answer follows
+    assert response.content == b"first"
+    assert [r.getMessage() for r in caplog.records if r.name == "app.main"] == ["unhandled error"]
 
 
 async def test_error_body_for_unknown_route_and_method() -> None:
@@ -262,7 +312,11 @@ async def test_cors_accepts_several_comma_separated_origins(monkeypatch: pytest.
         assert get_settings().frontend_origins == ["https://app.example.com", "https://preview.example.com"]
         async with make_client(create_app()) as client:
             results: dict[str, str | None] = {}
-            for origin in ("https://app.example.com", "https://preview.example.com", "https://evil.example.com"):
+            for origin in (
+                "https://app.example.com",
+                "https://preview.example.com",
+                "https://evil.example.com",
+            ):
                 preflight = await client.options(
                     "/bots", headers={"Origin": origin, "Access-Control-Request-Method": "GET"}
                 )
@@ -278,3 +332,74 @@ async def test_cors_accepts_several_comma_separated_origins(monkeypatch: pytest.
         "https://preview.example.com": "https://preview.example.com",
         "https://evil.example.com": None,
     }
+
+
+def preflight(origin: str) -> dict[str, str]:
+    """The preflight a browser sends before the web app's authenticated JSON POST (the CSRF header
+    of the cookie session, and an Authorization header for a token-based provider)."""
+    return {
+        "Origin": origin,
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers": "authorization, content-type, x-botforge-csrf",
+    }
+
+
+async def test_cors_allows_every_listed_frontend_origin_and_no_other(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setenv(
+        "FRONTEND_ORIGIN",
+        " https://botforge.netlify.app/, https://bot-forge.ir,,https://www.bot-forge.ir, *",
+    )
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", "")
+    get_settings.cache_clear()
+    listed = ["https://botforge.netlify.app", "https://bot-forge.ir", "https://www.bot-forge.ir"]
+    others = ["https://evil.example.com", "https://bot-forge.ir.evil.com", "http://bot-forge.ir", "null"]
+    async with make_client(create_app()) as client:
+        for origin in listed:
+            allowed = await client.options("/bots", headers=preflight(origin))
+            assert allowed.status_code == 200, origin
+            assert allowed.headers["access-control-allow-origin"] == origin
+            assert allowed.headers["access-control-allow-credentials"] == "true"
+            allowed_headers = allowed.headers["access-control-allow-headers"].lower()
+            assert "authorization" in allowed_headers and "x-botforge-csrf" in allowed_headers
+            simple = await client.get("/healthz", headers={"Origin": origin})
+            assert simple.headers["access-control-allow-origin"] == origin
+        for origin in others:
+            denied = await client.options("/bots", headers=preflight(origin))
+            assert denied.status_code == 400, origin
+            assert "access-control-allow-origin" not in denied.headers
+            simple = await client.get("/healthz", headers={"Origin": origin})
+            assert "access-control-allow-origin" not in simple.headers
+
+
+async def test_cors_regex_allows_matching_preview_origins_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://botforge.netlify.app")
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"https://deploy-preview-[0-9]+--botforge\.netlify\.app")
+    get_settings.cache_clear()
+    async with make_client(create_app()) as client:
+        for origin in ("https://botforge.netlify.app", "https://deploy-preview-12--botforge.netlify.app"):
+            allowed = await client.options("/bots", headers=preflight(origin))
+            assert allowed.status_code == 200, origin
+            assert allowed.headers["access-control-allow-origin"] == origin
+        for origin in (
+            "https://deploy-preview-12--botforge.netlify.app.evil.com",
+            "https://deploy-preview-12--evil.netlify.app",
+            "http://deploy-preview-12--botforge.netlify.app",
+            "https://main--botforge.netlify.app",
+        ):
+            denied = await client.options("/bots", headers=preflight(origin))
+            assert denied.status_code == 400, origin
+            assert "access-control-allow-origin" not in denied.headers
+
+
+async def test_a_loose_cors_regex_is_ignored(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://botforge.netlify.app")
+    monkeypatch.setenv("FRONTEND_ORIGIN_REGEX", r"https://.*\.netlify\.app")
+    get_settings.cache_clear()
+    async with make_client(create_app()) as client:
+        listed = await client.options("/bots", headers=preflight("https://botforge.netlify.app"))
+        other = await client.options("/bots", headers=preflight("https://evil.netlify.app"))
+    assert listed.headers["access-control-allow-origin"] == "https://botforge.netlify.app"
+    assert other.status_code == 400
+    assert "access-control-allow-origin" not in other.headers

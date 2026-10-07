@@ -336,6 +336,20 @@ async def test_user_limit_counts_active_bookings_across_items() -> None:
     await book_ok(h, "ali", items[2])  # cancelled bookings do not count
 
 
+async def test_user_limit_ignores_bookings_on_started_items() -> None:
+    h = Harness(booking_spec(max_active_per_user=1))
+    past = await seed_item(h, "الف", hours=1)
+    upcoming = await seed_item(h, "ب", hours=30)
+    later = await seed_item(h, "ج", hours=40)
+    await book_ok(h, "ali", past)
+    assert rejected(await book(h, "ali", upcoming), "book", "user_limit")
+    h.advance(1)  # exactly at the start: the booking still holds its place
+    assert rejected(await book(h, "ali", upcoming), "book", "user_limit")
+    h.advance(1)  # the first workshop is over: it no longer counts
+    await book_ok(h, "ali", upcoming)
+    assert rejected(await book(h, "ali", later), "book", "user_limit")
+
+
 async def test_user_limit_counts_waitlisted_and_duplicate_checked_first() -> None:
     h = Harness(booking_spec(capacity=1, max_active_per_user=1))
     a = await seed_item(h, "الف", hours=24)
@@ -616,12 +630,51 @@ async def test_cancel_deadline_boundary() -> None:
     assert await status_of(h, sara) == "confirmed"
 
 
-async def test_cancel_without_deadline_allowed_after_start() -> None:
+async def test_cancel_without_deadline_allowed_until_start_refused_after() -> None:
+    h = Harness(booking_spec(capacity=2))
+    w = await seed_item(h, hours=2)
+    ali = await book_ok(h, "ali", w)
+    sara = await book_ok(h, "sara", w)
+    reza = await book_ok(h, "reza", w, "waitlisted")
+    h.advance(2)  # exactly at the start: still allowed
+    assert outcome(await cancel_via_mine(h, "ali", ali)).result == "cancelled"
+    assert await status_of(h, reza) == "confirmed"  # promoted before the start
+    h.advance(1)
+    r = await cancel_via_mine(h, "sara", sara)  # the cancel button is still offered
+    assert rejected(r, "cancel", "cancel_deadline_passed")
+    assert text(r) == "«کارگاه عکاسی» شروع شده است و دیگر نمی‌توان ثبت‌نام آن را لغو کرد."
+    assert await status_of(h, sara) == "confirmed" and notices(r) == []
+
+
+async def test_cancel_after_start_promotes_nobody() -> None:
+    h = Harness(booking_spec(capacity=1))
+    w = await seed_item(h, hours=1)
+    ali = await book_ok(h, "ali", w)
+    sara = await book_ok(h, "sara", w, "waitlisted")
+    h.advance(3)
+    assert rejected(await cancel_via_mine(h, "ali", ali), "cancel", "cancel_deadline_passed")
+    assert await status_of(h, sara) == "waitlisted"  # no promotion into an event that is over
+
+
+async def test_owner_cancel_after_start_still_allowed() -> None:
     h = Harness(booking_spec())
     w = await seed_item(h, hours=1)
     b = await book_ok(h, "ali", w)
     h.advance(3)
-    assert outcome(await cancel_via_mine(h, "ali", b)).result == "cancelled"
+    r = await h.admin(f"{CAP}:cancel:{b}")  # the owner override ignores the start like the deadline
+    assert outcome(r).result == "cancelled" and await status_of(h, b) == "cancelled"
+
+
+async def test_mine_marks_bookings_of_started_items() -> None:
+    h = Harness(booking_spec())
+    past = await seed_item(h, "الف", hours=1)
+    upcoming = await seed_item(h, "ب", hours=30)
+    await book_ok(h, "ali", past)
+    await book_ok(h, "ali", upcoming)
+    h.advance(2)
+    lines = text(await h.tap("ali", MENU_MINE)).splitlines()
+    assert lines[1].startswith("• الف") and lines[1].endswith("— برگزار شده")
+    assert lines[2].startswith("• ب") and lines[2].endswith("— قطعی")
 
 
 # --- promotion --------------------------------------------------------------------------------

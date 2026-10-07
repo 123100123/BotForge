@@ -220,6 +220,71 @@ sign-in and a scripted agent stream, no backend needed. Real mode (`NEXT_PUBLIC_
 the backend through `/api`, which `npm run dev` proxies to `http://localhost:8000` (so start the backend
 first); sign-in uses the backend's own accounts (`/auth/signup`, or `scripts/create_user.py`).
 
+## Deployment on Render + Supabase (from staging, 2026-10-07)
+
+> Taken verbatim from the `staging` branch (the hosted test deployment: `render.yaml`, Supabase
+> Postgres through the session pooler). It still describes staging's Supabase Auth sign-in; this
+> branch uses the backend's own login until the `AUTH_PROVIDER` switch lands. A docs pass will merge
+> it with the sections below.
+
+### Deployment checklist
+
+Architecture: the frontend (a Render Node service, or Vercel) calls the backend (one always-on Render container) with a Supabase
+access token; the backend talks to Supabase Postgres, the Anthropic API and Telegram. The backend must
+run as a single instance with a single worker (agent runs and rate limits are in-process).
+
+1. **Supabase project.**
+   - Authentication, Sign In / Providers, Email: turn **Confirm email off** (sign-up must give a session at once).
+   - Project Settings, API: copy the project URL (`SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_URL`) and the
+     anon/publishable key (`NEXT_PUBLIC_SUPABASE_ANON_KEY`). Never put the service-role key anywhere.
+   - JWKS URL: `<SUPABASE_URL>/auth/v1/.well-known/jwks.json` (`SUPABASE_JWKS_URL`). Use a project with
+     asymmetric JWT signing keys. For a legacy project, set `SUPABASE_JWT_SECRET` (Project Settings,
+     API, JWT secret) and leave `SUPABASE_JWKS_URL` empty.
+   - Database URL: the **Connect** button, then the **Session pooler** string (port 5432; it works on
+     IPv4 hosts such as Render). Replace the password placeholder and append `?ssl=require`, e.g.
+     `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?ssl=require`.
+     This is `DATABASE_URL`. Do not use the transaction pooler (port 6543): asyncpg's prepared
+     statements do not work through it. `postgres://`, `postgresql://` and `postgresql+asyncpg://`
+     are all accepted, and a libpq `sslmode=require` is translated to asyncpg's `ssl=require`.
+2. **Generate `TOKEN_ENC_KEY`** (encrypts Telegram bot tokens; losing it orphans stored tokens):
+   `uv run python -m app.security.crypto generate-key` in `backend/`. Keep a copy in a password manager.
+3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (the API: one Docker web service,
+   root directory `backend`, health check `/healthz`, auto-deploy off; the free plan for testing,
+   `starter` (paid, always-on) for the demo; and the `botforge-web` service of step 4). Fill the
+   `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
+   `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
+   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. Check in the service settings that the Dockerfile path
+   resolves to `backend/Dockerfile`. The container runs `alembic upgrade head` on every start. Deploy
+   and confirm `https://<service>.onrender.com/healthz` returns `{"status":"ok"}`.
+4. **Vercel.** Import the repository as a Next.js project; set **Root Directory** to `frontend` (no
+   `vercel.json` is needed; build and output settings are the defaults). Environment variables:
+   `NEXT_PUBLIC_MOCK=0`, `NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com` (no trailing slash),
+   `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Deploy.
+   **Or Render** (the `botforge-web` service in `render.yaml`): a Node web service with root directory
+   `frontend`, build `npm ci && npm run build`, start `npm start`, `NODE_VERSION=22` and the same four
+   variables. The `NEXT_PUBLIC_*` values are inlined at build time, so changing one needs a new build.
+   With `NEXT_PUBLIC_MOCK=0` and a Supabase variable missing, the app shows a configuration-error page.
+5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
+   webhooks are registered under it, so it must be the public https address) and `FRONTEND_ORIGIN`
+   to the web app's origins, comma-separated, e.g.
+   `https://<your-app>.vercel.app,https://bot-forge.ir,https://www.bot-forge.ir`. CORS allows only
+   these. Each entry is `scheme://host[:port]` without a path (a trailing slash is dropped); an entry
+   that is not an http(s) origin, `*` included, is ignored with a warning in the log. Redeploy the
+   backend. Preview deployments have other URLs and are rejected by CORS unless they are listed or
+   match `FRONTEND_ORIGIN_REGEX`.
+   - `FRONTEND_ORIGIN_REGEX` (optional, unset by default) allows every https origin it matches as a
+     whole, e.g. for Netlify deploy previews `https://deploy-preview-[0-9]+--<site>\.netlify\.app`.
+     Name your own site in it and escape the dots; a pattern that also matches other sites (`.*`,
+     `https://.*\.netlify\.app`) is ignored with a warning. Risk: whoever can get a page served at a
+     matching origin (a site with a matching name, or a deploy preview built from their pull request)
+     can call the API from a browser. Sign-in is a Bearer token, not a cookie, so such a page cannot
+     act as a signed-in user without that user's token: low impact, but leave the variable unset
+     unless previews must reach this backend, and then do not build previews for pull requests
+     from forks.
+6. **Seed the demo** (after a bot with the workshop spec is active; see Gate B):
+   point `DATABASE_URL` at Supabase in your shell, then
+   `uv run python scripts/seed_demo.py --bot-id <bot id>`. `--reset` removes the seeded data.
+
 ## Self-hosting on a VPS (Docker Compose)
 
 One server runs everything: Postgres, the backend (one container, one worker), the frontend and Caddy,

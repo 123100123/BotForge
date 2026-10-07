@@ -9,14 +9,14 @@ from __future__ import annotations
 
 import uuid
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, Protocol
 
 from pydantic import BaseModel
 from sqlalchemy import func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.agent.events import EventEnvelope
+from app.agent.events import EventEnvelope, run_status
 from app.agent.requirements import Requirements
 from app.agent.state import ACTIVE_STATUSES, RunState
 from app.botspec.models import BotSpec, FieldType
@@ -132,6 +132,11 @@ class AgentRepository(Protocol):
 
     async def claim_run(self, run_id: str, from_statuses: tuple[str, ...], to_status: str) -> bool:
         """Atomically move a run from one of ``from_statuses`` to ``to_status``; False if not."""
+        ...
+
+    async def touch_run(self, run_id: str) -> None:
+        """Heartbeat: refresh ``updated_at`` of a ``running`` run, so that no process (this one
+        after a restart, or the next container during a deploy) takes it for abandoned."""
         ...
 
     async def append_event(self, run_id: str, type_: str, payload: dict[str, Any]) -> EventEnvelope: ...
@@ -296,6 +301,45 @@ class SqlAgentRepository:
             claimed = result.first() is not None
             await session.commit()
             return claimed
+
+    async def touch_run(self, run_id: str) -> None:
+        async with self._sm() as session:
+            await session.execute(
+                update(AgentRun)
+                .where(AgentRun.id == _uuid(run_id), AgentRun.status == "running")
+                .values(updated_at=func.now())
+            )
+            await session.commit()
+
+    async def interrupt_stale_runs(self, stale_after: timedelta) -> list[EventEnvelope]:
+        """Mark ``interrupted`` every ``running`` run without a heartbeat for ``stale_after``.
+
+        The executing process refreshes ``updated_at`` (``touch_run``) far more often than that,
+        so only runs whose process is gone qualify. The status change and the ``run_status`` event
+        commit together, so a reader never sees one without the other. Database time on both
+        sides, so clock skew between containers does not matter. Returns the new events.
+        """
+        async with self._sm() as session:
+            ended = (
+                await session.execute(
+                    update(AgentRun)
+                    .where(AgentRun.status == "running", AgentRun.updated_at < func.now() - stale_after)
+                    .values(status="interrupted", updated_at=func.now())
+                    .returning(AgentRun.id, AgentRun.phase)
+                )
+            ).all()
+            rows = []
+            for run_id, phase in ended:
+                type_, payload = run_status("interrupted", phase)
+                rows.append(AgentEvent(run_id=run_id, type=type_, payload=payload))
+            session.add_all(rows)
+            await session.flush()
+            envelopes = [
+                EventEnvelope(id=r.id, run_id=str(r.run_id), ts=r.ts, type=r.type, payload=r.payload)
+                for r in rows
+            ]
+            await session.commit()
+            return envelopes
 
     async def append_event(self, run_id: str, type_: str, payload: dict[str, Any]) -> EventEnvelope:
         async with self._sm() as session:
@@ -554,6 +598,11 @@ class InMemoryAgentRepository:
             return False
         record.status = to_status
         return True
+
+    async def touch_run(self, run_id: str) -> None:
+        record = self.runs.get(run_id)
+        if record is not None and record.status == "running":
+            record.updated_at = datetime.now(UTC)
 
     async def append_event(self, run_id: str, type_: str, payload: dict[str, Any]) -> EventEnvelope:
         import json

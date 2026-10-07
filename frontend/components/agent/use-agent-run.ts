@@ -2,45 +2,103 @@
 
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { api } from "@/lib/api";
-import { applyServerStatus, emptyRunView, reduceEvent, type RunView } from "@/lib/agent-state";
+import { applyServerStatus, emptyRunView, reduceEvent, viewFromEvents, type RunView } from "@/lib/agent-state";
 import { errorMessage } from "@/lib/errors";
-import { streamRunEvents } from "@/lib/sse";
+import { loadRunEvents, streamRunEvents } from "@/lib/sse";
 import type { AgentRun, RawAgentEvent, RunKind, RunStatus } from "@/lib/types";
 
+/** An earlier run of the bot's conversation. Loaded once (its events are replayed), never streamed. */
+export interface PastRun {
+  run: AgentRun;
+  /** null while the run's events are loading (or after a failed load, see `failed`). */
+  view: RunView | null;
+  failed: boolean;
+}
+
 interface State {
-  runId: string | null;
+  /** The latest run: the one that is streamed live and that the owner acts on. */
+  run: AgentRun | null;
   view: RunView;
+  /** Every earlier run of the bot, oldest first. */
+  past: PastRun[];
 }
 
 type Action =
-  | { type: "attach"; runId: string | null; status?: RunStatus }
+  | { type: "init"; runs: AgentRun[] }
+  | { type: "start"; run: AgentRun }
   | { type: "event"; runId: string; event: RawAgentEvent }
-  | { type: "server_status"; runId: string; status: RunStatus; atEventId: number };
+  | { type: "server_run"; run: AgentRun; atEventId: number }
+  | { type: "past_loaded"; runId: string; events: RawAgentEvent[] }
+  | { type: "past_failed"; runId: string }
+  | { type: "past_retry"; runId: string };
+
+const initialState: State = { run: null, view: emptyRunView, past: [] };
+
+function seededView(run: AgentRun | null): RunView {
+  return run ? { ...emptyRunView, status: run.status, statusSource: "server" } : emptyRunView;
+}
+
+function updatePast(state: State, runId: string, update: (entry: PastRun) => PastRun): State {
+  return { ...state, past: state.past.map((entry) => (entry.run.id === runId ? update(entry) : entry)) };
+}
 
 function reducer(state: State, action: Action): State {
   switch (action.type) {
-    case "attach":
+    case "init": {
+      const [latest = null, ...older] = action.runs;
       return {
-        runId: action.runId,
-        view: action.status ? { ...emptyRunView, status: action.status, statusSource: "server" } : emptyRunView,
+        run: latest,
+        view: seededView(latest),
+        past: older.reverse().map((run) => ({ run, view: null, failed: false })),
       };
+    }
+    case "start": {
+      // The run that was shown so far moves into the history with the view it already has; a view that
+      // never received an event is loaded from the server like any other earlier run.
+      const past = state.run
+        ? [
+            ...state.past,
+            { run: state.run, view: state.view.lastEventId > 0 ? state.view : null, failed: false },
+          ]
+        : state.past;
+      return { run: action.run, view: seededView(action.run), past };
+    }
     case "event":
-      if (action.runId !== state.runId) return state;
+      if (action.runId !== state.run?.id) return state;
       return { ...state, view: reduceEvent(state.view, action.event) };
-    case "server_status":
-      if (action.runId !== state.runId) return state;
-      return { ...state, view: applyServerStatus(state.view, action.status, action.atEventId) };
+    case "server_run":
+      if (action.run.id !== state.run?.id) return state;
+      return { ...state, run: action.run, view: applyServerStatus(state.view, action.run.status, action.atEventId) };
+    case "past_loaded":
+      return updatePast(state, action.runId, (entry) => ({
+        ...entry,
+        view: viewFromEvents(action.events, entry.run.status),
+        failed: false,
+      }));
+    case "past_failed":
+      return updatePast(state, action.runId, (entry) => ({ ...entry, failed: true }));
+    case "past_retry":
+      return updatePast(state, action.runId, (entry) => ({ ...entry, view: null, failed: false }));
   }
 }
 
+/** How many earlier runs are loaded at the same time. */
+const PAST_LOAD_CONCURRENCY = 2;
+
 export interface AgentRunController {
-  /** True until the bot's latest run (if any) has been looked up. */
+  /** True until the bot's runs have been looked up. */
   loading: boolean;
   runId: string | null;
+  /** The latest run as the server last reported it. */
+  run: AgentRun | null;
   kind: RunKind | null;
   /** The run's status: a `run_status` event or the server's answer to GET /runs/{id}; inferred from events only as a fallback. */
   status: RunStatus | null;
   view: RunView;
+  /** Earlier runs of the bot, oldest first: the rest of the conversation history. */
+  past: PastRun[];
+  /** Loads an earlier run again after a failed load. */
+  retryPast: (runId: string) => void;
   /** The owner's own approve/reject for this run, known before the server confirms it. */
   decided: "approved" | "rejected" | null;
   connection: "open" | "reconnecting";
@@ -54,14 +112,14 @@ export interface AgentRunController {
 }
 
 /**
- * Owns the Agent tab's data: finds the bot's latest run, streams its events into a RunView, and
- * exposes the owner's actions. The server decides the run's status: it is re-read after every
- * action and whenever the event stream ends. Only the latest run is shown; sending after a finished
- * run starts a new one.
+ * Owns the Agent tab's data: the bot's whole conversation. The latest run is streamed into a RunView
+ * and is the one the owner acts on; earlier runs are loaded once each (their events are replayed and
+ * the stream closes, since they are not running) and kept as history. The server decides the latest
+ * run's status: it is re-read after every action and whenever the event stream ends. Sending after a
+ * finished run starts a new one; the finished run moves into the history.
  */
 export function useAgentRun(botId: string): AgentRunController {
-  const [state, dispatch] = useReducer(reducer, { runId: null, view: emptyRunView });
-  const [serverRun, setServerRun] = useState<AgentRun | null>(null);
+  const [state, dispatch] = useReducer(reducer, initialState);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -70,7 +128,8 @@ export function useAgentRun(botId: string): AgentRunController {
   /** Bumped to (re)start the event stream: after the owner acts on a run whose stream had stopped. */
   const [streamTick, setStreamTick] = useState(0);
 
-  const { runId, view } = state;
+  const { run, view, past } = state;
+  const runId = run?.id ?? null;
   const lastEventRef = useRef(0);
   useEffect(() => {
     lastEventRef.current = view.lastEventId;
@@ -81,23 +140,20 @@ export function useAgentRun(botId: string): AgentRunController {
     const atEventId = lastEventRef.current;
     try {
       const fresh = await api.getRun(id);
-      setServerRun(fresh);
-      dispatch({ type: "server_status", runId: id, status: fresh.status, atEventId });
+      dispatch({ type: "server_run", run: fresh, atEventId });
       return fresh.status;
     } catch {
       return null;
     }
   }, []);
 
-  // Find the latest run once per bot.
+  // List the bot's runs once per bot: the newest is the live run, the rest are history.
   useEffect(() => {
     let cancelled = false;
     api.listRuns(botId).then(
       (runs) => {
         if (cancelled) return;
-        const latest = [...runs].sort((a, b) => b.created_at.localeCompare(a.created_at))[0] ?? null;
-        setServerRun(latest);
-        dispatch({ type: "attach", runId: latest?.id ?? null, status: latest?.status });
+        dispatch({ type: "init", runs: [...runs].sort((a, b) => b.created_at.localeCompare(a.created_at)) });
         setLoading(false);
       },
       (err) => {
@@ -111,7 +167,47 @@ export function useAgentRun(botId: string): AgentRunController {
     };
   }, [botId]);
 
-  // Stream the attached run. When the stream ends, the server's status says whether to reconnect.
+  // Load each earlier run once (a few at a time). Loads outlive re-renders and stop when the tab unmounts.
+  const pastAbort = useRef<AbortController | null>(null);
+  const requested = useRef(new Set<string>());
+  useEffect(() => {
+    const controller = new AbortController();
+    pastAbort.current = controller;
+    const requestedIds = requested.current;
+    return () => {
+      controller.abort();
+      requestedIds.clear();
+    };
+  }, [botId]);
+  useEffect(() => {
+    const signal = pastAbort.current?.signal;
+    if (!signal || signal.aborted) return;
+    // Newest first, so the history next to the live run fills in first.
+    const queue = past
+      .filter((entry) => entry.view === null && !entry.failed && !requested.current.has(entry.run.id))
+      .map((entry) => entry.run.id)
+      .reverse();
+    if (queue.length === 0) return;
+    for (const id of queue) requested.current.add(id);
+    const worker = async () => {
+      for (let id = queue.shift(); id !== undefined && !signal.aborted; id = queue.shift()) {
+        try {
+          const events = await loadRunEvents(id, signal);
+          if (!signal.aborted) dispatch({ type: "past_loaded", runId: id, events });
+        } catch {
+          if (!signal.aborted) dispatch({ type: "past_failed", runId: id });
+        }
+      }
+    };
+    for (let i = 0; i < Math.min(PAST_LOAD_CONCURRENCY, queue.length); i++) void worker();
+  }, [past]);
+
+  const retryPast = useCallback((id: string) => {
+    requested.current.delete(id);
+    dispatch({ type: "past_retry", runId: id });
+  }, []);
+
+  // Stream the latest run. When the stream ends, the server's status says whether to reconnect.
   useEffect(() => {
     if (!runId) return;
     const controller = new AbortController();
@@ -137,9 +233,7 @@ export function useAgentRun(botId: string): AgentRunController {
     const atEventId = lastEventRef.current;
     api.getRun(runId).then(
       (fresh) => {
-        if (cancelled) return;
-        setServerRun(fresh);
-        dispatch({ type: "server_status", runId, status: fresh.status, atEventId });
+        if (!cancelled) dispatch({ type: "server_run", run: fresh, atEventId });
       },
       () => {
         /* the event stream still drives the view */
@@ -158,7 +252,6 @@ export function useAgentRun(botId: string): AgentRunController {
     return () => clearInterval(timer);
   }, [runId, inferredRunning, syncRun]);
 
-  const current = serverRun && serverRun.id === runId ? serverRun : null;
   const decided = decision && decision.runId === runId ? decision.value : null;
   const status: RunStatus | null = runId ? view.status : null;
 
@@ -188,9 +281,8 @@ export function useAgentRun(botId: string): AgentRunController {
           }
           return;
         }
-        const run = await api.createRun(botId, message);
-        setServerRun(run);
-        dispatch({ type: "attach", runId: run.id, status: run.status });
+        const created = await api.createRun(botId, message);
+        dispatch({ type: "start", run: created });
       });
     },
     [act, botId, runId, status, syncRun],
@@ -220,9 +312,12 @@ export function useAgentRun(botId: string): AgentRunController {
   return {
     loading,
     runId,
-    kind: current?.kind ?? null,
+    run,
+    kind: run?.kind ?? null,
     status,
     view,
+    past,
+    retryPast,
     decided,
     connection,
     busy,

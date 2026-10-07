@@ -71,6 +71,7 @@ STATUS_LABELS: dict[str, str] = {
 WAITLIST_COUNT_LINE = "تعداد در لیست انتظار: {count}"
 MY_STATUS_LINE = "وضعیت شما: {status}"
 MY_WAITLIST_STATUS = "در لیست انتظار (نفر {position})"
+STARTED_STATUS = "برگزار شده"
 CLOSED_LINE = "ثبت‌نام این مورد بسته شده است."
 FORM_INTRO = "ثبت‌نام در «{title}»"
 LIST_LINE = "• {title}{when}"
@@ -79,6 +80,7 @@ MINE_WHEN = " ({when})"
 
 ITEM_NOT_FOUND = "این مورد دیگر برای ثبت‌نام در دسترس نیست."
 BOOKING_NOT_FOUND = "این ثبت‌نام پیدا نشد یا قبلاً لغو شده است."
+CANCEL_AFTER_START = "«{title}» شروع شده است و دیگر نمی‌توان ثبت‌نام آن را لغو کرد."
 OWNER_CANCEL_DONE = "ثبت‌نام کاربر {user} در «{title}» لغو شد."
 OWNER_ACTION_UNKNOWN = "این عملیات برای ثبت‌نام‌ها تعریف نشده است."
 
@@ -100,6 +102,8 @@ class Words(NamedTuple):
     closed_line: str
     form_intro: str
     item_not_found: str
+    started_status: str
+    cancel_after_start: str
 
 
 BOOKING_WORDS = Words(
@@ -114,6 +118,8 @@ BOOKING_WORDS = Words(
     closed_line=CLOSED_LINE,
     form_intro=FORM_INTRO,
     item_not_found=ITEM_NOT_FOUND,
+    started_status=STARTED_STATUS,
+    cancel_after_start=CANCEL_AFTER_START,
 )
 
 EVENTS_WORDS = Words(
@@ -132,6 +138,8 @@ EVENTS_WORDS = Words(
     closed_line="ثبت‌نام این رویداد بسته شده است.",
     form_intro="ثبت‌نام در رویداد «{title}»",
     item_not_found="این رویداد دیگر در دسترس نیست.",
+    started_status="برگزار شده",
+    cancel_after_start="رویداد «{title}» شروع شده است و دیگر نمی‌توان شرکت در آن را لغو کرد.",
 )
 
 

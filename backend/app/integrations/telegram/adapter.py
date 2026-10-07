@@ -25,6 +25,7 @@ a recipient is its actor id (a private chat); group delivery rules live in ``ser
 
 import html
 import logging
+import re
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -40,6 +41,7 @@ NOT_MODIFIED = "message is not modified"
 GROUP_CHAT_TYPES = frozenset({"group", "supergroup", "channel"})
 MAX_FILE_ID_CHARS = 256  # Telegram's ids are far shorter; anything longer is not a real one
 MAX_FILE_NAME_CHARS = 1024  # a label only (the spreadsheet service sanitises and shortens it)
+_CHAT_ID = re.compile(r"-?[0-9]+")
 
 
 @dataclass(frozen=True)
@@ -257,8 +259,12 @@ def reply_markup(message: OutMessage) -> dict[str, Any] | None:
 
 
 def chat_id_for(actor_id: str) -> int | str | None:
-    """The Telegram chat id of a recipient: its actor id. ``None`` for a non-Telegram id."""
-    return int(actor_id) if actor_id.lstrip("-").isdigit() else None
+    """The Telegram chat id of a recipient: its actor id. ``None`` for a non-Telegram id.
+
+    Only ASCII digits with at most one leading minus count: ``str.isdigit`` also accepts characters
+    such as "²" that ``int`` rejects, and a ValueError here would escape dispatch after its commit.
+    """
+    return int(actor_id) if _CHAT_ID.fullmatch(actor_id) else None
 
 
 async def send_out_message(

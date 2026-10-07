@@ -7,6 +7,7 @@ from app.integrations.telegram.adapter import (
     MAX_TEXT_CHARS,
     ParsedUpdate,
     TelegramOrigin,
+    chat_id_for,
     parse_update,
     render_text,
     reply_markup,
@@ -231,3 +232,10 @@ async def test_non_telegram_recipient_is_skipped() -> None:
     fake = FakeTelegramClient()
     await send_out_message(fake, OutMessage(to_actor_id="owner", text="a"), event(), None)
     assert fake.calls == []
+
+
+def test_chat_id_for_accepts_only_ascii_integer_ids() -> None:
+    assert chat_id_for("55") == 55
+    assert chat_id_for("-1001234") == -1001234
+    for not_a_chat in ("demo-01", "", "-", "--5", "5-", "²", "٥٥", " 55", "55\n", "+55", "1e3"):
+        assert chat_id_for(not_a_chat) is None, not_a_chat

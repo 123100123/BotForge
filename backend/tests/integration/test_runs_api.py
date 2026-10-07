@@ -471,13 +471,14 @@ async def test_live_stream_ends_when_the_run_reaches_a_terminal_state(
     bot_id, _ = await make_bot("alice", active=False)
     created = await api.start(bot_id)
     assert (await api.run(created["id"]))["status"] == "waiting_approval"
-    # Opened while the run is live: the response arrives only once the stream ends by itself.
-    watching = asyncio.create_task(api.events(created["id"]))
-    await asyncio.sleep(0.2)
-    assert not watching.done()  # an active run keeps its stream open
+    # A run paused for the owner is not running: its stream replays and ends by itself instead of
+    # holding the connection until the owner answers (the client reopens it after approving).
+    paused = await asyncio.wait_for(api.events(created["id"]), timeout=10)
+    assert paused[-1]["type"] == "run_status" and paused[-1]["payload"]["status"] == "waiting_approval"
     approved = await client.post(f"/runs/{created['id']}/approve", headers=ALICE)
     assert approved.status_code == 200 and approved.json()["status"] == "done"
-    events = await asyncio.wait_for(watching, timeout=10)
+    events = await asyncio.wait_for(api.events(created["id"]), timeout=10)
+    assert events[: len(paused)] == paused
     assert "deployed" in [e["type"] for e in events]
     assert events[-1]["type"] == "run_status" and events[-1]["payload"]["status"] == "done"
     assert events == [e.model_dump(mode="json") for e in await api.orch.repo.list_events(created["id"])]

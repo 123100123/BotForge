@@ -97,7 +97,12 @@ function revisionForSimulator(botId: string, revisionId: string | null): StoredR
   const bot = d.bots.find((b) => b.id === botId);
   const id = revisionId ?? bot?.active_revision_id ?? null;
   if (!id) throw new ApiError(ERROR_CODES.noActiveRevision, "این ربات هنوز نسخهٔ فعالی ندارد.", 409);
-  return findRevision(id);
+  const rev = findRevision(id);
+  // Same rule as backend/app/simulator/service.py: only a draft or the active revision can be tried.
+  if (rev.status !== "draft" && rev.status !== "active") {
+    throw new ApiError(ERROR_CODES.revisionNotSimulatable, "فقط پیش‌نویس یا نسخهٔ فعال قابل آزمایش است.", 409);
+  }
+  return rev;
 }
 
 export function simulatorEvent(botId: string, body: SimulatorEventBody): RuntimeResponse {

@@ -1,10 +1,23 @@
-# Render Blueprint for the BotForge backend (one web service, Docker).
-# The database is an external Postgres (DATABASE_URL), so there is no database resource here. The
-# frontend is a Vercel project.
+# Render Blueprint for BotForge: the backend (Docker web service) and the web app (Node web service).
+# The database is Supabase, so there is no database resource here. The web app can also run on Vercel
+# (README, Deployment checklist, step 4); then drop the botforge-web service below.
 #
-# The service must stay always-on and single-instance: agent runs, rate limits and the Telegram
-# webhook handler live in one process. Use a paid plan that does not sleep (a free instance spins
-# down and drops in-flight agent runs). Never set numInstances above 1.
+# The API must stay single-instance: agent runs, rate limits and the Telegram webhook handler live in
+# one process. Never set numInstances above 1. The current test deployment uses the free plan (owner's
+# decision, 2026-10-07): it sleeps after idle, so the first Telegram update waits for a cold start and
+# in-flight agent runs are lost when it spins down. Switch to "starter" (paid, always-on) for the demo.
+#
+# Free plan caveats for the Business OS (2026-10-08): the local disk is ephemeral, so uploaded
+# spreadsheets (UPLOAD_DIR) are lost on every redeploy or restart, while analysis results stored in
+# Postgres survive; and a sleeping instance runs no notification ticker, so reminders, announcements
+# and scheduled reports go out late (when the next request wakes it). Use "starter" for the demo.
+#
+# Migrations: backend/Dockerfile runs `alembic upgrade head` before serving, so the next deploy of this
+# branch applies 0003-0005 to the hosted Supabase database. 0003 adopts every existing Supabase owner
+# id as a placeholder user (same UUID, no password) so existing bots keep their owner; 0004 adds the
+# polling offset; 0005 the Business OS tables. Take a Supabase backup before that first deploy.
+#
+# Self-hosting alternative: deploy/ (Docker Compose + Caddy, README "Self-hosting on a VPS").
 #
 # Every variable is declared here; `sync: false` ones are asked for in the Render dashboard when the
 # Blueprint is applied and are never stored in git.
@@ -13,21 +26,28 @@ services:
     name: botforge-api
     runtime: docker
     rootDir: backend           # uses backend/Dockerfile with backend/ as the build context
-    plan: starter              # paid, always-on
+    plan: free                 # test deployment; "starter" (paid, always-on) for the demo, see above
     numInstances: 1
     healthCheckPath: /healthz
     autoDeploy: false          # deploy deliberately from the dashboard
     envVars:
-      # --- database (Postgres) ---
-      - key: DATABASE_URL            # postgresql://... ; a session pooler or a direct connection, not a transaction pooler
+      # --- database (Supabase Postgres) ---
+      # Supabase "Connect" -> Session pooler string (port 5432) with ?ssl=require appended:
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?ssl=require
+      # Not the transaction pooler (port 6543): asyncpg's prepared statements break there.
+      # sslmode=require also works (translated to ssl=require by app.config.to_async_url).
+      - key: DATABASE_URL
         sync: false
-      # --- authentication (own accounts; cookie sessions) ---
-      - key: AUTH_COOKIE_SECURE      # keep true: the session cookie is sent over https only
-        value: "true"
-      - key: AUTH_ALLOW_SIGNUP       # false: accounts only through scripts/create_user.py
-        value: "true"
-      - key: AUTH_SESSION_TTL_HOURS  # a session ends this long after it was last used
-        value: "168"
+      # --- authentication (Supabase Auth) ---
+      # Not read by this branch yet: sign-in is the backend's own login (session cookie, defaults of
+      # AUTH_COOKIE_SECURE / AUTH_ALLOW_SIGNUP / AUTH_SESSION_TTL_HOURS in app/config.py). Kept for the
+      # AUTH_PROVIDER=local|supabase switch that comes next.
+      - key: SUPABASE_URL            # https://<project-ref>.supabase.co ; also pins the token issuer
+        sync: false
+      - key: SUPABASE_JWKS_URL       # <SUPABASE_URL>/auth/v1/.well-known/jwks.json (asymmetric keys)
+        sync: false
+      - key: SUPABASE_JWT_SECRET     # legacy HS256 projects only; ignored when SUPABASE_JWKS_URL is set
+        sync: false
       # --- secrets ---
       - key: TOKEN_ENC_KEY           # python -m app.security.crypto generate-key ; losing it orphans stored bot tokens
         sync: false
@@ -36,7 +56,9 @@ services:
       # --- public addresses ---
       - key: PUBLIC_BASE_URL         # this service's public https URL; Telegram webhooks are registered under it
         sync: false
-      - key: FRONTEND_ORIGIN         # the Vercel URL(s), comma-separated, no trailing slash (CORS)
+      - key: FRONTEND_ORIGIN         # web app origin(s) for CORS, comma-separated, no path (README step 5)
+        sync: false
+      - key: FRONTEND_ORIGIN_REGEX   # optional, leave empty unless deploy previews must reach this API (README step 5)
         sync: false
       # --- LLM ---
       - key: LLM_MODEL_STRONG
@@ -62,3 +84,44 @@ services:
         value: "3"
       - key: AGENT_MAX_CLARIFY_ROUNDS
         value: "2"
+      # --- Telegram ---
+      - key: TELEGRAM_MODE           # webhook: Telegram posts to PUBLIC_BASE_URL/tg/<bot id> (polling is for hosts Telegram cannot reach)
+        value: "webhook"
+      # --- Business OS ---
+      - key: NOTIFICATIONS_TICKER    # sends queued reminders, announcements and scheduled reports; exactly one process (numInstances 1)
+        value: "true"
+      - key: UPLOAD_DIR              # spreadsheet uploads; created in the image. Ephemeral on Render (see the top of this file)
+        value: "/data/uploads"
+      - key: UPLOAD_MAX_BYTES        # 5 MB per uploaded file
+        value: "5242880"
+      - key: SPREADSHEET_MAX_ROWS
+        value: "50000"
+      - key: SPREADSHEET_MAX_COLUMNS
+        value: "100"
+      - key: COPILOT_DAILY_CAP       # Manager Copilot questions per owner account per rolling 24 hours (cost control)
+        value: "50"
+
+  # The web app (Next.js). All values are public and inlined at build time, so a change needs a new build.
+  # With this branch's own login the session is a SameSite=Lax HttpOnly cookie sent "same-origin", so
+  # the browser must reach the API on the web app's own origin (deploy/ does that with Caddy proxying
+  # /api/*). Two *.onrender.com services are different sites: a cross-origin NEXT_PUBLIC_API_BASE_URL
+  # cannot sign in until the AUTH_PROVIDER switch (Supabase tokens) or a same-origin /api proxy lands.
+  - type: web
+    name: botforge-web
+    runtime: node
+    rootDir: frontend
+    plan: free                 # the web app holds no state; sleeping only delays the first page load
+    buildCommand: npm ci && npm run build
+    startCommand: npm start    # next start listens on Render's PORT
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_MOCK
+        value: "0"
+      - key: NEXT_PUBLIC_API_BASE_URL    # the botforge-api public URL, no trailing slash
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL    # https://<project-ref>.supabase.co
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY   # anon/publishable key (public); never the service-role key
+        sync: false

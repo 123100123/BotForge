@@ -112,7 +112,7 @@ requires-dist = [
     { name = "asyncpg" },
     { name = "cryptography", specifier = ">=44.0.1" },
     { name = "fastapi" },
-    { name = "httpx", extras = ["socks"] },
+    { name = "httpx", extras = ["socks"], specifier = ">=0.28" },
     { name = "httpx2", extras = ["socks"] },
     { name = "openpyxl", specifier = ">=3.1" },
     { name = "pydantic", specifier = ">=2" },

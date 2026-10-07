@@ -135,6 +135,23 @@ async def test_delivery_failure_is_recorded_not_raised_and_cleared_by_the_next_c
         assert row is not None and row.tg_last_error is None
 
 
+async def test_messages_to_non_telegram_actors_are_skipped_and_keep_the_last_error(
+    session_factory: SessionFactory, bot: LiveBot, spec: BotSpec, fake_tg: FakeTelegramClient
+) -> None:
+    # a real failure is on record ...
+    fake_tg.fail_methods["sendMessage"] = "Forbidden: bot was blocked by the user"
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)
+    fake_tg.fail_methods.clear()
+    fake_tg.calls.clear()
+    # ... and a reply to a seeded demo customer is neither sent nor counted as a clean delivery
+    response = await run(session_factory, bot, spec, event(bot, "live", "demo-01", "start"), fake_tg)
+    assert response.messages and {m.to_actor_id for m in response.messages} == {"demo-01"}
+    assert fake_tg.calls_to("sendMessage") == []
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error == "sendMessage: Forbidden: bot was blocked by the user"
+
+
 async def test_delivery_failure_is_logged_with_bot_and_description(
     session_factory: SessionFactory,
     bot: LiveBot,

@@ -25,7 +25,6 @@ from app.agent.events import EventEnvelope
 from app.agent.llm import make_llm
 from app.agent.orchestrator import Orchestrator, OrchestratorError
 from app.agent.repository import ActiveRunExists, RepositoryError, RunRecord, SqlAgentRepository
-from app.agent.state import TERMINAL_STATUSES
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot, get_owned_run
 from app.db.models import AgentRun, Bot
 from app.db.session import get_session, get_sessionmaker
@@ -220,7 +219,10 @@ async def stream_events(
     last_event_id: str | None = Header(None),
     orchestrator: Orchestrator = Depends(get_orchestrator),
 ) -> StreamingResponse:
-    """SSE: replay events after ``Last-Event-ID`` from the table, then live; ends once the run ends."""
+    """SSE: replay events after ``Last-Event-ID`` from the table, then live; ends once the run stops
+    running (finished, or paused waiting for the owner). A paused run resumes only through an owner
+    request, after which the client opens a new stream; keeping it open would hold a connection for
+    as long as the owner takes to answer, or forever."""
     run_id = str(run.id)
     await session.commit()  # do not hold a database connection for the life of the stream
     try:
@@ -228,7 +230,7 @@ async def stream_events(
     except ValueError:
         after = None
 
-    # Runs that ended outside the orchestrator (marked interrupted at startup) get their
+    # Runs that ended outside the orchestrator (marked interrupted by app.main) get their
     # run_status event before the replay, so clients never wait on a silent status.
     await orchestrator.ensure_status_event(run_id)
 
@@ -239,7 +241,7 @@ async def stream_events(
                 for envelope in await orchestrator.repo.list_events(run_id, last):
                     yield sse_frame(envelope)
                     last = envelope.id
-                if (await orchestrator.repo.load_run(run_id)).status in TERMINAL_STATUSES:
+                if (await orchestrator.repo.load_run(run_id)).status != "running":
                     for envelope in await orchestrator.repo.list_events(run_id, last):
                         yield sse_frame(envelope)
                     return

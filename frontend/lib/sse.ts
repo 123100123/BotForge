@@ -1,5 +1,5 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
-import { parseErrorResponse } from "@/lib/api";
+import { parseErrorResponse, UNAUTHORIZED_EVENT } from "@/lib/api";
 import * as engine from "@/lib/mock/engine";
 import type { RawAgentEvent } from "@/lib/types";
 
@@ -29,6 +29,42 @@ export function streamRunEvents(runId: string, opts: StreamOptions): Promise<voi
   return IS_MOCK ? streamMock(runId, opts) : streamReal(runId, opts);
 }
 
+/**
+ * Reads every event of a run that is no longer running, once: the server replays the run's events
+ * and closes the stream as soon as the run is not running. No reconnect. Used for the conversation
+ * history of earlier runs; only the latest run is streamed live (streamRunEvents).
+ */
+export async function loadRunEvents(runId: string, signal: AbortSignal): Promise<RawAgentEvent[]> {
+  if (IS_MOCK) {
+    await engine.sleep(150);
+    return engine.eventsAfter(runId, 0);
+  }
+  const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
+    credentials: "same-origin",
+    headers: { Accept: "text/event-stream" },
+    signal,
+  });
+  if (!res.ok) {
+    const err = await parseErrorResponse(res);
+    if (res.status === 401) notifyUnauthorized();
+    throw err;
+  }
+  if (!res.body) throw new Error("no body");
+  const events: RawAgentEvent[] = [];
+  let last = 0;
+  await readEvents(runId, res.body, (event) => {
+    if (event.id <= last) return;
+    last = event.id;
+    events.push(event);
+  });
+  return events;
+}
+
+/** The session is gone (401): tell the auth provider, like `request()` in lib/api.ts does. */
+function notifyUnauthorized(): void {
+  if (typeof window !== "undefined") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
+}
+
 /* ------------------------------------------------------------------ mock */
 
 function streamMock(runId: string, opts: StreamOptions): Promise<void> {
@@ -38,7 +74,8 @@ function streamMock(runId: string, opts: StreamOptions): Promise<void> {
       if (event.id <= last) return;
       last = event.id;
       opts.onEvent(event);
-      // The real server closes the stream once a run is terminal; the caller then reads the run's status.
+      // The real server closes the stream once a run stops running (finished or waiting for the owner);
+      // the caller then reads the run's status.
       if (event.type === "run_status") {
         const status = (event.payload as { status?: string }).status;
         if (status === "done" || status === "failed" || status === "rejected" || status === "interrupted") {
@@ -117,6 +154,30 @@ function toEvent(runId: string, frame: Frame): RawAgentEvent | null {
   return null;
 }
 
+/** Reads SSE frames from a response body until the server closes it, passing each event on. */
+async function readEvents(
+  runId: string,
+  body: ReadableStream<Uint8Array>,
+  onEvent: (event: RawAgentEvent) => void,
+): Promise<void> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+    let split: number;
+    while ((split = buffer.indexOf("\n\n")) !== -1) {
+      const frame = parseFrame(buffer.slice(0, split));
+      buffer = buffer.slice(split + 2);
+      if (!frame) continue;
+      const event = toEvent(runId, frame);
+      if (event) onEvent(event);
+    }
+  }
+}
+
 function wait(ms: number, signal: AbortSignal): Promise<void> {
   return new Promise((resolve) => {
     const timer = setTimeout(resolve, ms);
@@ -150,6 +211,7 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       });
       if (!res.ok) {
         const err = await parseErrorResponse(res);
+        if (res.status === 401) notifyUnauthorized();
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           opts.onFatal?.(err.message);
           return;
@@ -161,30 +223,17 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       delay = RETRY_MIN_MS;
       broken = false;
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      for (;;) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-        let split: number;
-        while ((split = buffer.indexOf("\n\n")) !== -1) {
-          const frame = parseFrame(buffer.slice(0, split));
-          buffer = buffer.slice(split + 2);
-          if (!frame) continue;
-          const event = toEvent(runId, frame);
-          if (!event || event.id <= last) continue;
-          last = event.id;
-          opts.onEvent(event);
-        }
-      }
+      await readEvents(runId, res.body, (event) => {
+        if (event.id <= last) return;
+        last = event.id;
+        opts.onEvent(event);
+      });
     } catch {
       if (signal.aborted) return;
       broken = true;
     }
     if (signal.aborted) return;
-    // The stream ended: ask the caller whether the run still needs it (the server closes it for finished runs).
+    // The stream ended: ask the caller whether the run still needs it (the server closes it once a run stops running).
     if (opts.onClosed && !(await opts.onClosed())) return;
     if (signal.aborted) return;
     if (broken) opts.onConnection?.("reconnecting"); // a normal close of a running run reconnects silently
