@@ -4,11 +4,13 @@ import importlib
 import re
 import sys
 import uuid
+from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
 
 import httpx
 import pytest
+from fastapi.responses import StreamingResponse
 
 import app.api as api_package
 from app.api.deps import CurrentUser, get_current_user
@@ -114,6 +116,53 @@ async def test_error_body_for_unhandled_exception(probe_app: Any) -> None:
     assert set(body) == {"error"}
     assert body["error"]["code"] == "internal_error"
     assert "boom" not in response.text
+
+
+async def test_an_unhandled_error_keeps_cors_headers_for_an_allowed_origin_only(
+    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Without CORS headers on the 500, the browser hides the JSON error behind a CORS failure."""
+    monkeypatch.setenv("FRONTEND_ORIGIN", "https://app.example.com")
+    get_settings.cache_clear()
+    app = create_app()
+
+    @app.get("/boom")
+    async def boom() -> None:
+        raise RuntimeError("boom: internal detail")
+
+    async with make_client(app) as client:
+        allowed = await client.get("/boom", headers={"Origin": "https://app.example.com"})
+        denied = await client.get("/boom", headers={"Origin": "https://evil.example.com"})
+    for response in (allowed, denied):
+        assert response.status_code == 500
+        assert response.json() == {"error": {"code": "internal_error", "message": "خطای داخلی سرور رخ داد."}}
+        assert "internal detail" not in response.text
+    assert allowed.headers["access-control-allow-origin"] == "https://app.example.com"
+    assert allowed.headers["access-control-allow-credentials"] == "true"
+    assert "access-control-allow-origin" not in denied.headers
+    logged = [r for r in caplog.records if r.name == "app.main" and r.getMessage() == "unhandled error"]
+    assert len(logged) == 2  # once per error, by the existing handler, as before
+    assert all(r.exc_info and isinstance(r.exc_info[1], RuntimeError) for r in logged)
+
+
+async def test_an_error_after_the_response_started_is_not_answered_twice(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    app = create_app()
+
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"first"
+        raise RuntimeError("stream broke")
+
+    @app.get("/broken-stream")
+    async def broken_stream() -> StreamingResponse:
+        return StreamingResponse(chunks())
+
+    async with make_client(app) as client:
+        response = await client.get("/broken-stream")
+    assert response.status_code == 200  # the start already sent stands; no second answer follows
+    assert response.content == b"first"
+    assert [r.getMessage() for r in caplog.records if r.name == "app.main"] == ["unhandled error"]
 
 
 async def test_error_body_for_unknown_route_and_method() -> None:
