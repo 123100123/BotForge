@@ -139,7 +139,7 @@ app shows a configuration error naming the missing variables instead of fake dat
 
 ## Deployment checklist
 
-Architecture: the frontend (Vercel) calls the backend (one always-on Render container) with a Supabase
+Architecture: the frontend (a Render Node service, or Vercel) calls the backend (one always-on Render container) with a Supabase
 access token; the backend talks to Supabase Postgres, the Anthropic API and Telegram. The backend must
 run as a single instance with a single worker (agent runs and rate limits are in-process).
 
@@ -169,6 +169,10 @@ run as a single instance with a single worker (agent runs and rate limits are in
    `vercel.json` is needed; build and output settings are the defaults). Environment variables:
    `NEXT_PUBLIC_MOCK=0`, `NEXT_PUBLIC_API_BASE_URL=https://<service>.onrender.com` (no trailing slash),
    `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`. Deploy.
+   **Or Render** (the `botforge-web` service in `render.yaml`): a Node web service with root directory
+   `frontend`, build `npm ci && npm run build`, start `npm start`, `NODE_VERSION=22` and the same four
+   variables. The `NEXT_PUBLIC_*` values are inlined at build time, so changing one needs a new build.
+   With `NEXT_PUBLIC_MOCK=0` and a Supabase variable missing, the app shows a configuration-error page.
 5. **Close the loop.** Set on Render `PUBLIC_BASE_URL=https://<service>.onrender.com` (Telegram
    webhooks are registered under it, so it must be the public https address) and `FRONTEND_ORIGIN`
    to the web app's origins, comma-separated, e.g.

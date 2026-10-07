@@ -1,5 +1,6 @@
-# Render Blueprint for the BotForge backend (one web service, Docker).
-# The database is Supabase, so there is no database resource here. The frontend is a Vercel project.
+# Render Blueprint for BotForge: the backend (Docker web service) and the web app (Node web service).
+# The database is Supabase, so there is no database resource here. The web app can also run on Vercel
+# (README, Deployment checklist, step 4); then drop the botforge-web service below.
 #
 # The service must stay always-on and single-instance: agent runs, rate limits and the Telegram
 # webhook handler live in one process. Use a paid plan that does not sleep (a free instance spins
@@ -12,7 +13,7 @@ services:
     name: botforge-api
     runtime: docker
     rootDir: backend           # uses backend/Dockerfile with backend/ as the build context
-    plan: starter              # paid, always-on
+    plan: starter              # paid, always-on (a free instance works for testing; see the note above)
     numInstances: 1
     healthCheckPath: /healthz
     autoDeploy: false          # deploy deliberately from the dashboard
@@ -67,3 +68,24 @@ services:
         value: "3"
       - key: AGENT_MAX_CLARIFY_ROUNDS
         value: "2"
+
+  # The web app (Next.js). All values are public and inlined at build time, so a change needs a new build.
+  - type: web
+    name: botforge-web
+    runtime: node
+    rootDir: frontend
+    plan: free                 # the web app holds no state; sleeping only delays the first page load
+    buildCommand: npm ci && npm run build
+    startCommand: npm start    # next start listens on Render's PORT
+    autoDeploy: false
+    envVars:
+      - key: NODE_VERSION
+        value: "22"
+      - key: NEXT_PUBLIC_MOCK
+        value: "0"
+      - key: NEXT_PUBLIC_API_BASE_URL    # the botforge-api public URL, no trailing slash
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_URL    # https://<project-ref>.supabase.co
+        sync: false
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY   # anon/publishable key (public); never the service-role key
+        sync: false
