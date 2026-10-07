@@ -149,8 +149,11 @@ run as a single instance with a single worker (agent runs and rate limits are in
      asymmetric JWT signing keys. For a legacy project, set `SUPABASE_JWT_SECRET` (Project Settings,
      API, JWT secret) and leave `SUPABASE_JWKS_URL` empty.
    - Database URL: the **Connect** button, then the **Session pooler** string (port 5432; it works on
-     IPv4 hosts such as Render). Replace the password placeholder. Do not use the transaction pooler
-     (port 6543): asyncpg's prepared statements do not work through it. This is `DATABASE_URL`.
+     IPv4 hosts such as Render). Replace the password placeholder and append `?ssl=require`, e.g.
+     `postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?ssl=require`.
+     This is `DATABASE_URL`. Do not use the transaction pooler (port 6543): asyncpg's prepared
+     statements do not work through it. `postgres://`, `postgresql://` and `postgresql+asyncpg://`
+     are all accepted, and a libpq `sslmode=require` is translated to asyncpg's `ssl=require`.
 2. **Generate `TOKEN_ENC_KEY`** (encrypts Telegram bot tokens; losing it orphans stored tokens):
    `uv run python -m app.security.crypto generate-key` in `backend/`. Keep a copy in a password manager.
 3. **Render.** New, Blueprint, pick this repository; it reads `render.yaml` (one Docker web service,

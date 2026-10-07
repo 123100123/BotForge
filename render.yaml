@@ -18,7 +18,11 @@ services:
     autoDeploy: false          # deploy deliberately from the dashboard
     envVars:
       # --- database (Supabase Postgres) ---
-      - key: DATABASE_URL            # Supabase "Connect" -> connection string. Session pooler (port 5432) or direct.
+      # Supabase "Connect" -> Session pooler string (port 5432) with ?ssl=require appended:
+      #   postgresql://postgres.<ref>:<password>@aws-0-<region>.pooler.supabase.com:5432/postgres?ssl=require
+      # Not the transaction pooler (port 6543): asyncpg's prepared statements break there.
+      # sslmode=require also works (translated to ssl=require by app.config.to_async_url).
+      - key: DATABASE_URL
         sync: false
       # --- authentication (Supabase Auth) ---
       - key: SUPABASE_URL            # https://<project-ref>.supabase.co ; also pins the token issuer
