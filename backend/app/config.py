@@ -3,13 +3,14 @@
 from functools import lru_cache
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+from sqlalchemy.engine import make_url
 
 
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
 
     # Optional until a database call is made. Accepts postgres://, postgresql:// or
-    # postgresql+asyncpg:// (normalized by ``async_database_url``).
+    # postgresql+asyncpg://, with sslmode= or ssl= (normalized by ``to_async_url``).
     DATABASE_URL: str | None = None
     TEST_DATABASE_URL: str | None = None
 
@@ -32,14 +33,39 @@ class Settings(BaseSettings):
         return to_async_url(self.DATABASE_URL)
 
 
+ASYNC_DRIVER = "postgresql+asyncpg"
+_PLAIN_DRIVERS = ("postgres", "postgresql", ASYNC_DRIVER)
+
+
 def to_async_url(url: str | None) -> str | None:
-    """Rewrite a plain Postgres URL to the asyncpg driver form; empty means unset."""
+    """Normalize a Postgres URL for SQLAlchemy + asyncpg; empty means unset.
+
+    The one place DATABASE_URL is interpreted: the app engine (``app.db.session``) and
+    ``alembic/env.py`` both go through ``Settings.async_database_url``.
+
+    * ``postgres://`` and ``postgresql://`` become ``postgresql+asyncpg://``.
+    * libpq's ``sslmode=...`` becomes asyncpg's ``ssl=...``. SQLAlchemy hands every query
+      parameter to ``asyncpg.connect`` as a keyword, and asyncpg has no ``sslmode`` keyword (it
+      fails with a TypeError), while its ``ssl`` keyword takes the same mode names (disable,
+      allow, prefer, require, verify-ca, verify-full). An explicit ``ssl=`` wins over ``sslmode=``.
+
+    Deployment uses Supabase's **session** pooler (port 5432), not the transaction pooler (port
+    6543): asyncpg prepares and caches statements per connection, and in transaction mode
+    consecutive statements may run on different server connections, so prepared statements break.
+    Session mode keeps one server connection per client connection, like a direct connection.
+    """
     if not url:
         return None
-    for prefix in ("postgresql://", "postgres://"):
-        if url.startswith(prefix):
-            return "postgresql+asyncpg://" + url[len(prefix) :]
-    return url
+    parsed = make_url(url)
+    if parsed.drivername not in _PLAIN_DRIVERS:
+        return url  # another driver chosen on purpose; leave it alone
+    query = dict(parsed.query)
+    sslmode = query.pop("sslmode", None)
+    if sslmode is not None and "ssl" not in query:
+        query["ssl"] = sslmode
+    if parsed.drivername == ASYNC_DRIVER and query == dict(parsed.query):
+        return url  # already normalized: hand it over exactly as given
+    return parsed.set(drivername=ASYNC_DRIVER, query=query).render_as_string(hide_password=False)
 
 
 @lru_cache
