@@ -9,9 +9,10 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import func, select
+from sqlalchemy import func, select, update
 
-from app.db.models import Bot, BotUser
+from app.db.models import Bot, BotUser, SessionRow
+from app.revisions.service import activate, create_draft
 from app.runtime.pg_store import Env, PgStore
 from tests.integration.conftest import MakeBot
 from tests.integration.helpers import BACKEND, SessionFactory
@@ -144,6 +145,63 @@ async def test_reset_removes_only_what_the_seed_created(
     assert await _run_reset(session_factory, bot_id) == 0  # nothing left to remove
     again = await _run_seed(session_factory, bot_id)  # and it can be seeded again
     assert again.seeded
+
+
+async def _activate_new_revision(
+    session_factory: SessionFactory, bot_id: uuid.UUID, spec: dict[str, Any]
+) -> None:
+    async with session_factory() as session:
+        bot = await session.get(Bot, bot_id)
+        assert bot is not None
+        revision = await create_draft(session, bot_id, spec=spec, parent_id=bot.active_revision_id)
+        await activate(session, revision.id)
+        await session.commit()
+
+
+async def test_seed_survives_an_activation_and_reset_still_removes_it(
+    make_bot: MakeBot, session_factory: SessionFactory, golden_spec: dict[str, Any]
+) -> None:
+    bot_id, _ = await make_bot()
+    first = await _run_seed(session_factory, bot_id)
+    before = await _counts(session_factory, bot_id)
+
+    await _activate_new_revision(session_factory, bot_id, golden_spec)  # clears every live session
+
+    assert not (await _run_seed(session_factory, bot_id)).seeded  # still known: nothing doubled
+    assert await _counts(session_factory, bot_id) == before
+    assert await _run_reset(session_factory, bot_id) == len(first.workshop_ids)
+    assert await _counts(session_factory, bot_id) == {"workshop": 0, "book_workshop": 0, "waitlisted": 0}
+    async with session_factory() as session:
+        markers = (
+            await session.execute(
+                select(func.count()).select_from(SessionRow).where(SessionRow.bot_id == bot_id)
+            )
+        ).scalar_one()
+        assert markers == 0
+
+
+async def test_reset_honours_a_marker_left_in_live_by_an_older_seed(
+    make_bot: MakeBot, session_factory: SessionFactory
+) -> None:
+    bot_id, _ = await make_bot()
+    first = await _run_seed(session_factory, bot_id)
+    async with session_factory() as session:
+        await session.execute(
+            update(SessionRow)
+            .where(SessionRow.bot_id == bot_id, SessionRow.actor_id == seed_demo.MARKER_ACTOR)
+            .values(env="live")
+        )
+        await session.commit()
+    assert not (await _run_seed(session_factory, bot_id)).seeded
+    assert await _run_reset(session_factory, bot_id) == len(first.workshop_ids)
+    assert await _counts(session_factory, bot_id) == {"workshop": 0, "book_workshop": 0, "waitlisted": 0}
+    async with session_factory() as session:
+        left = (
+            await session.execute(
+                select(func.count()).select_from(SessionRow).where(SessionRow.bot_id == bot_id)
+            )
+        ).scalar_one()
+        assert left == 0
 
 
 async def test_seed_needs_an_active_revision(make_bot: MakeBot, session_factory: SessionFactory) -> None:
