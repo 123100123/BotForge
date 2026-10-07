@@ -1,5 +1,6 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
 import { ApiError, parseFieldErrors } from "@/lib/errors";
+import { handleUnauthorized } from "@/lib/session-expiry";
 import { getAccessToken } from "@/lib/supabase";
 import { mockApi } from "@/lib/mock/api";
 import type {
@@ -124,7 +125,12 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
   } catch {
     throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
   }
-  if (!res.ok) throw await parseErrorResponse(res);
+  if (!res.ok) {
+    const err = await parseErrorResponse(res);
+    // Expired or invalid session: sign out and go to /login (the caller still gets the error).
+    if (res.status === 401) void handleUnauthorized();
+    throw err;
+  }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
 }
