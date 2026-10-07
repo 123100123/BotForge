@@ -29,6 +29,7 @@ refused while any scenario fails and ends the run when the live revision changed
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 from collections.abc import Awaitable, Callable
 from typing import Any
@@ -81,6 +82,9 @@ MODIFY_PHASES: dict[str, PhaseFn] = {
 }
 PHASES_BY_KIND: dict[str, dict[str, PhaseFn]] = {"create": CREATE_PHASES, "modify": MODIFY_PHASES}
 LLM_PHASES = frozenset({"triage", "understand", "build", "testgen", "repair", "review"})
+# How often an executing run refreshes its heartbeat. Must stay well below
+# app.main.STALE_RUN_AFTER, after which a run without a heartbeat counts as abandoned.
+HEARTBEAT_SECONDS = 20.0
 
 UNEXPECTED_ERROR = "خطای غیرمنتظره‌ای در ساخت ربات رخ داد. لطفاً دوباره تلاش کنید."
 MODIFY_UNAVAILABLE = "این ربات نسخهٔ فعال دارد؛ برای تغییر آن یک درخواست تغییر بفرستید."
@@ -142,11 +146,13 @@ class Orchestrator:
         *,
         limits: Limits | None = None,
         bus: EventBus | None = None,
+        heartbeat_seconds: float = HEARTBEAT_SECONDS,
     ) -> None:
         self.repo = repo
         self.llm = llm
         self.limits = limits or Limits()
         self.bus = bus or default_bus
+        self.heartbeat_seconds = heartbeat_seconds
         self._tasks: set[asyncio.Task[None]] = set()
 
     # ------------------------------------------------------------------ events
@@ -345,7 +351,28 @@ class Orchestrator:
     # ------------------------------------------------------------------ the phase loop
 
     async def advance(self, run_id: str) -> None:
-        """Run phases until the run pauses or ends. Never raises (except cancellation)."""
+        """Run phases until the run pauses or ends. Never raises (except cancellation).
+
+        While it runs, a heartbeat keeps the run's ``updated_at`` fresh: a starting process (a
+        restart, or the next container during a zero-downtime deploy, while this one still serves)
+        interrupts only runs whose heartbeat has stopped (``app.main.mark_interrupted_runs``)."""
+        heartbeat = asyncio.create_task(self._heartbeat(run_id), name=f"agent-heartbeat-{run_id}")
+        try:
+            await self._advance(run_id)
+        finally:
+            heartbeat.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await heartbeat
+
+    async def _heartbeat(self, run_id: str) -> None:
+        while True:
+            await asyncio.sleep(self.heartbeat_seconds)
+            try:
+                await self.repo.touch_run(run_id)
+            except Exception:
+                log.exception("could not refresh the heartbeat of run %s", run_id)
+
+    async def _advance(self, run_id: str) -> None:
         state: RunState | None = None
         try:
             record = await self.repo.load_run(run_id)
