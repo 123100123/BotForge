@@ -394,7 +394,7 @@ async def test_other_group_presses_only_answer_and_post_nothing(
     for data in (f"{CAP}:item:{item}", f"{CAP}:mine:", f"{CAP}:list:0"):
         await tg.press_in_group(601, data)
         assert toasts(fake_tg)[-1]["text"] == booking_texts.EVENTS_GROUP_PRIVATE
-    for data in ("menu:home:", "menu:open:events_menu", "garbage", f"{CAP}:own:1.x"):
+    for data in ("menu:home:", "menu:open:events_menu", "nav:go:home", "garbage", f"{CAP}:own:1.x"):
         await tg.press_in_group(601, data)
         assert toasts(fake_tg)[-1]["text"] in (None, booking_texts.EVENTS_GROUP_PRIVATE), data
     await tg.press_in_group(OWNER, f"{CAP}:book:{item}")  # the owner RSVPs: no alert to themselves
@@ -420,7 +420,7 @@ async def test_private_booking_is_unchanged(
     item = await add_event(session_factory, bot)
     ali = Chat(tg_client, bot, fake_tg, 601)
     await ali.say("/start")
-    await ali.press(ali.data_with("menu:open:events_menu"))
+    await ali.press(ali.data_with("nav:go:evt"))
     await ali.press(ali.data_with(f"{CAP}:item:"))
     await ali.press(ali.data_with(f"{CAP}:book:"))
     assert fake_tg.calls[-2][0] == "editMessageText" and fake_tg.calls[-2][1]["message_id"] == 77

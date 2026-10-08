@@ -10,7 +10,7 @@ from app.botspec.diff import diff_specs
 from app.botspec.models import BotSpec, OrdersCapability
 from app.botspec.outline import spec_outline
 from app.botspec.patch import PatchOp, apply_patch
-from app.botspec.validate import MAX_MENU_ITEMS, check_spec, has_errors, validate_spec
+from app.botspec.validate import check_spec, has_errors, validate_spec
 from tests.unit.botspec.conftest import load_json
 
 STATUSES = [
@@ -239,30 +239,38 @@ def test_booking_reminder_bounds_accepted() -> None:
 # ---------------------------------------------------------------- enabled flag and the menu
 
 
-def test_disabled_capability_is_not_unreachable() -> None:
+def test_menu_no_longer_drives_reachability() -> None:
+    """Navigation is compiled from the enabled capabilities (runtime/nav.py): an empty or long
+    legacy menu, or a capability no menu item points at, is valid and warning-free."""
     data = business_data()
-    data["menu"] = [m for m in data["menu"] if m["capability"] != "info"]
-    assert "capability_unreachable" in {i.code for i in check_spec(data)}
-    cap_of(data, "info")["enabled"] = False
-    assert "capability_unreachable" not in {i.code for i in check_spec(data)}
-
-
-def test_menu_too_long_counts_enabled_only() -> None:
+    data["menu"] = []
+    assert codes(data) == set()
+    assert {i.code for i in check_spec(data)} == set()
     data = business_data()
-    extra = MAX_MENU_ITEMS + 1 - len(data["menu"])
-    data["menu"] += [{"key": f"more{i}", "label": "بیشتر", "capability": "info"} for i in range(extra)]
-    assert "menu_too_long" in codes(data)
-    cap_of(data, "info")["enabled"] = False
-    assert "menu_too_long" not in codes(data)
+    data["menu"] += [{"key": f"more{i}", "label": "بیشتر", "capability": "info"} for i in range(12)]
+    assert codes(data) == set()
 
 
-def test_menu_empty_when_no_item_reaches_enabled_capability() -> None:
+def test_at_least_one_capability_must_stay_enabled() -> None:
     data = business_data()
     for cap in data["capabilities"]:
         cap["enabled"] = False
-    assert "menu_empty" in codes(data)
+    assert codes(data) == {"no_enabled_capabilities"}
     cap_of(data, "info")["enabled"] = True
-    assert "menu_empty" not in codes(data)
+    assert codes(data) == set()
+
+
+def test_legacy_menu_items_must_still_be_well_formed() -> None:
+    data = business_data()
+    data["menu"].append({"key": "ghost", "label": "x", "capability": "nope"})
+    assert "unknown_capability" in codes(data)
+
+
+def test_nav_is_a_reserved_key() -> None:
+    data = business_data()
+    cap_of(data, "info")["key"] = "nav"
+    data["menu"] = [m for m in data["menu"] if m["capability"] != "info"]
+    assert "reserved_key" in codes(data)
 
 
 def test_mine_view_allowed_for_orders_not_info() -> None:

@@ -2,23 +2,28 @@
 
 Inputs are only the event (including ``event.now``), the spec and the store. Routing:
 
-  start                      clear session; welcome text + main menu
-  text, no session           welcome text + main menu
-  text, session              engine.on_text of the session's capability (gone -> drop session, menu)
-  callback menu:home         main menu (clears any session)
-  callback menu:open:<item>  engine.open(cap, item.view) (clears any session)
-  callback menu:open:_mgr    manager panel; menu:open:_rep.<all|cap key> a report (managers only,
-                             ``runtime/manager.py``; anyone else gets the stale reply)
+  start                      clear session; managers: the manager home; everyone else: the welcome
+                             text over the user home (``runtime/nav.py`` compiles both)
+  text, no session           the same as start (without clearing anything)
+  text, session              engine.on_text of the session's capability (gone -> drop session, home)
+  callback nav:go:<route>    ``nav.go``: role homes, engine entry points, manager screens; unknown or
+                             disabled routes -> the role home as a NEW message under the stale notice
+                             (clears any session, like every navigation)
+  callback menu:home         legacy: the role home (clears any session)
+  callback menu:open:<key>   legacy: a ``spec.menu`` item -> engine.open(cap, item.view); else a
+                             route id (``menu:open:shop``) -> ``nav.go``; ``_mgr`` -> ``nav:go:mgr``,
+                             ``_rep.<k>`` -> ``nav:go:mgr.rep.<k>``; anything else -> stale home
   callback <cap>:own:<r.k>   staff/managers -> engine.owner_action(record_id, k)
   callback <cap>:<act>:<arg> engine.on_callback; a non-form action (not ans/skip/stop) first
                              clears the actor's session, so a form abandoned by navigating away
-                             never captures later text
+                             never captures later text (not in groups: see below)
   admin <cap>:cancel:<id>    staff/managers -> engine.owner_action(id, "cancel")   Outcome.action cancel
   admin <cap>:own:<id>.<k>   staff/managers -> engine.owner_action(id, k)          Outcome.action owner_action
 
-Malformed or stale data (bad format, unknown menu item or capability, action not valid for the
-capability type) gets a short Persian "no longer available" reply plus the main menu and never
-raises. A capability type whose engine module does not exist yet gets a "not available yet" reply.
+Malformed or stale capability data (bad format, unknown capability, action not valid for the
+capability type) gets ``ctx.stale()``: a NEW message «این منو قدیمی شده است.» with one button to the
+current menu; the pressed message is never modified and nothing raises. A capability type whose
+engine module does not exist yet gets a "not available yet" reply.
 Every event upserts the acting user first.
 
 Owner actions (roles, roadmap: Roles): who may run them is ``roles.can_run_owner_actions``, decided
@@ -30,27 +35,31 @@ even looked up, as before roles existed.
 
 Capability gating (Business OS): a capability that is disabled (``enabled=False``) or whose
 ``audience`` does not allow the actor (``ctx.capability_available``) is treated exactly like a
-missing one on the Telegram paths (callback, menu open, text with a session): stale reply plus the
-main menu, never an engine call; the main menu hides it. Admin events bypass gating.
+missing one on the Telegram paths (callback, menu open, nav route, text with a session); the homes
+leave it out. Admin events bypass gating.
 
-Group context (``event.chat_type == "group"``): start and text events and any ``menu`` callback
-return an empty response without side effects (no user upsert, no session change); other
-callbacks route normally. Admin events are unaffected.
+Group context (``event.chat_type == "group"``): start and text events and any ``menu`` or ``nav``
+callback return an empty response without side effects (no user upsert, no session change); other
+callbacks route normally and never clear the presser's (private-chat) session: a group button
+(the RSVP card's ``book``) must not abandon a form the user is filling in privately. Admin events
+are unaffected.
 """
 
 from typing import Literal
 
 from app.botspec.models import AnyCapability, BotSpec
 from app.roles import TEAM_ROLES, can_run_owner_actions
-from app.runtime import manager
+from app.runtime import manager, nav
 from app.runtime.callbacks import (
     ACT_CANCEL,
+    ACT_GO,
     ACT_HOME,
     ACT_OPEN,
     ACT_OWN,
     ACTIONS_BY_TYPE,
     FORM_ACTIONS,
     MENU,
+    NAV,
     CallbackError,
     parse_callback,
 )
@@ -63,8 +72,8 @@ from app.runtime.texts import common
 
 
 def _group_noop(event: RuntimeEvent) -> bool:
-    """Group events the runtime ignores: start, text, and any ``menu`` callback (malformed
-    callback data included: a group never gets the stale menu)."""
+    """Group events the runtime ignores: start, text, and any ``menu`` or ``nav`` callback
+    (malformed callback data included: a group never gets the stale menu)."""
     if event.chat_type != "group":
         return False
     if event.kind in ("start", "text"):
@@ -75,7 +84,7 @@ def _group_noop(event: RuntimeEvent) -> bool:
         cap_key, _, _ = parse_callback(event.data or "")
     except CallbackError:
         return True
-    return cap_key == MENU
+    return cap_key in (MENU, NAV)
 
 
 class BotRuntime:
@@ -86,7 +95,7 @@ class BotRuntime:
         ctx = await Ctx.create(event, spec, store)
         if event.kind == "start":
             await ctx.clear_session()
-            self._welcome(ctx)
+            await self._welcome(ctx)
         elif event.kind == "text":
             await self._on_text(ctx, event.text or "")
         elif event.kind == "callback":
@@ -98,8 +107,10 @@ class BotRuntime:
     # --- routes ------------------------------------------------------------------------------
 
     @staticmethod
-    def _welcome(ctx: Ctx) -> None:
-        ctx.show_menu(ctx.spec.bot.welcome_text)
+    async def _welcome(ctx: Ctx) -> None:
+        """Managers land on the manager home; everyone else gets the welcome text over the user
+        home."""
+        await nav.show_home(ctx, ctx.spec.bot.welcome_text)
 
     @staticmethod
     def _engine(ctx: Ctx, cap: AnyCapability) -> Engine | None:
@@ -112,13 +123,13 @@ class BotRuntime:
     async def _on_text(self, ctx: Ctx, text: str) -> None:
         session = await ctx.get_session()
         if session is None:
-            self._welcome(ctx)
+            await self._welcome(ctx)
             return
         cap_key = session.get("capability") if isinstance(session, dict) else None
         cap = ctx.spec.capability(cap_key) if isinstance(cap_key, str) else None
         if cap is None:
             await ctx.clear_session()
-            self._welcome(ctx)
+            await self._welcome(ctx)
             return
         if not ctx.can_use(cap):
             await ctx.clear_session()
@@ -136,6 +147,13 @@ class BotRuntime:
         except CallbackError:
             ctx.stale()
             return
+        if cap_key == NAV:
+            await ctx.clear_session()
+            if action == ACT_GO:
+                await nav.go(ctx, arg)
+            else:  # e.g. "nav:open:x": parses (the action exists elsewhere) but means nothing here
+                await nav.stale_home(ctx)
+            return
         if cap_key == MENU:
             await self._on_menu(ctx, action, arg)
             return
@@ -143,7 +161,7 @@ class BotRuntime:
         if cap is None or action not in ACTIONS_BY_TYPE.get(cap.type, frozenset()) or not ctx.can_use(cap):
             ctx.stale()
             return
-        if action not in FORM_ACTIONS:
+        if action not in FORM_ACTIONS and ctx.event.chat_type != "group":
             await ctx.clear_session()
         if action == ACT_OWN:
             await self._owner_action(ctx, cap, action, arg)
@@ -153,17 +171,24 @@ class BotRuntime:
             await engine.on_callback(ctx, cap, action, arg)
 
     async def _on_menu(self, ctx: Ctx, action: str, arg: str) -> None:
+        """Legacy ``menu:*`` buttons (still on messages sent before nav routes existed)."""
         await ctx.clear_session()
         if action == ACT_HOME:
-            ctx.show_menu()
+            await nav.show_home(ctx)
             return
-        if action == ACT_OPEN and manager.is_manager_item(arg):  # pseudo items; spec keys never start with _
-            await manager.open_item(ctx, arg)
+        if action != ACT_OPEN:
+            await nav.stale_home(ctx)
             return
-        item = next((m for m in ctx.spec.menu if m.key == arg), None) if action == ACT_OPEN else None
-        cap = ctx.spec.capability(item.capability) if item is not None else None
-        if item is None or cap is None or not ctx.can_use(cap):
-            ctx.stale()
+        if manager.is_manager_item(arg):  # pseudo items; spec keys never start with _
+            await nav.go(ctx, manager.legacy_route(arg))
+            return
+        item = next((m for m in ctx.spec.menu if m.key == arg), None)
+        if item is None:
+            await nav.go(ctx, arg)  # a route id (``menu:open:shop``), else the stale home
+            return
+        cap = ctx.spec.capability(item.capability)
+        if cap is None or not ctx.can_use(cap):
+            await nav.stale_home(ctx)
             return
         engine = self._engine(ctx, cap)
         if engine is not None:

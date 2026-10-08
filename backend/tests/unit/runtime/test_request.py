@@ -15,6 +15,7 @@ from app.runtime.callbacks import parse_callback
 from app.runtime.contracts import Button, Outcome, OutMessage, RuntimeResponse
 from app.runtime.engines import get_engine
 from app.runtime.engines.request import ENGINE
+from app.runtime.texts import nav as nav_texts
 from app.runtime.texts import request as tx
 from tests.unit.runtime.harness import EXAMPLES, Harness, button_data, text
 
@@ -118,7 +119,7 @@ def test_engine_is_registered() -> None:
 async def test_open_main_offers_new_and_mine(h: Harness) -> None:
     r = await h.tap("ali", MENU_MAIN)
     assert [m.to_actor_id for m in r.messages] == ["ali"]
-    assert actions(r) == [("new", ""), ("mine", ""), ("home", "")]
+    assert actions(r) == [("new", ""), ("mine", ""), ("go", "home")]
     assert "درخواست تعمیر" in text(r)
     assert r.outcomes == []
 
@@ -158,7 +159,7 @@ async def test_submit_creates_record_confirms_and_notifies_owner(h: Harness) -> 
     assert len(mine) == 1 and mine[0].notice is None
     ref = "".join("۰۱۲۳۴۵۶۷۸۹"[int(c)] for c in str(rec.id))
     assert ref in mine[0].text and "در انتظار بررسی" in mine[0].text
-    assert [d[0] for d in actions(r, 0)] == ["mine", "home"]
+    assert [d[0] for d in actions(r, 0)] == ["mine", "go"]
 
     n = notice_to(r, "owner", "submitted")
     assert "یخچال" in n.text and "09123456789" in n.text and "نوع دستگاه" in n.text and ref in n.text
@@ -300,7 +301,7 @@ async def test_item_deleted_during_form_rejects_the_submission(hi: Harness) -> N
 
 async def test_pick_without_item_resource_is_stale(h: Harness) -> None:
     r = await h.tap("ali", "repair:pick:1")
-    assert "دیگر در دسترس نیست" in text(r)
+    assert text(r) == nav_texts.STALE
     assert r.outcomes == []
 
 
@@ -371,7 +372,7 @@ async def test_owner_action_moves_status_and_notifies_customer(h: Harness, via: 
 
     n = notice_to(r, "ali", "status_changed")
     assert "تأیید شده" in n.text and _p(rid) in n.text
-    assert [d[0] for d in actions(r, r.messages.index(n))] == ["mine", "home"]
+    assert [d[0] for d in actions(r, r.messages.index(n))] == ["mine", "go"]
     assert [e.kind for e in r.effects] == ["record_updated", "notification"]
     assert r.effects[0].status == "approved"
 
@@ -575,5 +576,5 @@ async def test_request_without_form_fields_is_created_immediately() -> None:
 
 async def test_unknown_action_for_the_capability_is_stale(h: Harness) -> None:
     r = await h.tap("ali", "repair:list:0")  # a booking action: refused by the runtime
-    assert "دیگر در دسترس نیست" in text(r)
+    assert text(r) == nav_texts.STALE
     assert r.outcomes == []

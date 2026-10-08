@@ -187,7 +187,7 @@ async def test_the_staff_link_makes_the_sender_staff_who_then_works_the_queue(
     # a customer sees no staff item and cannot decide on the request
     customer = Chat(tg_client, bot, fake_tg, 602)
     await customer.say("/start")
-    assert menu_has(customer, "menu:open:new_request") and not menu_has(customer, "menu:open:about")
+    assert menu_has(customer, "nav:go:sup") and not menu_has(customer, "nav:go:info")
     await customer.press(f"{CAP}:own:{rid}.approve")
     assert customer.last_text() == common.NOT_ALLOWED
     assert await status_of(session_factory, rid) == "new"
@@ -197,12 +197,12 @@ async def test_the_staff_link_makes_the_sender_staff_who_then_works_the_queue(
     await staff.say(f"/start staff_{code}")
     texts = [m["text"] for m in staff.shown()]
     assert texts[0] == STAFF_JOINED and len(texts) == 2 and texts[1].startswith("سلام")
-    assert menu_has(staff, "menu:open:about")
+    assert menu_has(staff, "nav:go:info") and menu_has(staff, "nav:go:staff.q")
     row = await user_row(session_factory, bot.id, "700")
     assert row is not None and row.role == "staff" and row.display_name == "کاربر"
 
     # the request queue, and an owner action that notifies the customer but not the owner
-    await staff.press("menu:open:new_request")
+    await staff.press("nav:go:staff.q")
     assert staff.data_with(f"{CAP}:own:{rid}.approve")
     owner_before = len(fake_tg.sent_to(900))
     await staff.press(f"{CAP}:own:{rid}.approve")
@@ -212,7 +212,7 @@ async def test_the_staff_link_makes_the_sender_staff_who_then_works_the_queue(
 
     # the role survives later events (upsert_user rewrites only the display name)
     await staff.say("/start")
-    assert menu_has(staff, "menu:open:about")
+    assert menu_has(staff, "nav:go:info")
     row = await user_row(session_factory, bot.id, "700")
     assert row is not None and row.role == "staff"
 
@@ -284,7 +284,7 @@ async def test_opening_the_link_again_or_as_a_manager_changes_nothing(
 
     owner = Chat(tg_client, bot, fake_tg, 900)
     await owner.say(f"/start staff_{code}")
-    assert owner.shown()[0]["text"] == STAFF_JOINED and menu_has(owner, "menu:open:about")
+    assert owner.shown()[0]["text"] == STAFF_JOINED and menu_has(owner, "nav:go:cust")  # manager home
     row = await user_row(session_factory, bot.id, "900")
     assert row is not None and row.role == "customer"  # a manager by ownership; nothing that outlives it
 
@@ -418,8 +418,9 @@ async def test_the_simulator_staff_persona_sees_staff_items_and_works_the_queue(
     def data(response: httpx.Response) -> list[str]:
         return [b["data"] for m in response.json()["messages"] for row in m["buttons"] for b in row]
 
-    assert "menu:open:about" in data(await sim("staff", "start"))
-    assert "menu:open:about" not in data(await sim("ali", "start"))
+    assert "nav:go:info" in data(await sim("staff", "start"))
+    assert "nav:go:info" not in data(await sim("ali", "start"))
+    assert f"{CAP}:own:{srid}.approve" in data(await sim("staff", "callback", data="nav:go:staff.q"))
     assert f"{CAP}:own:{srid}.approve" in data(await sim("staff", "callback", data="menu:open:new_request"))
     refused = (await sim("sara", "callback", data=f"{CAP}:own:{srid}.approve")).json()
     assert [(o["result"], o["reason"]) for o in refused["outcomes"]] == [("rejected", "not_allowed")]

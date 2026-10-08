@@ -138,9 +138,12 @@ async def test_submit_rejected_item_expectation() -> None:
     assert not ok and "submitted" in msg
 
 
-async def test_submit_fails_when_the_menu_has_no_entry() -> None:
+async def test_submit_fails_when_the_home_has_no_entry() -> None:
     data = repair_spec().model_dump(mode="json")
-    data["menu"] = [m for m in data["menu"] if m["capability"] != "repair"]
+    data["menu"] = [m for m in data["menu"] if m["capability"] != "repair"]  # legacy: irrelevant
+    ok, msg = await run(BotSpec.model_validate(data), [st("submit_request", actor="ali")])
+    assert ok, msg
+    next(c for c in data["capabilities"] if c["key"] == "repair")["enabled"] = False
     ok, msg = await run(BotSpec.model_validate(data), [st("submit_request", actor="ali")])
     assert not ok and "منو" in msg
 

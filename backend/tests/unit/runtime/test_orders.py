@@ -6,7 +6,7 @@ from app.botspec.models import BotSpec
 from app.botspec.validate import validate_spec
 from app.runtime.callbacks import parse_callback
 from app.runtime.contracts import Actor, Button, OutMessage, RuntimeEvent, RuntimeResponse
-from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from app.runtime.texts import orders as tx
 from tests.unit.runtime.harness import T0, Harness, button_data, text
 
@@ -246,8 +246,9 @@ async def test_group_chat_gets_private_chat_hint() -> None:
 
 async def test_disabled_orders_capability_is_stale() -> None:
     h, a, _ = await setup(enabled=False)
-    assert "menu:open:shop_menu" not in button_data(await h.start("ali"))
-    for data in ("menu:open:shop_menu", f"{CAP}:add:{a}", f"{CAP}:chk:"):
+    assert "nav:go:shop" not in button_data(await h.start("ali"))
+    for data in ("menu:open:shop_menu", "nav:go:shop", "nav:go:cart", f"{CAP}:add:{a}", f"{CAP}:chk:"):
         resp = await h.tap("ali", data)
-        assert [m.text for m in resp.messages] == [common.STALE]
+        assert len(resp.messages) == 1 and resp.messages[0].edit is False
+        assert resp.messages[0].text.startswith(nav_texts.STALE)
     assert await h.store.list_records(f"{CAP}.cart") == []

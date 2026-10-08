@@ -165,10 +165,7 @@ async def test_missing_button_names_it() -> None:
 
 
 async def test_missing_menu_entry_fails_clearly() -> None:
-    spec = patched(
-        PatchOp(op="remove", path=["menu", "workshops"]),
-        PatchOp(op="remove", path=["menu", "my_bookings"]),
-    )
+    spec = patched(PatchOp(op="set", path=["capabilities", "book_workshop", "enabled"], value=False))
     msg = failure(await run(scenario([step("book", actor="ali", item="w1")]), spec))
     assert "منو" in msg
 

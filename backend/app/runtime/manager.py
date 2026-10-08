@@ -1,15 +1,18 @@
-"""The Telegram manager panel: reports on demand for managers, deterministic, no LLM.
+"""Telegram manager reports, on demand for managers, deterministic, no LLM.
 
-Reached through two pseudo menu items of the ``menu:open:<item>`` callback (spec menu keys cannot
-start with ``_``, so these cannot collide with a real item and the callback contract is unchanged):
+Reached through the nav routes (``runtime/nav.py``; the manager home lists «📊 گزارش‌ها»):
 
-  menu:open:_mgr           the panel: "خلاصه کسب‌وکار" plus one button per enabled capability that has
-                           metrics, and "بازگشت" to the main menu
-  menu:open:_rep.all       the Overview (``reporting.service.overview``) of the last 7 days
-  menu:open:_rep.<cap_key> that capability's report (``capability_report``), same period
+  nav:go:mgr.rep             the report list: "خلاصه کسب‌وکار" plus one button per enabled
+                             capability that has metrics; Back to the manager home
+  nav:go:mgr.rep.all         the Overview (``reporting.service.overview``) of the last 7 days
+  nav:go:mgr.rep.<cap_key>   that capability's report (``capability_report``), same period
 
-Only managers (``actor.effective_role``; the owner is a manager) get the panel; the runtime answers
-anyone else with the stale reply. Everything goes through ``Ctx``, so the simulator shows it too.
+Legacy buttons sent before nav routes existed keep working through the runtime's ``menu:open``
+aliases (``legacy_route``): ``menu:open:_mgr`` -> the manager home, ``menu:open:_rep.<k>`` ->
+``mgr.rep.<k>`` (spec menu keys cannot start with ``_``, so they never collide with a real item).
+
+Only managers (``actor.effective_role``; the owner is a manager) reach these screens; nav answers
+anyone else with the stale home. Everything goes through ``Ctx``, so the simulator shows it too.
 The reporting engine depends only on ``Store``, ``botspec`` and the REST schemas, so this module
 keeps the runtime free of database and API imports. Records are only read.
 """
@@ -19,66 +22,69 @@ from typing import TYPE_CHECKING
 from app.reporting import service as reporting
 from app.reporting.metrics import metrics_for
 from app.reporting.telegram import render_overview_text, render_report_text
-from app.runtime.callbacks import ACT_HOME, ACT_OPEN, MENU, make_callback
+from app.runtime import nav
 from app.runtime.contracts import Button
-from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 
 if TYPE_CHECKING:
     from app.runtime.ctx import Ctx
 
-PANEL_ITEM = "_mgr"
-REPORT_PREFIX = "_rep."
+PANEL_ITEM = "_mgr"  # legacy menu:open item
+REPORT_PREFIX = "_rep."  # legacy menu:open item prefix
 ALL_REPORT = "all"
 PERIOD = "7d"
+REPORTS_ROUTE = "mgr.rep"
 
-PANEL_LABEL = "پنل مدیریت"
 OVERVIEW_LABEL = "خلاصه کسب‌وکار"
-PANEL_TEXT = "پنل مدیریت\nیک گزارش را انتخاب کنید."
+PANEL_HINT = "یک گزارش را انتخاب کنید."
 
 
 def is_manager_item(item_key: str) -> bool:
+    """A legacy ``menu:open`` pseudo item of the old manager panel."""
     return item_key == PANEL_ITEM or item_key.startswith(REPORT_PREFIX)
 
 
-def panel_button() -> Button:
-    return Button(label=PANEL_LABEL, data=make_callback(MENU, ACT_OPEN, PANEL_ITEM))
-
-
-def _report_button(label: str, key: str) -> Button:
-    return Button(label=label, data=make_callback(MENU, ACT_OPEN, REPORT_PREFIX + key))
-
-
-async def open_item(ctx: "Ctx", item_key: str) -> None:
-    """Handle ``menu:open:<item_key>`` for a manager pseudo item; anyone else gets the stale reply."""
-    if ctx.actor.effective_role != "manager":
-        ctx.stale()
-        return
+def legacy_route(item_key: str) -> str:
+    """The nav route a legacy pseudo item now opens (``""`` -> nav's stale home)."""
     if item_key == PANEL_ITEM:
-        _panel(ctx)
-        return
+        return nav.MGR
     key = item_key.removeprefix(REPORT_PREFIX)
-    back = [
-        [Button(label=common.BACK, data=make_callback(MENU, ACT_OPEN, PANEL_ITEM))],
-        ctx.home_row(),
-    ]
+    return f"{REPORTS_ROUTE}.{key}" if key else ""
+
+
+def _report_button(label: str, key: str) -> Button | None:
+    try:
+        return nav.nav_button(label, f"{REPORTS_ROUTE}.{key}")
+    except ValueError:  # CallbackError: cannot happen for a valid capability key
+        return None
+
+
+def show_panel(ctx: "Ctx") -> None:
+    """The report list (``nav:go:mgr.rep``)."""
+    rows: list[list[Button]] = []
+    for label, key in [(OVERVIEW_LABEL, ALL_REPORT)] + [
+        (cap.title, cap.key)
+        for cap in ctx.spec.capabilities
+        if cap.enabled and cap.key != ALL_REPORT and metrics_for(cap)
+    ]:
+        button = _report_button(label, key)
+        if button is not None:
+            rows.append([button])
+    rows.append([nav.nav_button(nav_texts.BACK, nav.MGR), nav.home_button()])
+    ctx.reply(f"{ctx.heading(REPORTS_ROUTE)}\n{PANEL_HINT}", rows)
+
+
+async def show_report(ctx: "Ctx", key: str) -> bool:
+    """The overview (``all``) or one capability's report; False when there is no such report (a
+    missing or disabled capability, or one without metrics)."""
+    back = [[nav.nav_button(nav_texts.BACK, REPORTS_ROUTE), nav.home_button()]]
     if key == ALL_REPORT:
         overview = await reporting.overview(ctx.store, ctx.spec, PERIOD, ctx.now)
         ctx.reply(render_overview_text(overview), back)
-        return
+        return True
     cap = ctx.spec.capability(key)
     if cap is None or not cap.enabled or not metrics_for(cap):
-        ctx.stale()
-        return
+        return False
     report = await reporting.capability_report(ctx.store, ctx.spec, cap, PERIOD, ctx.now)
     ctx.reply(render_report_text(report), back)
-
-
-def _panel(ctx: "Ctx") -> None:
-    rows = [[_report_button(OVERVIEW_LABEL, ALL_REPORT)]]
-    rows += [
-        [_report_button(cap.title, cap.key)]
-        for cap in ctx.spec.capabilities
-        if cap.enabled and cap.key != ALL_REPORT and metrics_for(cap)
-    ]
-    rows.append([Button(label=common.BACK, data=make_callback(MENU, ACT_HOME))])
-    ctx.reply(PANEL_TEXT, rows)
+    return True

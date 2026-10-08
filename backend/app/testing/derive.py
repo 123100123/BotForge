@@ -18,6 +18,9 @@ deadline do not interfere with the scenario's first steps.
 Extension point: ``TEMPLATES`` maps a capability type to ``fn(spec, cap) -> list[Scenario]``;
 a later package registers ``request`` templates with ``register_templates("request", fn)``.
 
+Reachability ("users cannot reach it") is read from ``runtime.nav.virtual_menu(spec)``, the entry
+points the compiled role homes offer, not from ``spec.menu``.
+
 Capability flags: disabled capabilities (``enabled=False``) get no scenarios (users cannot reach
 them). Capabilities restricted to staff/managers are driven as the owner persona (the only
 privileged persona the drivers know): each template scenario is rewritten so its single customer
@@ -40,6 +43,7 @@ from app.botspec.models import (
 )
 from app.botspec.records import validate_record
 from app.runtime import formatting
+from app.runtime.nav import virtual_menu
 from app.testing.runner import START_CLOCK
 from app.testing.scenario import KV, OWNER, Scenario, SeedRecord, Step, resolve_relative
 
@@ -121,7 +125,9 @@ def _form_values(cap: BookingCapability) -> list[KV]:
 
 
 def _has_menu(spec: BotSpec, cap_key: str, view: str) -> bool:
-    return any(m.capability == cap_key and m.view == view for m in spec.menu)
+    """Whether users can reach ``cap_key``'s ``view`` from a home (``nav.virtual_menu``; the LLM's
+    ``spec.menu`` no longer drives navigation)."""
+    return any(e.capability == cap_key and e.view == view for e in virtual_menu(spec))
 
 
 # --- booking -------------------------------------------------------------------------------------

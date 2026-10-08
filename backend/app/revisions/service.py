@@ -1,7 +1,8 @@
 """Revisions: create drafts, activate (and roll back), load sample data into the sandbox.
 
 ``activate`` is the only place a revision becomes live. It runs inside the caller's transaction
-under the bot's advisory lock; the caller commits.
+under the bot's advisory lock; the caller commits. It deletes only the live sessions the new spec
+cannot continue (``_drop_orphaned_live_sessions``); sandbox sessions are never touched here.
 """
 
 import uuid
@@ -158,6 +159,7 @@ async def activate(session: AsyncSession, revision_id: uuid.UUID, *, rollback: b
     if report_has_failures(revision.test_report):
         raise TestsFailing()
 
+    previous: Revision | None = None
     if bot.active_revision_id is not None and bot.active_revision_id != revision.id:
         previous = await session.get(Revision, bot.active_revision_id)
         if previous is not None:
@@ -167,9 +169,46 @@ async def activate(session: AsyncSession, revision_id: uuid.UUID, *, rollback: b
     revision.activated_at = datetime.now(UTC)
     bot.active_revision_id = revision.id
     bot.status = _status_after_activation(bot)
-    await session.execute(delete(SessionRow).where(SessionRow.bot_id == bot_id, SessionRow.env == "live"))
+    await _drop_orphaned_live_sessions(session, bot_id, revision, previous)
     await session.flush()
     return revision
+
+
+def _spec_or_none(revision: Revision | None) -> BotSpec | None:
+    if revision is None:
+        return None
+    try:
+        return BotSpec.model_validate(revision.spec)
+    except ValueError:
+        return None
+
+
+async def _drop_orphaned_live_sessions(
+    session: AsyncSession, bot_id: uuid.UUID, revision: Revision, previous: Revision | None
+) -> None:
+    """Delete only the live sessions the new spec cannot continue.
+
+    A session belongs to the capability in ``state["capability"]``; it survives activation when that
+    capability exists and is enabled in the new spec with the same type it had in the previous
+    active spec (forms are keyed by field, so a changed form re-asks only what no longer
+    validates). Sessions of a removed, disabled or retyped capability are deleted; sessions without
+    a capability (idle) are kept. Before this, every live session was deleted on every activation,
+    so a capability toggle elsewhere broke every form in progress. If the new spec cannot be read,
+    every live session is deleted (the old, safe behaviour).
+    """
+    live = (SessionRow.bot_id == bot_id) & (SessionRow.env == "live")
+    spec = _spec_or_none(revision)
+    if spec is None:
+        await session.execute(delete(SessionRow).where(live))
+        return
+    before = _spec_or_none(previous)
+    keep: list[str] = []
+    for cap in spec.capabilities:
+        old = before.capability(cap.key) if before is not None else None
+        if cap.enabled and (before is None or (old is not None and old.type == cap.type)):
+            keep.append(cap.key)
+    capability = SessionRow.state["capability"].astext
+    await session.execute(delete(SessionRow).where(live, capability.is_not(None), capability.not_in(keep)))
 
 
 async def load_sample_data(
