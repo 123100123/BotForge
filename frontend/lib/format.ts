@@ -18,6 +18,27 @@ export function fa(value: number | string): string {
   return toFaDigits(value);
 }
 
+/**
+ * Owner-facing text must never show requirement codes (R1, R12). Removes them, unwraps a parenthesized
+ * detail that followed one («R3 (ظرفیت از ۱۰ به ۱۲)» -> «ظرفیت از ۱۰ به ۱۲») and tidies the punctuation left behind.
+ */
+export function stripRequirementCodes(text: string): string {
+  if (!/\bR\d+\b/.test(text)) return text;
+  return text
+    .replace(/\bR\d+\b[ \t]*:?[ \t]*\(([^()]*)\)/g, "$1")
+    .replace(/\bR\d+\b[ \t]*:?/g, "")
+    .replace(/\([ \t]*\)/g, "")
+    .replace(/([,،])[ \t]*(?=[,،])/g, "")
+    .replace(/[ \t]+([,،:؛.])/g, "$1")
+    .replace(/:[ \t]*(?=\n|$)/gm, ":")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/^[ \t]*[,،][ \t]*/gm, "")
+    .replace(/:[ \t]*[,،]+/g, ":")
+    .replace(/[,،][ \t]*$/gm, "")
+    .replace(/[ \t]+$/gm, "")
+    .trim();
+}
+
 function parse(input: string | number | Date): Date | null {
   const d = input instanceof Date ? input : new Date(input);
   return Number.isNaN(d.getTime()) ? null : d;

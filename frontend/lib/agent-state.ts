@@ -2,6 +2,7 @@
  * Pure reducer that folds the agent event stream into the view model the Agent tab renders.
  * Unknown event types are ignored; events are applied at most once, in id order.
  */
+import { stripRequirementCodes } from "@/lib/format";
 import {
   isKnownEvent,
   type AgentEvent,
@@ -183,7 +184,7 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       };
     }
     case "agent_message":
-      return { ...base, feed: [...state.feed, { kind: "agent", id: event.id, ts: event.ts, text: event.payload.text }] };
+      return { ...base, feed: [...state.feed, { kind: "agent", id: event.id, ts: event.ts, text: stripRequirementCodes(event.payload.text) }] };
 
     case "phase_started": {
       const { phase } = event.payload;
@@ -200,7 +201,8 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       };
     }
     case "phase_finished": {
-      const { phase, ok, summary } = event.payload;
+      const { phase, ok } = event.payload;
+      const summary = event.payload.summary ? stripRequirementCodes(event.payload.summary) : event.payload.summary;
       const phases = state.phases.slice();
       let idx = -1;
       for (let i = phases.length - 1; i >= 0; i--) {
@@ -219,7 +221,8 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
     }
 
     case "tool_call": {
-      const { loop, name, summary } = event.payload;
+      const { loop, name } = event.payload;
+      const summary = stripRequirementCodes(event.payload.summary);
       const phases = state.phases.slice();
       if (phases.length === 0) {
         phases.push({ key: `${loop}-1`, phase: loop, attempt: 1, state: "running", summary: null, tools: [] });
@@ -232,7 +235,8 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       return { ...base, phases };
     }
     case "tool_result": {
-      const { name, ok, summary } = event.payload;
+      const { name, ok } = event.payload;
+      const summary = stripRequirementCodes(event.payload.summary);
       const phases = state.phases.slice();
       for (let p = phases.length - 1; p >= 0; p--) {
         const tools = phases[p].tools;

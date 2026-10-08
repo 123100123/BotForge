@@ -1,6 +1,6 @@
 import { Check, Lightbulb, Minus, Pencil, Plus, TriangleAlert } from "lucide-react";
 import { REQUIREMENT_KIND_LABELS } from "@/components/agent/labels";
-import { fa } from "@/lib/format";
+import { fa, stripRequirementCodes } from "@/lib/format";
 import type { Requirement, Requirements, RequirementsDeltaView } from "@/lib/types";
 
 /** Requirement code: a quiet fixed-width marker at the row end (a reference, never part of the sentence). */
@@ -92,7 +92,7 @@ export function RequirementsList({ requirements, changes }: RequirementsListProp
             {requirements.unsupported.map((u, i) => (
               <li key={i} className="text-body">
                 <div className="font-medium">{u.statement}</div>
-                <div className="text-small text-fg-secondary">دلیل: {u.reason}</div>
+                <div className="text-small text-fg-secondary">دلیل: {stripRequirementCodes(u.reason)}</div>
                 {u.alternative && <div className="text-small text-fg-secondary">پیشنهاد دستیار: {u.alternative}</div>}
               </li>
             ))}
