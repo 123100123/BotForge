@@ -263,7 +263,9 @@ async def test_events_staff_orders_copilot_and_overview(demo: Demo) -> None:
         sandbox = PgStore(session, demo.bot.id, "sandbox", "owner")
         item = (await sandbox.create_record("product", {"title": "قهوه", "price": 120000}, now=start)).id
         await session.commit()
-    assert "قهوه" in texts(await demo.sim("ali", "nav:go:shop"), "ali")
+    shop = await demo.sim("ali", "nav:go:shop")
+    assert "🛍 فروشگاه" in texts(shop, "ali")
+    assert any("قهوه" in b["label"] for row in shop["messages"][-1]["buttons"] for b in row)
     await demo.sim("ali", f"orders:add:{item}")
     assert "۱۲۰٬۰۰۰ تومان" in texts(await demo.sim("ali", "orders:cart:"), "ali")
     placed = await demo.sim("ali", "orders:chk:")

@@ -131,7 +131,7 @@ async def test_new_starts_the_form_and_asks_in_order(h: Harness) -> None:
     r = await h.tap("ali", MENU_MAIN)
     r = await h.tap("ali", find(r, "new").data)
     assert "نوع دستگاه" in text(r)
-    assert text(r).startswith(tx.TEXTS["form_intro"].split("\n")[0].replace("{title}", "درخواست تعمیر"))
+    assert text(r).startswith("📝 درخواست تعمیر › درخواست جدید\n" + tx.TEXTS["form_intro"])
     assert ("stop", "") in actions(r)
     assert await h.store.get_session("ali") is not None
     r = await h.send("ali", ANSWERS[0])
@@ -253,7 +253,7 @@ async def test_new_pagination(hi: Harness) -> None:
 async def test_new_with_no_items_says_so(hi: Harness) -> None:
     r = await hi.tap("ali", MENU_MAIN)
     r = await hi.tap("ali", find(r, "new").data)
-    assert text(r) == tx.NO_ITEMS
+    assert text(r) == f"📝 درخواست تعمیر › {tx.NEW_CRUMB}\n{tx.NO_ITEMS}"
     assert not [x for x in actions(r) if x[0] == "pick"]
 
 
@@ -310,7 +310,7 @@ async def test_pick_without_item_resource_is_stale(h: Harness) -> None:
 
 async def test_mine_empty(h: Harness) -> None:
     r = await h.tap("ali", MENU_MINE)
-    assert text(r) == "شما هنوز درخواستی ثبت نکرده‌اید."
+    assert text(r) == "📝 درخواست تعمیر › درخواست‌های من\nشما هنوز درخواستی ثبت نکرده‌اید."
     assert ("new", "") in actions(r)
 
 
@@ -531,7 +531,7 @@ async def test_text_overrides() -> None:
     ]
     h = Harness(repair_spec(texts=texts))
     r = await h.tap("ali", MENU_MINE)
-    assert text(r) == "خالی"
+    assert text(r) == "📝 درخواست تعمیر › درخواست‌های من\nخالی"
     r = await h.tap("ali", MENU_MAIN)
     r = await h.tap("ali", find(r, "new").data)
     assert text(r).endswith("بنویسید نوع دستگاه (مثلاً یخچال یا لباسشویی)")

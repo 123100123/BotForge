@@ -25,11 +25,11 @@ async def seed_events(h: Harness, n: int, start_hours: float = 24) -> list[int]:
 async def test_info_multi_page_list_show_and_back(workshop: BotSpec) -> None:
     h = Harness(workshop)
     r = await h.tap("ali", "menu:open:about")
-    assert text(r).startswith("دربارهٔ ما\n")
+    assert text(r) == "ℹ️ دربارهٔ ما\nیکی از موارد زیر را انتخاب کنید."
     assert button_data(r) == ["info:show:about", "info:show:address", "nav:go:home"]
     assert [b.label for b in buttons(r)][:2] == ["دربارهٔ آموزشگاه", "نشانی و تماس"]
     r = await h.tap("ali", "info:show:address")
-    assert text(r).startswith("نشانی و تماس\n\nنشانی: تهران")
+    assert text(r).startswith("ℹ️ دربارهٔ ما › نشانی و تماس\n\nنشانی: تهران")
     assert r.messages[0].edit is True
     assert button_data(r) == ["nav:go:info", "nav:go:home"]
     assert find_button(r, common.BACK).data == "nav:go:info"
@@ -38,7 +38,7 @@ async def test_info_multi_page_list_show_and_back(workshop: BotSpec) -> None:
 async def test_info_single_page_shown_directly() -> None:
     h = Harness(build_catalog_spec(info_pages=1))
     r = await h.tap("ali", "menu:open:about")
-    assert text(r) == "صفحه 1\n\nمتن صفحه 1"
+    assert text(r) == "ℹ️ دربارهٔ ما › صفحه 1\n\nمتن صفحه 1"
     assert button_data(r) == ["nav:go:home"]
 
 
@@ -54,7 +54,7 @@ async def test_info_page_removed_is_stale() -> None:
 async def test_catalog_empty() -> None:
     h = Harness(build_catalog_spec())
     r = await h.tap("ali", "menu:open:events_menu")
-    assert text(r) == "فهرست رویدادها\nدر حال حاضر موردی برای نمایش وجود ندارد."
+    assert text(r) == "🗂 رویدادها\nدر حال حاضر موردی برای نمایش وجود ندارد."
     assert button_data(r) == ["nav:go:home"]
 
 
@@ -63,14 +63,17 @@ async def test_catalog_list_item_detail_and_back() -> None:
     ids = await seed_events(h, 3)
     await h.store.update_record("event", ids[1], data={"online": True}, now=T0)
     r = await h.tap("ali", "menu:open:events_menu")
-    assert text(r) == "فهرست رویدادها\nیکی از موارد زیر را انتخاب کنید:"
+    assert text(r) == "🗂 رویدادها\nیکی از موارد زیر را انتخاب کنید."
     assert button_data(r) == [f"events:item:{i}" for i in ids] + ["nav:go:home"]
     assert [b.label for b in buttons(r)][:3] == ["رویداد 0", "رویداد 1", "رویداد 2"]
 
     r = await h.tap("ali", f"events:item:{ids[1]}")
     # 2026-10-05 09:00 UTC = 12:30 Tehran, Monday 13 Mehr 1405
-    assert text(r) == ("رویداد 1\n\nزمان شروع: دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۲:۳۰\nهزینه: ۱٬۰۰۰\nآنلاین: بله")
-    assert button_data(r) == ["events:list:0", "nav:go:home"]
+    assert text(r) == (
+        "🗂 رویدادها › رویداد 1\nزمان شروع: دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۲:۳۰\nهزینه: ۱٬۰۰۰\nآنلاین: بله"
+    )
+    assert button_data(r) == ["nav:go:shop", "nav:go:home"]  # Back = the parent route (the shop list)
+    assert text(r).startswith("🗂 رویدادها › رویداد 1\n")
     r = await h.tap("ali", f"events:item:{ids[0]}")
     assert "هزینه: ۰" in text(r) and "آنلاین: —" in text(r)
 
@@ -99,8 +102,8 @@ async def test_catalog_pagination() -> None:
     r = await h.tap("ali", "events:list:abc")
     assert "صفحهٔ ۱ از ۳" in text(r)
 
-    r = await h.tap("ali", f"events:item:{ids[17]}")  # back goes to the item's page
-    assert button_data(r) == ["events:list:2", "nav:go:home"]
+    r = await h.tap("ali", f"events:item:{ids[17]}")  # Back is the parent route (page 1 of the list)
+    assert button_data(r) == ["nav:go:shop", "nav:go:home"]
 
 
 async def test_catalog_upcoming_only_with_injected_now() -> None:
@@ -179,10 +182,12 @@ async def test_catalog_text_override_and_placeholders() -> None:
     h = Harness(spec)
     rid = await h.seed("event", {"title": "کنسرت {details}", "starts_at": iso(1), "price": 5})
     r = await h.tap("ali", "menu:open:events_menu")
-    assert text(r) == "«فهرست رویدادها» — فهرست کامل {unknown}"  # unknown placeholder stays literal
+    assert (
+        text(r) == "🗂 رویدادها\n«فهرست رویدادها» — فهرست کامل {unknown}"
+    )  # unknown placeholder stays literal
     r = await h.tap("ali", f"events:item:{rid}")
     # substituted values are never re-scanned: "{details}" inside the title stays literal
-    assert text(r).startswith("[کنسرت {details}]\nزمان شروع: ")
+    assert text(r).startswith("🗂 رویدادها › کنسرت {details}\n[کنسرت {details}]\nزمان شروع: ")
     assert "هزینه: ۵" in text(r)
     # empty-list text was not overridden, so the default applies
     h2 = Harness(spec)
@@ -201,8 +206,8 @@ async def test_ctx_t_falls_back_to_defaults_and_raises_for_unknown_key() -> None
     cap = spec.capability("events")
     info = spec.capability("info")
     assert cap is not None and info is not None
-    assert ctx.t(cap, "empty", title="X") == "X\nدر حال حاضر موردی برای نمایش وجود ندارد."
-    assert ctx.t(info, "list_header", title="Y").startswith("Y\n")
+    assert ctx.t(cap, "empty", title="X") == "در حال حاضر موردی برای نمایش وجود ندارد."
+    assert ctx.t(info, "list_header", title="Y") == "یکی از موارد زیر را انتخاب کنید."
     assert ctx.t(cap, "ask_field", label="نام") == "لطفاً «نام» را وارد کنید:"  # common form fallback
     with pytest.raises(KeyError):
         ctx.t(cap, "no_such_key")

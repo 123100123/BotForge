@@ -9,8 +9,8 @@ filled with ``botspec.text_keys.fill_text``.
 from app.runtime.texts.common import FORM_TEXTS
 
 TEXTS: dict[str, str] = {
-    "form_intro": "{title}\nلطفاً اطلاعات زیر را وارد کنید.",
-    "pick_item": "{title}\nیکی از موارد زیر را انتخاب کنید:",
+    "form_intro": "لطفاً اطلاعات زیر را وارد کنید.",
+    "pick_item": "یکی از موارد زیر را انتخاب کنید.",
     "submitted": "درخواست شما در «{title}» ثبت شد.\nکد پیگیری: {id}",
     "mine_header": "درخواست‌های شما:",
     "mine_empty": "شما هنوز درخواستی ثبت نکرده‌اید.",
@@ -23,8 +23,9 @@ TEXTS: dict[str, str] = {
 
 # --- fixed strings (no text key) -------------------------------------------------------------
 
-MAIN_INTRO = "{title}\nیک گزینه را انتخاب کنید."
-NEW_BUTTON = "ثبت درخواست جدید"
+MAIN_INTRO = "یک گزینه را انتخاب کنید."
+NEW_BUTTON = "درخواست جدید"
+NEW_CRUMB = "درخواست جدید"
 MINE_BUTTON = "درخواست‌های من"
 
 STATUS_LINE = "وضعیت: {status}"
