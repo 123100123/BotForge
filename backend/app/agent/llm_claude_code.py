@@ -29,10 +29,12 @@ from app.agent.llm import (
     NUDGE_TEXT,
     LLMError,
     LoopResult,
+    RetryHook,
     StopReason,
     Tier,
     ToolDef,
     ToolHandler,
+    TurnHook,
     Usage,
     UsageHook,
     _extract_json,
@@ -313,6 +315,7 @@ class ClaudeCodeLLM:
         messages: list[Any],
         schema: type[BaseModel],
         tier: Tier = "strong",
+        on_retry: RetryHook | None = None,  # the CLI retries invalid output internally: never called
     ) -> tuple[BaseModel, Usage]:
         sdk = _sdk()
         prompt = render_messages(messages)
@@ -368,6 +371,7 @@ class ClaudeCodeLLM:
         max_tool_calls: int,
         tier: Tier = "strong",
         on_usage: UsageHook | None = None,
+        on_turn: TurnHook | None = None,
     ) -> LoopResult:
         sdk = _sdk()
         prompt = render_messages(messages)
@@ -383,6 +387,8 @@ class ClaudeCodeLLM:
                 flags["finished"] = flags["finished"] or turn.finished
                 flags["limit_hit"] = flags["limit_hit"] or turn.limit_hit
                 out = turn.results[0]
+                if on_turn is not None:  # the CLI owns the turns: announce the one after each tool call
+                    await on_turn(state["calls"] + 1)
                 return {"content": [{"type": "text", "text": out["content"]}], "is_error": out["is_error"]}
 
             return sdk.tool(tool_def.name, tool_def.description, tool_def.input_schema)(run)
@@ -399,6 +405,8 @@ class ClaudeCodeLLM:
         )
         session = _Session(task, self.model, on_usage)
         started = time.perf_counter()
+        if on_turn is not None:
+            await on_turn(1)
 
         def done(reason: StopReason) -> LoopResult:
             session.total.tool_calls = state["calls"]

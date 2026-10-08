@@ -37,6 +37,9 @@ DEPLOYED = "deployed"
 USAGE = "usage"
 ERROR = "error"
 RUN_STATUS = "run_status"
+ACTIVITY = "activity"
+RETRYING = "retrying"
+RUN_INTERRUPTED = "run_interrupted"
 
 EVENT_TYPES = frozenset(
     {
@@ -57,8 +60,35 @@ EVENT_TYPES = frozenset(
         USAGE,
         ERROR,
         RUN_STATUS,
+        ACTIVITY,
+        RETRYING,
+        RUN_INTERRUPTED,
     }
 )
+
+# Stable ``error.code`` values and whether a fresh run (``POST /runs/{id}/retry``) is worth offering.
+LLM_UNAVAILABLE = "LLM_UNAVAILABLE"
+BUDGET_EXCEEDED = "BUDGET_EXCEEDED"
+VALIDATION_FAILED = "VALIDATION_FAILED"
+UNEXPECTED_ERROR_CODE = "UNEXPECTED_ERROR"
+INTERRUPTED = "INTERRUPTED"
+RETRYABLE_CODES = frozenset({LLM_UNAVAILABLE, VALIDATION_FAILED, UNEXPECTED_ERROR_CODE, INTERRUPTED})
+
+# Persian present-progressive label per phase for the ``activity`` event, emitted right before every
+# model call. ``CONTINUE_LABELS`` replace them from the second model turn of a build/repair loop.
+ACTIVITY_LABELS: dict[str, str] = {
+    "triage": "در حال بررسی درخواست تغییر…",
+    "understand": "در حال فهمیدن درخواست شما…",
+    "build": "در حال ساخت پیکربندی ربات…",
+    "testgen": "در حال نوشتن آزمون‌ها…",
+    "repair": "در حال رفع مشکل آزمون‌ها…",
+    "review": "در حال آماده کردن خلاصه برای شما…",
+}
+CONTINUE_LABELS: dict[str, str] = {
+    "build": "در حال ادامهٔ ساخت…",
+    "repair": "در حال ادامهٔ رفع مشکل…",
+}
+GENERIC_ACTIVITY_LABEL = "در حال کار روی درخواست شما…"
 
 Event = tuple[str, dict[str, Any]]
 
@@ -188,9 +218,40 @@ def usage(u: Usage) -> Event:
     }
 
 
-def error(message: str) -> Event:
-    """Only for runs that end ``failed``."""
-    return ERROR, {"message": message}
+def error(
+    message: str,
+    code: str = UNEXPECTED_ERROR_CODE,
+    *,
+    applied: bool = False,
+    retryable: bool | None = None,
+) -> Event:
+    """Only for runs that end ``failed``. ``code`` is a stable string (LLM_UNAVAILABLE,
+    BUDGET_EXCEEDED, VALIDATION_FAILED, UNEXPECTED_ERROR, INTERRUPTED); ``applied`` is false for
+    every failure before approval (nothing reached the live bot); ``retryable`` says whether a new
+    run from the same message is worth offering (default: by code)."""
+    return ERROR, {
+        "message": message,
+        "code": code,
+        "applied": applied,
+        "retryable": code in RETRYABLE_CODES if retryable is None else retryable,
+    }
+
+
+def activity(phase: str, turn: int = 1) -> Event:
+    """``{phase, label}``: the agent is about to call the model (``turn`` > 1: a later model turn of
+    a build/repair tool loop)."""
+    labels = CONTINUE_LABELS if turn > 1 and phase in CONTINUE_LABELS else ACTIVITY_LABELS
+    return ACTIVITY, {"phase": phase, "label": labels.get(phase, GENERIC_ACTIVITY_LABEL)}
+
+
+def retrying(phase: str, attempt: int, reason: str) -> Event:
+    """``{phase, attempt, reason}``: the code itself retries a model call (``attempt`` counts from 2)."""
+    return RETRYING, {"phase": phase, "attempt": attempt, "reason": reason}
+
+
+def run_interrupted(reason: str = "server_restart") -> Event:
+    """``{reason}``: the run was cut off (the server restarted); followed by ``run_status``."""
+    return RUN_INTERRUPTED, {"reason": reason}
 
 
 def run_status(status: str, phase: str) -> Event:

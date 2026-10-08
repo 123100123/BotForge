@@ -11,7 +11,15 @@ from app.agent import events as ev
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
-from app.agent.phases import BUDGET_MESSAGE, fail, render_conversation, say, section, task_message
+from app.agent.phases import (
+    BUDGET_MESSAGE,
+    fail,
+    llm_failure_code,
+    render_conversation,
+    say,
+    section,
+    task_message,
+)
 from app.agent.prompts import system_prompt
 from app.agent.requirements import Question, Requirement, Requirements
 from app.agent.state import ChatTurn
@@ -95,7 +103,7 @@ def questions_text(asked: list[Question]) -> str:
 async def run(ctx: RunContext) -> Next:
     state = ctx.state
     if ctx.over_budget():
-        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before understand")
+        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before understand", ev.BUDGET_EXCEEDED)
     allow_questions = state.clarify_rounds < ctx.limits.max_clarify_rounds
     sections = [section("conversation", render_conversation(state.conversation))]
     if state.requirements is not None:
@@ -125,7 +133,10 @@ async def run(ctx: RunContext) -> Next:
     except LLMError as exc:
         ctx.charge(exc.usage)
         return await fail(
-            ctx, "نتوانستم درخواست شما را تحلیل کنم. لطفاً دوباره تلاش کنید.", f"understand: {exc}"
+            ctx,
+            "نتوانستم درخواست شما را تحلیل کنم. لطفاً دوباره تلاش کنید.",
+            f"understand: {exc}",
+            llm_failure_code(exc),
         )
     ctx.charge(usage)
     assert isinstance(out, UnderstandOut)

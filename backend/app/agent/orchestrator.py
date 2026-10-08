@@ -34,9 +34,9 @@ from collections.abc import Awaitable, Callable
 from typing import Any
 
 from app.agent import events as ev
-from app.agent.context import Limits, Next, RunContext
+from app.agent.context import ActivityLLM, Limits, Next, RunContext
 from app.agent.events import Event, EventBus, default_bus
-from app.agent.llm import LLMClient
+from app.agent.llm import LLMClient, LLMError
 from app.agent.modify import empty_requirements, uncovered_requirements, uncovered_text
 from app.agent.phases import (
     STEP_LIMIT_TEXT,
@@ -83,6 +83,11 @@ PHASES_BY_KIND: dict[str, dict[str, PhaseFn]] = {"create": CREATE_PHASES, "modif
 LLM_PHASES = frozenset({"triage", "understand", "build", "testgen", "repair", "review"})
 
 UNEXPECTED_ERROR = "خطای غیرمنتظره‌ای در ساخت ربات رخ داد. لطفاً دوباره تلاش کنید."
+LLM_UNAVAILABLE_TEXT = (
+    "دستیار نتوانست به مدل هوش مصنوعی دسترسی پیدا کند. چیزی در ربات تغییر نکرد. دوباره امتحان کنید."
+)
+NOT_RETRYABLE = "فقط گفتگوی ناموفق یا قطع‌شده را می‌توان دوباره امتحان کرد."
+NO_OWNER_MESSAGE = "پیام اولیهٔ این گفتگو پیدا نشد؛ یک درخواست تازه بفرستید."
 MODIFY_UNAVAILABLE = "این ربات نسخهٔ فعال دارد؛ برای تغییر آن یک درخواست تغییر بفرستید."
 NO_ACTIVE_REVISION = "این ربات هنوز نسخهٔ فعالی ندارد؛ ابتدا ربات را بسازید و تأیید کنید."
 STALE_BASE_TEXT = (
@@ -156,9 +161,16 @@ class Orchestrator:
         self.bus.publish(envelope)
 
     async def _save(self, run_id: str, state: RunState, status: str, **kwargs: Any) -> None:
-        """Persist the run, then announce the status (every transition emits ``run_status``)."""
-        await self.repo.save_run(run_id, state=state, status=status, **kwargs)
-        await self._emit(run_id, ev.run_status(status, state.phase))
+        """Persist the run and announce the status (every transition emits ``run_status``).
+
+        The event is committed in the same transaction as the status, so an SSE stream that sees a
+        terminal status always finds its ``run_status`` event too.
+        """
+        envelope = await self.repo.save_run(
+            run_id, state=state, status=status, event=ev.run_status(status, state.phase), **kwargs
+        )
+        if envelope is not None:
+            self.bus.publish(envelope)
 
     async def ensure_status_event(self, run_id: str) -> None:
         """A terminal run whose last ``run_status`` disagrees with its stored status (e.g. marked
@@ -191,7 +203,7 @@ class Orchestrator:
             run_id=record.id,
             bot_id=record.bot_id,
             state=record.state,
-            llm=self.llm,
+            llm=ActivityLLM(self.llm, record.state, emit),
             limits=self.limits,
             emit=emit,
             repo=self.repo,
@@ -280,6 +292,7 @@ class Orchestrator:
             raise OrchestratorError("run_not_awaiting_approval", NOT_AWAITING_APPROVAL)
         bot = await self.repo.load_bot(record.bot_id)
         ctx = self._ctx(record, bot.active_revision_id)
+        activated = False
         try:
             state.phase = "deploy"
             await self._emit(run_id, ev.run_status("running", state.phase))
@@ -300,13 +313,14 @@ class Orchestrator:
                 state.phase = "await_approval"
                 await self._save(run_id, state, "waiting_approval")
                 raise OrchestratorError(exc.code, exc.message) from None
+            activated = True
             await self._emit(run_id, ev.phase_finished("deploy", True))
             state.phase = nxt.phase
             await self._save(run_id, state, nxt.status, result_revision_id=state.revision_id)
         except OrchestratorError:
             raise
         except Exception as exc:
-            await self._mark_failed(run_id, state, exc)
+            await self._mark_failed(run_id, state, exc, applied=activated)
             raise OrchestratorError("internal_error", UNEXPECTED_ERROR, 500) from None
         return await self.repo.load_run(run_id)
 
@@ -322,7 +336,7 @@ class Orchestrator:
         state.phase = "failed"
         state.conversation.append(ChatTurn(role="agent", text=STALE_BASE_TEXT))
         await self._emit(run_id, ev.phase_finished("deploy", False, "stale_base"))
-        await self._emit(run_id, ev.error(STALE_BASE_TEXT))
+        await self._emit(run_id, ev.error(STALE_BASE_TEXT, ev.VALIDATION_FAILED, retryable=True))
         await self._emit(run_id, ev.agent_message(STALE_BASE_TEXT))
         await self._save(run_id, state, "failed")
         raise OrchestratorError("stale_base", STALE_BASE_TEXT)
@@ -331,16 +345,37 @@ class Orchestrator:
         record = await self.repo.load_run(run_id)
         if record.status not in ("waiting_approval", "waiting_user"):
             raise OrchestratorError("run_not_waiting", NOT_WAITING)
-        if not await self.repo.claim_run(run_id, (record.status,), "rejected"):
+        # Claim to `running` (as approve does), not straight to `rejected`: the terminal status is
+        # committed only together with its run_status event, so a stream cannot close without it.
+        if not await self.repo.claim_run(run_id, (record.status,), "running"):
             raise OrchestratorError("run_not_waiting", NOT_WAITING)
         state = record.state
-        if state.revision_id is not None:
-            await self.repo.reject_revision(state.revision_id)
-        state.conversation.append(ChatTurn(role="agent", text=REJECTED_TEXT))
-        await self.repo.save_run(run_id, state=state, status="rejected")
-        await self._emit(run_id, ev.agent_message(REJECTED_TEXT))
-        await self._emit(run_id, ev.run_status("rejected", state.phase))
+        try:
+            if state.revision_id is not None:
+                await self.repo.reject_revision(state.revision_id)
+            state.conversation.append(ChatTurn(role="agent", text=REJECTED_TEXT))
+            await self._emit(run_id, ev.agent_message(REJECTED_TEXT))
+            await self._save(run_id, state, "rejected")
+        except Exception:
+            await self.repo.claim_run(run_id, ("running",), record.status)  # nothing was lost: wait again
+            raise
         return await self.repo.load_run(run_id)
+
+    async def retry(self, run_id: str) -> RunRecord:
+        """A NEW run of the same kind for the same bot, from the failed or interrupted run's first
+        owner message. Caller then schedules advance. Refused (409) while the run is anything else;
+        the bot's own refusals (an active run exists, a create run for a bot that went live) pass
+        through."""
+        record = await self.repo.load_run(run_id)
+        if record.status not in ("failed", "interrupted"):
+            raise OrchestratorError("run_not_retryable", NOT_RETRYABLE)
+        first = next((e for e in await self.repo.list_events(run_id) if e.type == ev.OWNER_MESSAGE), None)
+        text = first.payload.get("text") if first is not None else None
+        if not isinstance(text, str) or not text.strip():
+            raise OrchestratorError("run_not_retryable", NO_OWNER_MESSAGE)
+        if record.kind == "modify":
+            return await self.start_modify(record.bot_id, text)
+        return await self.start_create(record.bot_id, text)
 
     # ------------------------------------------------------------------ the phase loop
 
@@ -376,6 +411,7 @@ class Orchestrator:
         except asyncio.CancelledError:
             if state is not None:
                 try:
+                    await self._emit(run_id, ev.run_interrupted("server_restart"))
                     await self._save(run_id, state, "interrupted")
                 except Exception:
                     log.exception("could not mark run %s interrupted", run_id)
@@ -383,14 +419,21 @@ class Orchestrator:
         except Exception as exc:
             await self._mark_failed(run_id, state, exc)
 
-    async def _mark_failed(self, run_id: str, state: RunState | None, exc: BaseException) -> None:
+    async def _mark_failed(
+        self, run_id: str, state: RunState | None, exc: BaseException, *, applied: bool = False
+    ) -> None:
         log.exception("agent run %s failed", run_id, exc_info=exc)
         try:
             if state is None:
                 state = (await self.repo.load_run(run_id)).state
             state.error = f"{type(exc).__name__}: {exc}"[:2000]
             state.phase = "failed"
-            await self._emit(run_id, ev.error(UNEXPECTED_ERROR))
+            if isinstance(exc, LLMError):  # the model could not be reached or gave nothing usable
+                state.usage = state.usage + exc.usage
+                failure = ev.error(LLM_UNAVAILABLE_TEXT, ev.LLM_UNAVAILABLE, applied=applied)
+            else:
+                failure = ev.error(UNEXPECTED_ERROR, ev.UNEXPECTED_ERROR_CODE, applied=applied)
+            await self._emit(run_id, failure)
             await self._save(run_id, state, "failed")
         except Exception:
             log.exception("could not record the failure of run %s", run_id)

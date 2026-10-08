@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.agent.context import Limits, get_agent_settings
 from app.agent.events import EventEnvelope
 from app.agent.llm import make_llm
-from app.agent.orchestrator import Orchestrator, OrchestratorError
+from app.agent.orchestrator import NOT_RETRYABLE, Orchestrator, OrchestratorError
 from app.agent.repository import ActiveRunExists, RepositoryError, RunRecord, SqlAgentRepository
 from app.agent.state import TERMINAL_STATUSES
 from app.api.deps import CurrentUser, get_current_user, get_owned_bot, get_owned_run
@@ -115,15 +115,8 @@ def _raise_for(exc: OrchestratorError | RepositoryError) -> HTTPException:
 # --------------------------------------------------------------------------- endpoints
 
 
-@router.post("/bots/{bot_id}/runs", response_model=RunOut, status_code=201)
-async def create_run(
-    body: MessageIn,
-    bot: Bot = Depends(get_owned_bot),
-    user: CurrentUser = Depends(get_current_user),
-    session: AsyncSession = Depends(get_session),
-    orchestrator: Orchestrator = Depends(get_orchestrator),
-) -> RunOut:
-    modify = bot.active_revision_id is not None
+async def _check_run_caps(session: AsyncSession, user: CurrentUser) -> None:
+    """The per-account daily cap and per-user rate limit shared by run creation and retry."""
     settings = get_agent_settings()
     since = datetime.now(UTC) - timedelta(days=1)
     today = (
@@ -138,12 +131,44 @@ async def create_run(
         raise _err(429, "daily_run_cap", DAILY_CAP_MESSAGE)
     if not run_creation_limiter.allow(str(user.id), settings.AGENT_RUNS_PER_MINUTE):
         raise _err(429, "rate_limited", RATE_LIMIT_MESSAGE)
+
+
+@router.post("/bots/{bot_id}/runs", response_model=RunOut, status_code=201)
+async def create_run(
+    body: MessageIn,
+    bot: Bot = Depends(get_owned_bot),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    orchestrator: Orchestrator = Depends(get_orchestrator),
+) -> RunOut:
+    modify = bot.active_revision_id is not None
+    await _check_run_caps(session, user)
     await session.commit()  # release the request's connection before the run starts
     try:
         start = orchestrator.start_modify if modify else orchestrator.start_create
         record = await start(str(bot.id), body.message)
     except ActiveRunExists as exc:
         raise _err(409, exc.code, exc.message) from None
+    except (OrchestratorError, RepositoryError) as exc:
+        raise _raise_for(exc) from None
+    orchestrator.spawn(record.id)
+    return _from_record(record)
+
+
+@router.post("/runs/{run_id}/retry", response_model=RunOut, status_code=201)
+async def retry_run(
+    run: AgentRun = Depends(get_owned_run),
+    user: CurrentUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+    orchestrator: Orchestrator = Depends(get_orchestrator),
+) -> RunOut:
+    """A new run of the same kind from the failed or interrupted run's first owner message."""
+    if run.status not in ("failed", "interrupted"):
+        raise _err(409, "run_not_retryable", NOT_RETRYABLE)
+    await _check_run_caps(session, user)
+    await session.commit()
+    try:
+        record = await orchestrator.retry(str(run.id))
     except (OrchestratorError, RepositoryError) as exc:
         raise _raise_for(exc) from None
     orchestrator.spawn(record.id)

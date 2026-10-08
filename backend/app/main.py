@@ -22,8 +22,9 @@ from sqlalchemy import update
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import app.api as api_package
+from app.agent import events as agent_events
 from app.config import get_settings
-from app.db.models import AgentRun
+from app.db.models import AgentEvent, AgentRun
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.integrations.telegram import poller as telegram_poller
 from app.notifications import ticker as notification_ticker
@@ -86,13 +87,27 @@ def install_error_handlers(app: FastAPI) -> None:
 
 
 async def mark_interrupted_runs() -> int:
-    """Agent runs left in ``running`` by a previous process become ``interrupted``."""
+    """Agent runs left in ``running`` by a previous process become ``interrupted``.
+
+    Each also gets a ``run_interrupted`` event and the ``run_status`` event for the new status, in
+    the same transaction, so a client that tails the run sees what happened.
+    """
     async with get_sessionmaker()() as session:
         result = await session.execute(
-            update(AgentRun).where(AgentRun.status == "running").values(status="interrupted")
+            update(AgentRun)
+            .where(AgentRun.status == "running")
+            .values(status="interrupted")
+            .returning(AgentRun.id, AgentRun.phase)
         )
+        runs = result.all()
+        for run_id, phase in runs:
+            for type_, payload in (
+                agent_events.run_interrupted("server_restart"),
+                agent_events.run_status("interrupted", phase),
+            ):
+                session.add(AgentEvent(run_id=run_id, type=type_, payload=payload))
         await session.commit()
-        return result.rowcount or 0  # type: ignore[attr-defined]
+        return len(runs)
 
 
 def start_telegram_poller() -> telegram_poller.TelegramPoller | None:

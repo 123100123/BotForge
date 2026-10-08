@@ -6,6 +6,7 @@ Compatibility errors are fed back to a new loop as issues to fix; every loop dra
 the model normally fixes them inside the first loop. Warnings are left for the review card.
 """
 
+from app.agent import events as ev
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
 from app.agent.phases import BUDGET_MESSAGE, fail, note_loop_end, render_conversation, section, task_message
@@ -34,7 +35,7 @@ def compat_issues(ctx: RunContext, spec: BotSpec) -> list[SpecIssue]:
 async def run(ctx: RunContext) -> Next:
     state = ctx.state
     if ctx.over_budget():
-        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before build")
+        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before build", ev.BUDGET_EXCEEDED)
     assert state.requirements is not None and state.draft_spec is not None and state.base_spec is not None
     stats = await ctx.repo.live_stats(ctx.bot_id)
     state.record_counts = stats.record_counts

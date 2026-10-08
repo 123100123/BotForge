@@ -5,12 +5,24 @@ from __future__ import annotations
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from functools import lru_cache
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
+from pydantic import BaseModel
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.agent import events as ev
 from app.agent.events import Event
-from app.agent.llm import LLMClient, Usage
+from app.agent.llm import (
+    LLMClient,
+    LoopResult,
+    RetryHook,
+    Tier,
+    ToolDef,
+    ToolHandler,
+    TurnHook,
+    Usage,
+    UsageHook,
+)
 from app.agent.state import Phase, RunState, RunStatus
 
 if TYPE_CHECKING:
@@ -72,6 +84,77 @@ class Next:
 
 
 Emit = Callable[[Event], Awaitable[None]]
+
+
+class ActivityLLM:
+    """The run's view of the model client: announces each model call to the owner.
+
+    Before every structured call and every model turn of a tool loop it emits ``activity`` for the
+    run's current phase; when the client retries a call by itself (plain-JSON fallback) it emits
+    ``retrying``. Everything else is delegated unchanged.
+    """
+
+    def __init__(self, inner: LLMClient, state: RunState, emit: Emit) -> None:
+        self.inner = inner
+        self._state = state
+        self._emit = emit
+
+    async def structured(
+        self,
+        *,
+        task: str,
+        system: str,
+        messages: list[Any],
+        schema: type[BaseModel],
+        tier: Tier = "strong",
+        on_retry: RetryHook | None = None,
+    ) -> tuple[BaseModel, Usage]:
+        phase = self._state.phase
+        await self._emit(ev.activity(phase))
+
+        async def retry(reason: str) -> None:
+            await self._emit(ev.retrying(phase, 2, reason))
+            if on_retry is not None:
+                await on_retry(reason)
+
+        return await self.inner.structured(
+            task=task, system=system, messages=messages, schema=schema, tier=tier, on_retry=retry
+        )
+
+    async def tool_loop(
+        self,
+        *,
+        task: str,
+        system: str,
+        messages: list[Any],
+        tools: list[ToolDef],
+        handler: ToolHandler,
+        max_tool_calls: int,
+        tier: Tier = "strong",
+        on_usage: UsageHook | None = None,
+        on_turn: TurnHook | None = None,
+    ) -> LoopResult:
+        phase = self._state.phase
+
+        async def turn(number: int) -> None:
+            await self._emit(ev.activity(phase, number))
+            if on_turn is not None:
+                await on_turn(number)
+
+        return await self.inner.tool_loop(
+            task=task,
+            system=system,
+            messages=messages,
+            tools=tools,
+            handler=handler,
+            max_tool_calls=max_tool_calls,
+            tier=tier,
+            on_usage=on_usage,
+            on_turn=turn,
+        )
+
+    def __getattr__(self, name: str) -> Any:  # e.g. FakeLLM.calls, for tests holding ctx.llm
+        return getattr(self.inner, name)
 
 
 @dataclass
