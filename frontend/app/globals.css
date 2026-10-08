@@ -1,66 +1,107 @@
 @import "tailwindcss";
-@import "tw-animate-css";
+@import "@heroui/styles";
 
 @theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
   --font-sans: var(--font-vazirmatn), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+
+  /* Existing Tailwind utility names point to HeroUI's theme tokens. */
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--surface-foreground);
+  --color-popover: var(--overlay);
+  --color-popover-foreground: var(--overlay-foreground);
+  --color-secondary: var(--surface-secondary);
+  --color-secondary-foreground: var(--surface-secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted);
+  --color-destructive: var(--danger);
+  --color-input: var(--border);
+  --color-ring: var(--focus);
+  --color-teal: var(--brand-teal);
+  --color-teal-soft: var(--brand-teal-soft);
 }
 
-/* Neutral palette with a single accent (primary). Success, warning and destructive are
-   semantic status colors only. */
-:root {
-  --radius: 0.625rem;
-  --background: oklch(0.985 0 0);
-  --foreground: oklch(0.205 0 0);
-  --card: oklch(1 0 0);
-  --card-foreground: oklch(0.205 0 0);
-  --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.205 0 0);
-  --primary: oklch(0.51 0.2 263);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.965 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.965 0 0);
-  --muted-foreground: oklch(0.5 0 0);
-  --accent: oklch(0.955 0.02 263);
-  --accent-foreground: oklch(0.3 0.1 263);
-  --destructive: oklch(0.577 0.215 27);
-  --success: oklch(0.52 0.14 150);
-  --warning: oklch(0.62 0.14 70);
-  --border: oklch(0.915 0 0);
-  --input: oklch(0.88 0 0);
-  --ring: oklch(0.51 0.2 263);
+@layer theme {
+  :root,
+  .light,
+  [data-theme="light"] {
+    color-scheme: light;
+    --radius: 0.75rem;
+    --background: oklch(0.982 0.008 92);
+    --foreground: oklch(0.22 0.025 260);
+    --surface: oklch(0.998 0.004 94);
+    --surface-secondary: oklch(0.962 0.01 92);
+    --surface-tertiary: oklch(0.938 0.014 88);
+    --overlay: oklch(0.998 0.004 94);
+    --field-background: oklch(0.998 0.004 94);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.887 0.016 88);
+    --separator: oklch(0.912 0.016 88);
+    --muted: oklch(0.49 0.02 255);
+    --accent: oklch(0.55 0.18 247);
+    --accent-foreground: oklch(0.99 0 0);
+    --success: oklch(0.49 0.13 153);
+    --success-foreground: oklch(0.99 0 0);
+    --warning: oklch(0.53 0.13 72);
+    --warning-foreground: oklch(0.99 0 0);
+    --danger: oklch(0.52 0.19 26);
+    --danger-foreground: oklch(0.99 0 0);
+    --focus: var(--accent);
+    --brand-teal: oklch(0.5 0.11 184);
+    --brand-teal-soft: oklch(0.945 0.035 184);
+    --app-shadow: 0 18px 56px -36px oklch(0.35 0.07 252 / 0.24);
+  }
+
+  .dark,
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.165 0.028 257);
+    --foreground: oklch(0.965 0.008 95);
+    --surface: oklch(0.218 0.031 256);
+    --surface-secondary: oklch(0.255 0.034 255);
+    --surface-tertiary: oklch(0.292 0.035 255);
+    --overlay: oklch(0.235 0.032 255);
+    --field-background: oklch(0.255 0.034 255);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.345 0.03 254);
+    --separator: oklch(0.315 0.029 254);
+    --muted: oklch(0.735 0.016 253);
+    --accent: oklch(0.715 0.145 245);
+    --accent-foreground: oklch(0.16 0.03 257);
+    --focus: var(--accent);
+    --success: oklch(0.76 0.14 153);
+    --warning: oklch(0.8 0.13 80);
+    --danger: oklch(0.76 0.15 26);
+    --success-foreground: var(--background);
+    --warning-foreground: var(--background);
+    --danger-foreground: var(--background);
+    --brand-teal: oklch(0.765 0.1 181);
+    --brand-teal-soft: oklch(0.32 0.045 185);
+    --app-shadow: 0 18px 56px -36px oklch(0 0 0 / 0.62);
+  }
 }
 
 @layer base {
-  * {
-    @apply border-border outline-ring/50;
-  }
-  body {
-    @apply bg-background text-foreground font-sans;
-  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--background); color: var(--foreground); font-family: var(--font-vazirmatn), ui-sans-serif, system-ui, sans-serif; }
+  :where(button, a, input, textarea, select, [role="button"]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  :where(input, textarea, select, [dir="ltr"]) { unicode-bidi: plaintext; }
+}
+
+@layer components {
+  .app-surface { background: var(--surface); border: 1px solid var(--border); border-radius: 1.25rem; box-shadow: var(--app-shadow); }
+  .app-subtle-surface { background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 1rem; }
+  .app-page-container { width: min(100% - 2rem, 80rem); margin-inline: auto; }
+  .app-section-label { color: var(--accent); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em; }
+}
+
+@media (max-width: 640px) {
+  .app-page-container { width: min(100% - 1.5rem, 80rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

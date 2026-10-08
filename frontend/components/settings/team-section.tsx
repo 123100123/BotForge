@@ -6,7 +6,7 @@ import { ErrorNote } from "@/components/app/state-blocks";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Select } from "@/components/ui/select";
+import { Select, ListBox } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
@@ -118,26 +118,26 @@ export function TeamSection({ botId }: { botId: string }) {
       <CardContent className="flex flex-col gap-5">
         {error && <ErrorNote>{error}</ErrorNote>}
         {!team ? (
-          !error && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-muted" />
+          !error && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-surface-secondary" />
         ) : (
           <>
             <div className="flex flex-col gap-3">
               <h3 className="text-sm font-semibold">پیوند دعوت همکار</h3>
               {team.staff_link ? (
                 <>
-                  <div className="rounded-md border bg-muted/40 p-3 text-sm break-all" dir="ltr">
+                  <div className="rounded-md border bg-surface-secondary/40 p-3 text-sm break-all" dir="ltr">
                     {team.staff_link}
                   </div>
                   <div className="flex flex-wrap gap-2">
-                    <Button variant="outline" onClick={copy}>
+                    <Button variant="outline" onPress={copy}>
                       {copied === "yes" ? <Check /> : <Copy />}
                       {copied === "yes" ? "کپی شد" : "کپی پیوند"}
                     </Button>
-                    <Button variant="outline" onClick={rotate} disabled={busy !== null}>
+                    <Button variant="outline" onPress={rotate} isDisabled={busy !== null}>
                       <RefreshCw className={busy === "rotate" ? "animate-spin" : undefined} />
                       ساخت/تعویض لینک
                     </Button>
-                    <Button variant="ghost" className="text-destructive" onClick={() => setConfirmRevoke(true)} disabled={busy !== null}>
+                    <Button variant="ghost" className="text-destructive" onPress={() => setConfirmRevoke(true)} isDisabled={busy !== null}>
                       <Link2Off />
                       لغو لینک
                     </Button>
@@ -152,7 +152,7 @@ export function TeamSection({ botId }: { botId: string }) {
                 <>
                   <p className="text-sm leading-7 text-muted-foreground">الان پیوند دعوتی فعال نیست.</p>
                   <div>
-                    <Button onClick={rotate} disabled={busy !== null}>
+                    <Button onPress={rotate} isDisabled={busy !== null}>
                       <RefreshCw className={busy === "rotate" ? "animate-spin" : undefined} />
                       ساخت/تعویض لینک
                     </Button>
@@ -182,7 +182,7 @@ export function TeamSection({ botId }: { botId: string }) {
               ) : (
                 <div className="overflow-x-auto rounded-md border">
                   <table className="w-full min-w-[30rem] text-sm">
-                    <thead className="bg-muted/50 text-muted-foreground">
+                    <thead className="bg-surface-secondary/50 text-muted-foreground">
                       <tr>
                         <th className="px-3 py-2 text-start font-medium">نام</th>
                         <th className="px-3 py-2 text-start font-medium">شناسه</th>
@@ -212,15 +212,15 @@ export function TeamSection({ botId }: { botId: string }) {
                                   aria-label={`نقش ${label}`}
                                   className="h-8 w-28"
                                   value={m.role}
-                                  disabled={savingRole === m.actor_id}
-                                  onChange={(e) => changeRole(m, e.target.value as TeamRole)}
+                                  isDisabled={savingRole === m.actor_id}
+                                  onChange={(key) => key !== null && changeRole(m, String(key) as TeamRole)}
                                 >
-                                  {ROLES.map((r) => (
-                                    <option key={r} value={r}>
+                                  <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>{ROLES.map((r) => (
+                                    <ListBox.Item key={r} id={r} textValue={ROLE_LABELS[r]}>
                                       {ROLE_LABELS[r]}
-                                    </option>
+                                    </ListBox.Item>
                                   ))}
-                                </Select>
+                                </ListBox></Select.Popover></Select>
                               )}
                             </td>
                           </tr>

@@ -17,7 +17,7 @@ const CONVERSATION_KINDS: ReadonlySet<FeedItem["kind"]> = new Set(["owner", "age
 /** A thin line between runs: what the run was, when it started, and how it ended. */
 export function RunDivider({ run, status, children }: { run: AgentRun; status: RunStatus | null; children?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 text-xs whitespace-nowrap text-muted-foreground">
+    <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-2 rounded-full bg-surface-secondary/55 px-3 py-2 text-xs text-muted-foreground">
       <span className="hidden h-px flex-1 bg-border sm:block" aria-hidden />
       <span>{runKindLabel(run.kind)}</span>
       <span aria-hidden>·</span>
@@ -58,7 +58,7 @@ export function PastRunGroup({ entry, renderItem, onRetry }: PastRunGroupProps) 
   const shown = open ? feed : feed.filter((item) => CONVERSATION_KINDS.has(item.kind));
 
   return (
-    <section className="flex flex-col gap-4" aria-label={`${runKindLabel(run.kind)}، ${formatDateTime(run.created_at)}`}>
+    <section className="flex flex-col gap-4 rounded-2xl border border-border/70 bg-surface-secondary/20 p-3 sm:p-4" aria-label={`${runKindLabel(run.kind)}، ${formatDateTime(run.created_at)}`}>
       <RunDivider run={run} status={view?.status ?? run.status}>
         {folded > 0 && (
           <button
@@ -75,7 +75,7 @@ export function PastRunGroup({ entry, renderItem, onRetry }: PastRunGroupProps) 
       {failed ? (
         <div className="flex items-center justify-center gap-2 text-sm text-muted-foreground">
           این بخش از گفت‌وگو بارگذاری نشد.
-          <Button size="sm" variant="outline" onClick={onRetry}>
+          <Button size="sm" variant="outline" onPress={onRetry}>
             <RotateCw />
             تلاش دوباره
           </Button>

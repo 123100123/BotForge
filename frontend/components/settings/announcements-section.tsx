@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { Checkbox } from "@heroui/react";
 import { Megaphone, Send } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
 import { Badge } from "@/components/ui/badge";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, ListBox } from "@/components/ui/select";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -135,13 +136,13 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="announcement-audience">مخاطب</Label>
-              <Select id="announcement-audience" value={audience} onChange={(e) => setAudience(e.target.value as Audience)}>
-                {AUDIENCES.map((a) => (
-                  <option key={a.id} value={a.id}>
+              <Select id="announcement-audience" value={audience} aria-label="مخاطب اعلان" onChange={(key) => key !== null && setAudience(String(key) as Audience)}>
+                <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>{AUDIENCES.map((a) => (
+                  <ListBox.Item key={a.id} id={a.id} textValue={a.label}>
                     {a.label}
-                  </option>
+                  </ListBox.Item>
                 ))}
-              </Select>
+              </ListBox></Select.Popover></Select>
             </div>
             {needsCategory && (
               <div className="flex flex-col gap-1.5">
@@ -161,15 +162,9 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
             <fieldset className="flex flex-col gap-2">
               <legend className="mb-1 text-sm font-medium">ارسال در گروه‌ها (اختیاری)</legend>
               {groups.map((g) => (
-                <label key={g.chat_id} className="flex items-center gap-2 text-sm">
-                  <input
-                    type="checkbox"
-                    className="size-4 accent-primary"
-                    checked={groupIds.includes(g.chat_id)}
-                    onChange={() => toggleGroup(g.chat_id)}
-                  />
-                  <span className="min-w-0 truncate">{g.title}</span>
-                </label>
+                <Checkbox key={g.chat_id} aria-label={g.title} isSelected={groupIds.includes(g.chat_id)} onChange={() => toggleGroup(g.chat_id)} isDisabled={sending}>
+                  <Checkbox.Content><Checkbox.Control><Checkbox.Indicator /></Checkbox.Control><Label className="min-w-0 truncate">{g.title}</Label></Checkbox.Content>
+                </Checkbox>
               ))}
             </fieldset>
           )}
@@ -177,7 +172,7 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
           {error && <ErrorNote>{error}</ErrorNote>}
           {notice && <InfoNote>{notice}</InfoNote>}
           <div>
-            <Button type="submit" disabled={!canSend}>
+            <Button type="submit" isDisabled={!canSend}>
               <Send className="rtl:-scale-x-100" />
               {sending ? "در حال ارسال…" : "ارسال اعلان"}
             </Button>
@@ -188,7 +183,7 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
           <h3 className="text-sm font-semibold">تاریخچه</h3>
           {loadError && <ErrorNote>{loadError}</ErrorNote>}
           {!history ? (
-            !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-16 animate-pulse rounded-xl bg-muted" />
+            !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-16 animate-pulse rounded-xl bg-surface-secondary" />
           ) : history.length === 0 ? (
             <p className="text-sm leading-7 text-muted-foreground">هنوز اعلانی نفرستاده‌اید.</p>
           ) : (

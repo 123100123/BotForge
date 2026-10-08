@@ -6,8 +6,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { ChoiceSelect, ToggleField } from "@/components/data/controls";
 import { errorMessage } from "@/lib/errors";
 import { fa, formatDateTime } from "@/lib/format";
 import type { AnalysisProfileOut, UploadOut } from "@/lib/types";
@@ -48,22 +47,11 @@ function RunPanel({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+    <div className="flex flex-col gap-3 rounded-lg bg-surface-secondary/40 p-3">
       {uploads.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`run-upload-${profile.id}`}>فایل برای تحلیل</Label>
-          <Select
-            id={`run-upload-${profile.id}`}
-            value={uploadId}
-            onChange={(e) => setChosen(e.target.value)}
-            disabled={busy}
-          >
-            {uploads.map((u) => (
-              <option key={u.id} value={u.id}>
-                {u.filename} — {formatDateTime(u.created_at)}
-              </option>
-            ))}
-          </Select>
+          <ChoiceSelect id={`run-upload-${profile.id}`} label="فایل برای تحلیل" value={uploadId} onChange={setChosen} isDisabled={busy} options={uploads.map((u) => ({ value: u.id, label: `${u.filename} — ${formatDateTime(u.created_at)}` }))} />
         </div>
       )}
       <div className="flex flex-col gap-1.5">
@@ -80,11 +68,10 @@ function RunPanel({
         />
       </div>
       <div className="flex items-center gap-2">
-        <Switch id={`run-narrative-${profile.id}`} checked={narrative} onCheckedChange={setNarrative} disabled={busy} />
-        <Label htmlFor={`run-narrative-${profile.id}`}>نوشتن خلاصهٔ متنی از نتیجه</Label>
+        <ToggleField id={`run-narrative-${profile.id}`} label="نوشتن خلاصهٔ متنی از نتیجه" value={narrative} onChange={setNarrative} isDisabled={busy} />
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Button type="button" onClick={() => void run()} disabled={busy || !uploadId} className="w-full sm:w-fit">
+      <Button type="button" onPress={() => void run()} isDisabled={busy || !uploadId} className="w-full sm:w-fit">
         {busy ? "در حال تحلیل…" : "شروع تحلیل"}
       </Button>
     </div>
@@ -114,7 +101,7 @@ export function ProfileCard({
   const checks = profile.checks ?? [];
 
   return (
-    <Card className="gap-3 py-4">
+    <Card className="min-w-0 gap-3 rounded-2xl border border-border py-5">
       <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
         <CardTitle className="text-sm">{profile.name}</CardTitle>
         {profile.daily_report && <Badge variant="accent">گزارش روزانه</Badge>}
@@ -146,10 +133,10 @@ export function ProfileCard({
           </ul>
         )}
         <div className="flex flex-wrap gap-2">
-          <Button type="button" size="sm" onClick={() => setRunning((v) => !v)} aria-expanded={running}>
+          <Button type="button" size="sm" onPress={() => setRunning((v) => !v)} aria-expanded={running}>
             اجرای تحلیل
           </Button>
-          <Button type="button" size="sm" variant="outline" onClick={() => setEditing(true)}>
+          <Button type="button" size="sm" variant="outline" onPress={() => setEditing(true)}>
             ویرایش
           </Button>
         </div>

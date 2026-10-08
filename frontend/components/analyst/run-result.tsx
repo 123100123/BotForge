@@ -26,7 +26,7 @@ function MetricTable({ rows }: { rows: Record<string, unknown>[] }) {
   return (
     <div className="overflow-x-auto rounded-lg border">
       <table className="w-full min-w-max text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-surface-secondary/50 text-xs text-muted-foreground">
           <tr>
             {headers.map((h) => (
               <th key={h} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -210,8 +210,8 @@ export function RunResult({
             <div className="flex flex-col gap-1.5">
               <Button
                 type="button"
-                onClick={() => void update()}
-                disabled={updating || !run.upload_id}
+                onPress={() => void update()}
+                isDisabled={updating || !run.upload_id}
                 className="w-full sm:w-fit"
               >
                 {updating ? "در حال ساخت…" : "به‌روزرسانی پروفایل"}

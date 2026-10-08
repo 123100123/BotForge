@@ -82,11 +82,11 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
             </dl>
             {!hasActiveRevision && (
               <p className="rounded-md bg-warning/15 p-3 text-sm leading-7 text-warning">
-                ربات هنوز نسخهٔ فعالی ندارد و به مشتری‌ها «آماده نیست» را نشان می‌دهد. نسخهٔ ربات را در تب ایجنت تأیید کنید.
+                ربات هنوز نسخهٔ فعالی ندارد و به مشتری‌ها «آماده نیست» را نشان می‌دهد. نسخهٔ ربات را در بخش دستیار هوشمند تأیید کنید.
               </p>
             )}
             <div>
-              <Button variant="outline" onClick={() => setConfirmOpen(true)}>
+              <Button variant="outline" onPress={() => setConfirmOpen(true)}>
                 <Unplug />
                 قطع اتصال
               </Button>
@@ -134,7 +134,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
               </ErrorNote>
             )}
             <div>
-              <Button type="submit" disabled={busy}>
+              <Button type="submit" isDisabled={busy}>
                 {busy ? "در حال اتصال…" : "اتصال"}
               </Button>
             </div>

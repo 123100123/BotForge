@@ -25,7 +25,7 @@ export function ScenarioDetail({ scenario, result, requirements }: ScenarioDetai
     .filter((r): r is Requirement => r !== null);
 
   return (
-    <Card>
+    <Card className="min-w-0 border-border/70 shadow-sm">
       <CardHeader className="gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant="outline">{scenario.source === "derived" ? "مشتق‌شده" : "پذیرش"}</Badge>
@@ -63,8 +63,8 @@ export function ScenarioDetail({ scenario, result, requirements }: ScenarioDetai
                   key={s.index}
                   aria-current={!s.passed ? "step" : undefined}
                   className={cn(
-                    "flex items-start gap-2 rounded-md border px-3 py-2 text-sm leading-7",
-                    s.passed ? "border-transparent" : "border-destructive/40 bg-destructive/5",
+                    "flex items-start gap-3 rounded-xl border px-3 py-3 text-sm leading-7",
+                    s.passed ? "border-border/60 bg-background/60" : "border-destructive/40 bg-destructive/5",
                   )}
                 >
                   {s.passed ? (
@@ -102,7 +102,7 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
   return (
     <section aria-label="گفتگوها" className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">گفتگوی کاربران با ربات</h4>
-      <ul className="flex flex-col gap-2 rounded-lg bg-muted/60 p-3">
+      <ul className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-surface-secondary/50 p-3 sm:p-4">
         {entries.map((e, i) => (
           <li key={i} className={cn("flex flex-col gap-1", e.direction === "in" ? "items-end" : "items-start")}>
             <span className="text-xs text-muted-foreground">

@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { ErrorNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Modal } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { ToggleField } from "@/components/data/controls";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
@@ -92,21 +92,21 @@ export function ProfileEditDialog({
   }
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[88vh] overflow-y-auto sm:max-w-lg">
+      <Modal.Backdrop isOpen onOpenChange={(open) => !open && !busy && onClose()} isDismissable={!busy} isKeyboardDismissDisabled={busy}>
+        <Modal.Container size="lg" scroll="inside" className="max-h-[88dvh]">
+          <Modal.Dialog className="max-h-[88dvh] overflow-y-auto">
         <form onSubmit={save} className="grid gap-4">
-          <DialogHeader>
-            <DialogTitle>ویرایش پروفایل</DialogTitle>
-            <DialogDescription>نام شاخص‌ها و آستانهٔ بررسی‌ها را تغییر دهید. ستون‌ها و روش محاسبه ثابت می‌مانند.</DialogDescription>
-          </DialogHeader>
+          <Modal.Header>
+            <Modal.Heading>ویرایش پروفایل</Modal.Heading>
+            <p className="text-sm leading-7 text-muted-foreground">نام شاخص‌ها و آستانهٔ بررسی‌ها را تغییر دهید. ستون‌ها و روش محاسبه ثابت می‌مانند.</p>
+          </Modal.Header>
 
           <div className="flex flex-col gap-1.5">
             <Label htmlFor="pe-name">نام پروفایل</Label>
             <Input id="pe-name" value={name} onChange={(e) => setName(e.target.value)} maxLength={80} disabled={busy} />
           </div>
           <div className="flex items-center gap-2">
-            <Switch id="pe-daily" checked={daily} onCheckedChange={setDaily} disabled={busy} />
-            <Label htmlFor="pe-daily">گزارش روزانهٔ کارکنان</Label>
+            <ToggleField id="pe-daily" label="گزارش روزانهٔ کارکنان" value={daily} onChange={setDaily} isDisabled={busy} />
           </div>
 
           {metrics.length > 0 && (
@@ -188,16 +188,17 @@ export function ProfileEditDialog({
           )}
 
           {error && <ErrorNote>{error}</ErrorNote>}
-          <DialogFooter>
-            <Button type="submit" disabled={busy}>
+          <Modal.Footer className="flex flex-wrap gap-2">
+            <Button type="submit" isDisabled={busy}>
               {busy ? "در حال ذخیره…" : "ذخیره"}
             </Button>
-            <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
+            <Button type="button" variant="outline" onPress={onClose} isDisabled={busy}>
               انصراف
             </Button>
-          </DialogFooter>
+          </Modal.Footer>
         </form>
-      </DialogContent>
-    </Dialog>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
   );
 }

@@ -27,11 +27,11 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
     .filter((g) => g.items.length > 0);
 
   return (
-    <nav aria-label="مجموعه‌های داده" className="flex flex-col gap-4 md:w-56 md:shrink-0">
+    <nav aria-label="مجموعه‌های داده" className="app-subtle-surface flex min-w-0 flex-col gap-4 p-3 lg:sticky lg:top-24">
       {groups.map((g) => (
         <div key={g.kind} className="flex flex-col gap-1">
-          <h3 className="px-2 text-xs font-medium text-muted-foreground">{KIND_TITLES[g.kind]}</h3>
-          <ul className="flex flex-row flex-wrap gap-1 md:flex-col">
+          <h3 className="px-2 text-xs font-bold text-muted-foreground">{KIND_TITLES[g.kind]}</h3>
+          <ul className="flex flex-row flex-wrap gap-1 lg:flex-col">
             {g.items.map((c) => {
               const active = c.key === selected;
               return (
@@ -41,8 +41,8 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
                     onClick={() => onSelect(c.key)}
                     aria-current={active ? "true" : undefined}
                     className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                      active ? "bg-accent font-medium text-accent-foreground" : "hover:bg-muted",
+                      "flex w-full items-center justify-between gap-3 rounded-xl px-3 py-2.5 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      active ? "bg-primary/10 font-bold text-primary" : "bg-card/70 hover:bg-card",
                     )}
                   >
                     <span className={cn("truncate", c.enabled === false && "text-muted-foreground")}>{c.label_plural}</span>
@@ -53,7 +53,7 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
                         </Badge>
                       )}
                       {counts[c.key] !== undefined && (
-                        <span className="rounded-full bg-muted px-2 text-xs text-muted-foreground">{fa(counts[c.key])}</span>
+                        <span className="rounded-full bg-surface-secondary px-2 text-xs text-muted-foreground">{fa(counts[c.key])}</span>
                       )}
                     </span>
                   </button>

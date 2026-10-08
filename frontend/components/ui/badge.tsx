@@ -1,31 +1,14 @@
-import * as React from "react";
-import { cva, type VariantProps } from "class-variance-authority";
-import { cn } from "@/lib/utils";
+import type { ComponentProps } from "react";
+import { Chip } from "@heroui/react";
 
-const badgeVariants = cva(
-  "inline-flex w-fit shrink-0 items-center justify-center gap-1 rounded-full border px-2.5 py-0.5 text-xs font-medium whitespace-nowrap [&>svg]:size-3 [&>svg]:pointer-events-none",
-  {
-    variants: {
-      variant: {
-        default: "border-transparent bg-primary text-primary-foreground",
-        secondary: "border-transparent bg-secondary text-secondary-foreground",
-        outline: "bg-card text-foreground",
-        accent: "border-transparent bg-accent text-accent-foreground",
-        success: "border-transparent bg-success/10 text-success",
-        warning: "border-transparent bg-warning/15 text-warning",
-        destructive: "border-transparent bg-destructive/10 text-destructive",
-      },
-    },
-    defaultVariants: { variant: "secondary" },
-  },
-);
+type Tone = "default" | "secondary" | "outline" | "accent" | "success" | "warning" | "destructive";
+type BadgeProps = Omit<ComponentProps<typeof Chip>, "color" | "variant"> & { variant?: Tone };
 
-function Badge({
-  className,
-  variant,
-  ...props
-}: React.ComponentProps<"span"> & VariantProps<typeof badgeVariants>) {
-  return <span data-slot="badge" className={cn(badgeVariants({ variant }), className)} {...props} />;
+/** App status vocabulary rendered by HeroUI's Chip. */
+function Badge({ variant = "secondary", ...props }: BadgeProps) {
+  const color = variant === "success" ? "success" : variant === "warning" ? "warning" : variant === "destructive" ? "danger" : variant === "default" || variant === "accent" ? "accent" : "default";
+  const chipVariant = variant === "outline" ? "tertiary" : variant === "default" ? "primary" : "soft";
+  return <Chip color={color} variant={chipVariant} size="sm" {...props} />;
 }
 
-export { Badge, badgeVariants };
+export { Badge };

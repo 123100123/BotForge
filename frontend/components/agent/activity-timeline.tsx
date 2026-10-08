@@ -1,4 +1,4 @@
-import { Check, CircleAlert, Loader2, X } from "lucide-react";
+import { Activity, Check, CircleAlert, Loader2, X } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { fa, formatNumber } from "@/lib/format";
@@ -10,20 +10,20 @@ import { cn } from "@/lib/utils";
 function StateIcon({ state }: { state: PhaseState }) {
   if (state === "running") {
     return (
-      <span className="flex size-5 items-center justify-center rounded-full bg-accent text-accent-foreground" role="img" aria-label="در حال انجام">
+      <span className="flex size-6 items-center justify-center rounded-full bg-primary/15 text-primary" role="img" aria-label="در حال انجام">
         <Loader2 className="size-3.5 animate-spin" />
       </span>
     );
   }
   if (state === "done") {
     return (
-      <span className="flex size-5 items-center justify-center rounded-full bg-success text-white" role="img" aria-label="انجام شد">
+      <span className="flex size-6 items-center justify-center rounded-full bg-success text-white" role="img" aria-label="انجام شد">
         <Check className="size-3.5" />
       </span>
     );
   }
   return (
-    <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-white" role="img" aria-label="ناموفق">
+    <span className="flex size-6 items-center justify-center rounded-full bg-destructive text-white" role="img" aria-label="ناموفق">
       <X className="size-3.5" />
     </span>
   );
@@ -33,10 +33,10 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
   return (
     <li className="flex flex-col gap-0.5 text-sm">
       <div className="flex items-start gap-2">
-        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
+        <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-surface-secondary-foreground/50" aria-hidden />
         <div className="min-w-0">
           <span className="whitespace-pre-line">{tool.summary}</span>{" "}
-          <span dir="ltr" className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span dir="ltr" className="inline-block rounded bg-surface-secondary px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
             {tool.name}
           </span>
         </div>
@@ -63,8 +63,8 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
 
 function PhaseRow({ entry, last }: { entry: PhaseEntry; last: boolean }) {
   return (
-    <li className="relative flex gap-3 pb-4 last:pb-0">
-      {!last && <span className="absolute start-[9.5px] top-6 bottom-0 w-px bg-muted-foreground/25" aria-hidden />}
+    <li className="relative flex gap-3 pb-5 last:pb-0">
+      {!last && <span className="absolute start-[11.5px] top-7 bottom-0 w-px bg-primary/20" aria-hidden />}
       <div className="z-10 shrink-0">
         <StateIcon state={entry.state} />
       </div>
@@ -75,7 +75,7 @@ function PhaseRow({ entry, last }: { entry: PhaseEntry; last: boolean }) {
         </div>
         {entry.summary && <p className="mt-0.5 text-xs text-muted-foreground">{entry.summary}</p>}
         {entry.tools.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-2 rounded-lg bg-muted/60 p-2.5">
+          <ul className="mt-2 flex flex-col gap-2 rounded-lg bg-surface-secondary/60 p-2.5">
             {entry.tools.map((tool) => (
               <ToolRow key={tool.id} tool={tool} />
             ))}
@@ -95,14 +95,14 @@ interface ActivityTimelineProps {
 /** Phases as a vertical checklist; tool calls are nested under the phase that made them. */
 export function ActivityTimeline({ phases, status, usage }: ActivityTimelineProps) {
   return (
-    <Card>
+    <Card className="overflow-hidden border-border/70 shadow-sm">
       <CardHeader className="flex-row items-center justify-between gap-2">
-        <CardTitle>فعالیت ایجنت</CardTitle>
+        <CardTitle className="flex items-center gap-2"><Activity className="size-4 text-primary" /> مسیر ساخت</CardTitle>
         {status && <Badge variant={RUN_STATUS_VARIANT[status]}>{RUN_STATUS_LABELS[status]}</Badge>}
       </CardHeader>
       <CardContent>
         {phases.length === 0 ? (
-          <p className="text-sm text-muted-foreground">هنوز فعالیتی ثبت نشده است. پیام خود را بفرستید تا ایجنت شروع کند.</p>
+          <div className="rounded-2xl border border-dashed border-primary/20 bg-primary/5 p-4 text-sm leading-7 text-muted-foreground">هنوز فعالیتی ثبت نشده است. پیام خود را بفرستید تا مراحل ساخت اینجا دیده شوند.</div>
         ) : (
           <ol className="flex flex-col">
             {phases.map((entry, i) => (

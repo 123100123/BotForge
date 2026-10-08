@@ -1,14 +1,15 @@
 "use client";
 
 import { useState } from "react";
+import { X } from "lucide-react";
 import { ErrorNote } from "@/components/app/state-blocks";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { CapabilityConfig, hasConfigFields } from "@/components/capabilities/capability-config";
 import { AUDIENCE_LABELS, COMING_SOON, metricLabel, namesOf, openSection } from "@/components/capabilities/labels";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Switch } from "@/components/ui/switch";
+import { Modal } from "@/components/ui/dialog";
+import { ToggleField } from "@/components/data/controls";
 import { api } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/errors";
 import type { CapabilityOut, CapabilityToggleOut } from "@/lib/types";
@@ -56,11 +57,13 @@ export function CapabilityDialog({
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
+  const [configBusy, setConfigBusy] = useState(false);
   /** The handoff was refused because an agent run is already open: offer to go to it. */
   const [runActive, setRunActive] = useState(false);
   const soon = COMING_SOON.has(cap.id);
   const action = cap.enabled ? "disable" : "enable";
   const busy = phase.kind === "checking" || phase.kind === "applying";
+  const closingBlocked = busy || handoffBusy || configBusy;
 
   function fail(err: unknown) {
     const text = errorMessage(err);
@@ -131,19 +134,21 @@ export function CapabilityDialog({
   const verb = plan?.action === "disable" ? "غیرفعال" : "فعال";
 
   return (
-    <Dialog open onOpenChange={(open) => !open && !busy && onClose()}>
-      <DialogContent className="max-h-[90vh] gap-5 overflow-y-auto sm:max-w-lg">
-        <DialogHeader>
-          <div className="flex flex-wrap items-center gap-2 pe-6">
-            <DialogTitle className="leading-7">{cap.name}</DialogTitle>
+      <Modal.Backdrop isOpen onOpenChange={(open) => !open && !closingBlocked && onClose()} isDismissable={!closingBlocked} isKeyboardDismissDisabled={closingBlocked}>
+        <Modal.Container size="lg" scroll="inside" className="max-h-[90dvh]">
+          <Modal.Dialog className="max-h-[90dvh] gap-5 overflow-y-auto">
+        <Button isIconOnly size="sm" variant="ghost" aria-label="بستن" className="absolute end-4 top-4" isDisabled={closingBlocked} onPress={onClose}><X className="size-4" /></Button>
+        <Modal.Header>
+          <div className="flex flex-wrap items-center gap-2 pe-12">
+            <Modal.Heading className="leading-7">{cap.name}</Modal.Heading>
             {soon ? (
               <Badge variant="warning">به‌زودی</Badge>
             ) : (
               <Badge variant={cap.enabled ? "success" : "secondary"}>{cap.enabled ? "● فعال" : "○ غیرفعال"}</Badge>
             )}
           </div>
-          <DialogDescription className="leading-7">{cap.description}</DialogDescription>
-        </DialogHeader>
+          <p className="text-sm leading-7 text-muted-foreground">{cap.description}</p>
+        </Modal.Header>
 
         {cap.features.length > 0 && (
           <Section title="امکانات">
@@ -186,7 +191,7 @@ export function CapabilityDialog({
         {hasConfigFields(cap) && (
           <Section title="تنظیمات">
             {cap.enabled ? (
-              <CapabilityConfig key={cap.id} botId={botId} cap={cap} onSaved={onCapabilityUpdated} />
+              <CapabilityConfig key={cap.id} botId={botId} cap={cap} onSaved={onCapabilityUpdated} onBusyChange={setConfigBusy} />
             ) : (
               <p className="text-sm leading-7 text-muted-foreground">پس از فعال‌کردن قابلیت می‌توانید آن را تنظیم کنید.</p>
             )}
@@ -197,7 +202,7 @@ export function CapabilityDialog({
           {soon ? (
             <div className="flex items-center justify-between gap-3">
               <p className="text-sm leading-7 text-muted-foreground">این قابلیت به‌زودی اضافه می‌شود.</p>
-              <Switch checked={false} disabled aria-label={`فعال‌سازی ${cap.name}`} />
+              <ToggleField id={`soon-${cap.id}`} label={`فعال‌سازی ${cap.name}`} value={false} onChange={() => {}} isDisabled />
             </div>
           ) : plan === null ? (
             <div className="flex items-center justify-between gap-3">
@@ -206,7 +211,7 @@ export function CapabilityDialog({
                   ? "قبل از غیرفعال‌کردن، پیش‌نمایش تغییرات را می‌بینید."
                   : "قبل از فعال‌کردن، پیش‌نمایش تغییرات را می‌بینید."}
               </p>
-              <Button variant={cap.enabled ? "outline" : "default"} disabled={busy} onClick={preview}>
+              <Button variant={cap.enabled ? "outline" : "primary"} isDisabled={busy} onPress={preview}>
                 {phase.kind === "checking" ? "در حال بررسی…" : cap.enabled ? "غیرفعال‌کردن" : "فعال‌کردن"}
               </Button>
             </div>
@@ -248,20 +253,20 @@ export function CapabilityDialog({
               )}
               <div className="flex flex-wrap gap-2">
                 {plan.blocked_by.length === 0 && plan.needs_agent && (
-                  <Button disabled={handoffBusy} onClick={() => handoff(plan.handoff_prompt ?? cap.handoff_prompt ?? `قابلیت «${cap.name}» را برای ربات فعال کن.`)}>
+                  <Button isDisabled={handoffBusy} onPress={() => handoff(plan.handoff_prompt ?? cap.handoff_prompt ?? `قابلیت «${cap.name}» را برای ربات فعال کن.`)}>
                     {handoffBusy ? "در حال شروع…" : "ادامه با دستیار"}
                   </Button>
                 )}
                 {plan.blocked_by.length === 0 && !plan.needs_agent && (
                   <Button
-                    variant={plan.action === "disable" ? "destructive" : "default"}
-                    disabled={phase.kind === "applying"}
-                    onClick={() => phase.kind === "plan" && confirm(phase.out)}
+                    variant={plan.action === "disable" ? "danger" : "primary"}
+                    isDisabled={phase.kind === "applying"}
+                    onPress={() => phase.kind === "plan" && confirm(phase.out)}
                   >
                     {phase.kind === "applying" ? "در حال اعمال…" : plan.action === "disable" ? "تأیید و غیرفعال‌کردن" : "تأیید و فعال‌کردن"}
                   </Button>
                 )}
-                <Button variant="outline" disabled={phase.kind === "applying"} onClick={() => setPhase({ kind: "idle" })}>
+                <Button variant="outline" isDisabled={phase.kind === "applying"} onPress={() => setPhase({ kind: "idle" })}>
                   {plan.blocked_by.length > 0 ? "بازگشت" : "انصراف"}
                 </Button>
               </div>
@@ -272,7 +277,7 @@ export function CapabilityDialog({
             <Button
               variant="outline"
               className="self-start"
-              onClick={() => {
+              onPress={() => {
                 onClose();
                 openSection("copilot", onOpenTab);
               }}
@@ -281,7 +286,8 @@ export function CapabilityDialog({
             </Button>
           )}
         </div>
-      </DialogContent>
-    </Dialog>
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
   );
 }

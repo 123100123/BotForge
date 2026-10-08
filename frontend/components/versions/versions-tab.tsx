@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { History, Undo2 } from "lucide-react";
+import { GitCompareArrows, History, Undo2 } from "lucide-react";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { REVISION_STATUS_LABELS, REVISION_STATUS_VARIANTS } from "@/components/app/revision-labels";
@@ -34,7 +34,9 @@ export function VersionsTab({
   const [view, setView] = useState<VersionsView>("history");
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex min-w-0 flex-col gap-5">
+      <header className="flex flex-col justify-between gap-4 rounded-[1.5rem] border border-border/70 bg-card p-5 shadow-sm sm:flex-row sm:items-end sm:p-6">
+        <div><span className="mb-3 inline-grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><History className="size-6" /></span><h2 className="text-xl font-bold">نسخه‌ها و آزمون‌ها</h2><p className="mt-1 text-sm leading-7 text-muted-foreground">تغییرات ربات را بررسی و هر نسخه را پیش از فعال‌سازی ارزیابی کنید.</p></div>
       <Segmented<VersionsView>
         label="بخش نسخه‌ها"
         value={view}
@@ -44,6 +46,7 @@ export function VersionsTab({
           { value: "tests", label: "آزمون‌ها" },
         ]}
       />
+      </header>
       {view === "history" ? (
         <RevisionHistory bot={bot} onBotChanged={onBotChanged} onOpenTab={onOpenTab} />
       ) : (
@@ -99,8 +102,8 @@ function RevisionHistory({
       <EmptyState
         title="هنوز نسخه‌ای وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onPress={() => onOpenTab("agent")}>
+            رفتن به بخش دستیار هوشمند
           </Button>
         }
       >
@@ -112,7 +115,7 @@ function RevisionHistory({
   const shown = detail && detail.id === selectedId ? detail : null;
 
   return (
-    <div className="grid gap-5 md:grid-cols-[minmax(0,22rem)_minmax(0,1fr)] md:items-start">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] xl:items-start">
       <RevisionList
         revisions={revisions}
         selectedId={selectedId}
@@ -122,19 +125,19 @@ function RevisionHistory({
         }}
       />
 
-      <div className="flex flex-col gap-3">
+      <div className="flex min-w-0 flex-col gap-3">
         {done && <InfoNote>{done}</InfoNote>}
         {detailError && <ErrorNote>{detailError}</ErrorNote>}
         {!shown && !detailError && <LoadingBlock />}
         {shown && (
-          <Card>
+          <Card className="overflow-hidden">
             <CardHeader className="gap-2">
               <CardTitle className="flex flex-wrap items-center gap-2 text-base">
-                <History className="size-5 text-muted-foreground" />
+                <GitCompareArrows className="size-5 text-primary" />
                 نسخهٔ {fa(shown.number)}
                 <Badge variant={REVISION_STATUS_VARIANTS[shown.status]}>{REVISION_STATUS_LABELS[shown.status]}</Badge>
                 {shown.status === "superseded" && (
-                  <Button variant="outline" size="sm" className="ms-auto" onClick={() => setRollbackOpen(true)}>
+                  <Button variant="outline" size="sm" className="ms-auto" onPress={() => setRollbackOpen(true)}>
                     <Undo2 />
                     بازگشت به این نسخه
                   </Button>
@@ -144,7 +147,7 @@ function RevisionHistory({
                 ساخته‌شده در {formatDateTime(shown.created_at)}
                 {shown.activated_at && ` - فعال‌شده در ${formatDateTime(shown.activated_at)}`}
               </p>
-              {shown.change_request && <p className="rounded-md bg-muted/60 p-3 text-sm leading-7">{shown.change_request}</p>}
+              {shown.change_request && <p className="rounded-md bg-surface-secondary/60 p-3 text-sm leading-7">{shown.change_request}</p>}
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <h4 className="text-sm font-semibold">تغییرات نسبت به نسخهٔ قبل</h4>

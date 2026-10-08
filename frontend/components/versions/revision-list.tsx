@@ -15,18 +15,18 @@ interface RevisionListProps {
 /** Revisions, newest first: number, status, the owner's request, time and test counts. */
 export function RevisionList({ revisions, selectedId, onSelect }: RevisionListProps) {
   return (
-    <ul className="flex flex-col gap-2" aria-label="نسخه‌ها">
+    <ul className="relative flex flex-col gap-3 before:absolute before:inset-y-5 before:start-[1.15rem] before:w-px before:bg-border" aria-label="نسخه‌ها">
       {revisions.map((r) => {
         const active = r.id === selectedId;
         return (
-          <li key={r.id}>
+          <li key={r.id} className="relative ps-8 before:absolute before:start-[.75rem] before:top-6 before:size-3 before:rounded-full before:border-[3px] before:border-background before:bg-primary before:shadow-sm">
             <button
               type="button"
               onClick={() => onSelect(r.id)}
               aria-current={active ? "true" : undefined}
               className={cn(
-                "flex w-full flex-col gap-1.5 rounded-xl border bg-card p-3 text-start transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                active ? "border-primary/60 bg-accent/50" : "hover:bg-muted/60",
+                "flex w-full flex-col gap-2 rounded-2xl border bg-card p-4 text-start shadow-sm transition-all outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                active ? "border-primary/50 bg-primary/5 shadow-primary/10" : "border-border/70 hover:-translate-y-0.5 hover:border-primary/25 hover:shadow-md",
               )}
             >
               <span className="flex items-center gap-2">

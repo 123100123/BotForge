@@ -23,7 +23,7 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
   const allPassed = latest !== null && latest.failed === 0;
 
   return (
-    <Card className={allPassed ? "border-success/40" : latest ? "border-destructive/40" : undefined}>
+    <Card className={allPassed ? "border-success/40 bg-success/[.025] shadow-sm" : latest ? "border-destructive/40 bg-destructive/[.025] shadow-sm" : "border-border/70 shadow-sm"}>
       <CardHeader className="flex-row items-center gap-2">
         <FlaskConical className="size-5 text-muted-foreground" />
         <CardTitle>آزمون‌ها</CardTitle>
@@ -41,7 +41,7 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
           </p>
         )}
         {generated?.notes && generated.notes.length > 0 && (
-          <ul aria-label="نکته‌های ساخت آزمون" className="flex flex-col gap-1 rounded-lg bg-muted/60 p-3 text-sm leading-7">
+          <ul aria-label="نکته‌های ساخت آزمون" className="flex flex-col gap-1 rounded-lg bg-surface-secondary/60 p-3 text-sm leading-7">
             {generated.notes.map((n, i) => (
               <li key={i} className="whitespace-pre-line">
                 {n}

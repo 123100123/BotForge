@@ -7,8 +7,8 @@ import { REQUIREMENT_KIND_LABELS } from "./labels";
 
 function RequirementRow({ item }: { item: Requirement }) {
   return (
-    <li className="flex items-start gap-2 text-sm leading-7">
-      <span dir="ltr" className="mt-1.5 inline-block shrink-0 rounded bg-muted px-1.5 font-mono text-[11px] leading-5 text-muted-foreground">
+    <li className="flex flex-wrap items-start gap-2 rounded-xl border border-border/70 bg-background/60 p-3 text-sm leading-7 sm:flex-nowrap">
+      <span dir="ltr" className="mt-1.5 inline-block shrink-0 rounded bg-surface-secondary px-1.5 font-mono text-[11px] leading-5 text-muted-foreground">
         {item.id}
       </span>
       <span className="flex-1">{item.statement}</span>
@@ -25,7 +25,7 @@ export function RequirementsCard({ requirements }: { requirements: Requirements 
   const assumed = requirements.items.filter((r) => r.status === "assumed");
 
   return (
-    <Card>
+    <Card className="overflow-hidden border-border/70 shadow-sm">
       <CardHeader>
         <CardTitle>نیازمندی‌ها</CardTitle>
         <CardDescription className="leading-7">{requirements.business_summary}</CardDescription>
@@ -37,7 +37,7 @@ export function RequirementsCard({ requirements }: { requirements: Requirements 
               تأییدشده
               <Badge variant="success">{fa(confirmed.length)}</Badge>
             </h4>
-            <ul className="flex flex-col gap-1.5">
+            <ul className="flex flex-col gap-2">
               {confirmed.map((item) => (
                 <RequirementRow key={item.id} item={item} />
               ))}

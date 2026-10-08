@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
 import { isoToJalali, jalaliToIso } from "@/lib/jalali";
 import { cn } from "@/lib/utils";
+import styles from "./calendar.module.css";
 
 interface JalaliDateTimeInputProps {
   id: string;
@@ -39,7 +40,7 @@ export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, de
           aria-describedby={describedBy}
           onClick={() => setOpen((o) => !o)}
           className={cn(
-            "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-card px-3 text-start text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 data-[invalid=true]:border-destructive",
+            "flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl border border-border bg-card px-3 text-start text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 data-[invalid=true]:border-destructive",
             !value && "text-muted-foreground",
           )}
         >
@@ -47,13 +48,13 @@ export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, de
           <span className="truncate">{value ? formatDateTime(value, timeZone) : "انتخاب تاریخ و ساعت"}</span>
         </button>
         {value && (
-          <Button type="button" variant="ghost" size="sm" onClick={() => onChange("")}>
+          <Button type="button" variant="ghost" size="sm" onPress={() => onChange("")}>
             پاک کردن
           </Button>
         )}
       </div>
       {open && (
-        <div className="self-start" dir="rtl">
+        <div className={cn(styles.calendar, "max-w-full self-start overflow-x-auto rounded-xl border border-border bg-card p-2 shadow-lg [&_.rmdp-container]:max-w-full")} dir="rtl">
           <Calendar
             calendar={persian}
             locale={persian_fa}

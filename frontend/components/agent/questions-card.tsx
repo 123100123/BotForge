@@ -43,7 +43,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
   }
 
   return (
-    <Card className="border-warning/40">
+    <Card className="overflow-hidden border-warning/35 bg-warning/[.025] shadow-sm">
       <CardHeader className="flex-row items-center gap-2">
         <CircleHelp className="size-5 text-warning" />
         <CardTitle>{single ? "یک پرسش" : "چند پرسش"}</CardTitle>
@@ -51,7 +51,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
         {questions.map((q) => (
-          <div key={q.id} className="flex flex-col gap-2">
+          <div key={q.id} className="flex flex-col gap-2 rounded-2xl border border-border/70 bg-card p-4">
             <div className="text-sm leading-7 font-medium">{q.text}</div>
             <p className="text-xs leading-6 text-muted-foreground">{q.why}</p>
             {q.options && q.options.length > 0 ? (
@@ -61,9 +61,9 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
                     key={option}
                     type="button"
                     size="sm"
-                    variant={picked[q.id] === option ? "default" : "outline"}
-                    disabled={locked}
-                    onClick={() => choose(q, option)}
+                    variant={picked[q.id] === option ? "primary" : "outline"}
+                    isDisabled={locked}
+                    onPress={() => choose(q, option)}
                     className={cn("h-auto min-h-8 whitespace-normal py-1.5 text-start")}
                   >
                     {option}
@@ -85,14 +85,14 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
         ))}
 
         {answered ? (
-          <div className="rounded-lg bg-muted p-3 text-sm whitespace-pre-wrap">
+          <div className="rounded-lg bg-surface-secondary p-3 text-sm whitespace-pre-wrap">
             <span className="text-muted-foreground">پاسخ شما: </span>
             {answer}
           </div>
         ) : (
           <>
             {!single && (
-              <Button type="button" onClick={submitAll} disabled={locked || !allAnswered} className="self-start">
+              <Button type="button" onPress={submitAll} isDisabled={locked || !allAnswered} className="self-start">
                 ارسال پاسخ‌ها
               </Button>
             )}

@@ -61,9 +61,9 @@ export function OrdersTable({ collection, records, statusChip, rowActions }: Ord
   const tz = collection.timezone;
 
   return (
-    <div className="relative overflow-x-auto rounded-lg border">
+    <div className="relative max-w-full overflow-x-auto rounded-xl border border-border">
       <table className="w-full min-w-max text-sm">
-        <thead className="bg-muted/60 text-xs text-muted-foreground">
+        <thead className="bg-secondary text-xs text-muted-foreground">
           <tr>
             <th className="px-3 py-2 text-start font-medium">شماره</th>
             <th className="px-3 py-2 text-start font-medium">وضعیت</th>
@@ -99,7 +99,7 @@ export function OrdersTable({ collection, records, statusChip, rowActions }: Ord
                       aria-expanded={open}
                       aria-controls={detailId}
                       aria-label={`جزئیات سفارش ${fa(r.id)}`}
-                      onClick={() => setOpenId(open ? null : r.id)}
+                      onPress={() => setOpenId(open ? null : r.id)}
                     >
                       <ChevronDown className={open ? "rotate-180 transition-transform" : "transition-transform"} />
                       <span className="line-clamp-2">{itemsSummary(lines) || "جزئیات"}</span>
@@ -109,7 +109,7 @@ export function OrdersTable({ collection, records, statusChip, rowActions }: Ord
                   <td className="px-3 py-2">{rowActions(r)}</td>
                 </tr>
                 {open && (
-                  <tr id={detailId} className="bg-muted/30">
+                  <tr id={detailId} className="bg-surface-secondary/30">
                     <td colSpan={7} className="px-4 py-3">
                       <div className="flex flex-col gap-3 text-sm md:flex-row md:gap-8">
                         <div className="flex min-w-0 flex-1 flex-col gap-1.5">

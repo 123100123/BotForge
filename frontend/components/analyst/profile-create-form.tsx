@@ -5,7 +5,7 @@ import { ErrorNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Switch } from "@/components/ui/switch";
+import { ToggleField } from "@/components/data/controls";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import type { AnalysisProfileOut, UploadOut } from "@/lib/types";
@@ -47,7 +47,7 @@ export function ProfileCreateForm({
   }
 
   return (
-    <form onSubmit={create} className="flex flex-col gap-3 rounded-lg bg-muted/40 p-4">
+    <form onSubmit={create} className="flex flex-col gap-3 rounded-lg bg-surface-secondary/40 p-4">
       <p className="text-sm leading-7 text-muted-foreground">
         از ساختار این فایل یک پروفایل تحلیل قابل‌استفادهٔ مجدد بسازید؛ بعداً هر فایل هم‌ساختار را با یک کلیک تحلیل کنید.
       </p>
@@ -63,11 +63,10 @@ export function ProfileCreateForm({
         />
       </div>
       <div className="flex items-center gap-2">
-        <Switch id={`profile-daily-${upload.id}`} checked={daily} onCheckedChange={setDaily} disabled={busy} />
-        <Label htmlFor={`profile-daily-${upload.id}`}>گزارش روزانهٔ کارکنان</Label>
+        <ToggleField id={`profile-daily-${upload.id}`} label="گزارش روزانهٔ کارکنان" value={daily} onChange={setDaily} isDisabled={busy} />
       </div>
       {error && <ErrorNote>{error}</ErrorNote>}
-      <Button type="submit" disabled={busy} className="w-full sm:w-fit">
+      <Button type="submit" isDisabled={busy} className="w-full sm:w-fit">
         {busy ? "در حال ساخت…" : "ساخت پروفایل تحلیل"}
       </Button>
     </form>

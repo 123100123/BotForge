@@ -36,12 +36,12 @@ export function SpecDiff({ diff, isFirst }: { diff: SpecChange[]; isFirst: boole
     );
   }
   return (
-    <ul className="flex flex-col gap-2" aria-label="تغییرات نسبت به نسخهٔ قبل">
+    <ul className="flex flex-col gap-2.5" aria-label="تغییرات نسبت به نسخهٔ قبل">
       {diff.map((c, i) => {
         const Icon = ICONS[c.kind];
         const parts = c.kind === "changed" ? splitChange(c.label_fa) : null;
         return (
-          <li key={i} className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-sm leading-7", STYLES[c.kind])}>
+          <li key={i} className={cn("flex items-start gap-3 rounded-xl border px-4 py-3 text-sm leading-7", STYLES[c.kind])}>
             <Icon className={cn("mt-1.5 size-4 shrink-0", ICON_STYLES[c.kind])} aria-label={KIND_LABELS[c.kind]} />
             {parts ? (
               <span>

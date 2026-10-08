@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, ListBox } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -96,7 +96,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
         <CardDescription>خلاصهٔ کسب‌وکار را در ساعت دلخواه به‌صورت خودکار در تلگرام دریافت کنید.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="rounded-md bg-muted/50 p-3 text-sm leading-7 text-muted-foreground">
+        <p className="rounded-md bg-surface-secondary/50 p-3 text-sm leading-7 text-muted-foreground">
           ارسال گزارش‌ها فقط وقتی انجام می‌شود که قابلیت «گزارش زمان‌بندی‌شده» فعال باشد.{" "}
           {onOpenTab ? (
             <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => onOpenTab("capabilities")}>
@@ -109,7 +109,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
 
         {loadError && <ErrorNote>{loadError}</ErrorNote>}
         {!saved ? (
-          !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-muted" />
+          !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-surface-secondary" />
         ) : draft.length === 0 ? (
           <p className="text-sm leading-7 text-muted-foreground">زمان‌بندی‌ای تعریف نشده است.</p>
         ) : (
@@ -121,10 +121,9 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
                   <div className="flex items-center gap-3">
                     <Switch
                       id={`schedule-${s.id}`}
-                      checked={s.enabled}
-                      onCheckedChange={(on) => patch(s.id, { enabled: on })}
-                      aria-label={`فعال بودن ${KIND_LABELS[s.kind]}`}
-                    />
+                      isSelected={s.enabled}
+                      onChange={(on) => patch(s.id, { enabled: on })}
+                      aria-label={`فعال بودن ${KIND_LABELS[s.kind]}`}><Switch.Content><Switch.Control><Switch.Thumb /></Switch.Control></Switch.Content></Switch>
                     <Label htmlFor={`schedule-${s.id}`} className="text-sm font-medium">
                       {KIND_LABELS[s.kind]}
                     </Label>
@@ -150,16 +149,16 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
                         <Label htmlFor={`schedule-day-${s.id}`}>روز هفته</Label>
                         <Select
                           id={`schedule-day-${s.id}`}
-                          value={s.weekday ?? ""}
-                          onChange={(e) => patch(s.id, { weekday: e.target.value === "" ? null : Number(e.target.value) })}
+                          aria-label="روز هفته" value={s.weekday === null ? null : String(s.weekday)}
+                          onChange={(key) => patch(s.id, { weekday: key === null ? null : Number(key) })}
                         >
-                          {s.weekday === null && <option value="">انتخاب کنید</option>}
+                          <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>
                           {WEEKDAYS.map((d) => (
-                            <option key={d.value} value={d.value}>
+                            <ListBox.Item key={d.value} id={String(d.value)} textValue={d.label}>
                               {d.label}
-                            </option>
+                            </ListBox.Item>
                           ))}
-                        </Select>
+                        </ListBox></Select.Popover></Select>
                       </div>
                     )}
                   </div>
@@ -183,7 +182,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
         {notice && <InfoNote>{notice}</InfoNote>}
         {saved && draft.length > 0 && (
           <div className="flex flex-wrap items-center gap-3">
-            <Button onClick={save} disabled={!dirty || invalid || saving}>
+            <Button onPress={save} isDisabled={!dirty || invalid || saving}>
               {saving ? "در حال ذخیره…" : "ذخیرهٔ زمان‌بندی"}
             </Button>
             {invalid && <span className="text-sm text-destructive">ساعت و روز هفته را کامل وارد کنید.</span>}

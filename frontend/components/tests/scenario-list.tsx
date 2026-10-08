@@ -26,8 +26,8 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
         if (items.length === 0) return null;
         const passed = items.filter((s) => results[s.id]?.passed).length;
         return (
-          <section key={g.source} aria-label={g.title} className="flex flex-col gap-1">
-            <div className="px-2">
+          <section key={g.source} aria-label={g.title} className="flex flex-col gap-2">
+            <div className="px-3">
               <h3 className="flex items-center justify-between gap-2 text-sm font-semibold">
                 {g.title}
                 <span className="text-xs font-normal text-muted-foreground">
@@ -36,7 +36,7 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
               </h3>
               <p className="text-xs text-muted-foreground">{g.hint}</p>
             </div>
-            <ul className="flex flex-col gap-0.5">
+            <ul className="flex flex-col gap-1.5">
               {items.map((s) => {
                 const r = results[s.id];
                 const active = s.id === selectedId;
@@ -47,8 +47,8 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
                       onClick={() => onSelect(s.id)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-start text-sm leading-6 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                        active ? "bg-accent text-accent-foreground" : "hover:bg-muted",
+                        "flex w-full items-start gap-2 rounded-xl border px-3 py-3 text-start text-sm leading-6 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        active ? "border-primary/35 bg-primary/5 text-foreground" : "border-transparent hover:border-border hover:bg-surface-secondary",
                       )}
                     >
                       {!r ? (

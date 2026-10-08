@@ -28,12 +28,12 @@ export function CapabilityCard({
       onClick={onOpen}
       aria-label={`${cap.name}، ${soon ? "به‌زودی" : cap.enabled ? "فعال" : "غیرفعال"}`}
       className={cn(
-        "flex h-full flex-col gap-3 rounded-xl border bg-card p-4 text-start shadow-xs transition-colors outline-none hover:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/40",
-        cap.enabled && "border-success/40",
+        "flex h-full min-w-0 flex-col gap-4 rounded-2xl border border-border bg-card p-5 text-start shadow-sm transition-[border-color,transform,box-shadow] hover:-translate-y-0.5 hover:border-primary/50 hover:shadow-md focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        cap.enabled && "border-success/35",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-sm leading-6 font-semibold">{cap.name}</span>
+        <span className="text-base leading-7 font-bold">{cap.name}</span>
         {soon ? (
           <Badge variant="warning">به‌زودی</Badge>
         ) : (

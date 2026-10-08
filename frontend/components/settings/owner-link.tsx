@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Bell, Check, Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
+import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import type { TelegramStatus } from "@/lib/types";
 
@@ -87,21 +87,20 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
           </p>
         ) : (
           <>
-            <div className="rounded-md border bg-muted/40 p-3 text-sm break-all" dir="ltr">
+            <div className="rounded-md border bg-surface-secondary/40 p-3 text-sm break-all" dir="ltr">
               {status.owner_link}
             </div>
             <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <a href={status.owner_link} target="_blank" rel="noreferrer">
+
+                <a href={status.owner_link} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "primary" })}>
                   <ExternalLink />
                   باز کردن در تلگرام
                 </a>
-              </Button>
-              <Button variant="outline" onClick={copy}>
+              <Button variant="outline" onPress={copy}>
                 {copied === "yes" ? <Check /> : <Copy />}
                 {copied === "yes" ? "کپی شد" : "کپی پیوند"}
               </Button>
-              <Button variant="ghost" onClick={refresh} disabled={refreshing}>
+              <Button variant="ghost" onPress={refresh} isDisabled={refreshing}>
                 <RefreshCw className={refreshing ? "animate-spin" : undefined} />
                 بررسی وضعیت
               </Button>

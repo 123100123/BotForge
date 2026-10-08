@@ -1,45 +1,23 @@
 "use client";
 
-import Link from "next/link";
-import { buttonVariants } from "@/components/ui/button";
+import { ArrowLeft } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
 import { useAuth } from "@/lib/auth";
 import { cn } from "@/lib/utils";
 
-/**
- * The landing page's calls to action. Signed-in visitors get the dashboard link; everyone else
- * (including while the session is still being checked) gets sign-up and login.
- */
-export function CtaButtons({ size = "lg", className }: { size?: "default" | "lg"; className?: string }) {
+/** The same destination is used in the hero and final call to action. */
+export function CtaButtons({ className }: { className?: string }) {
   const { status } = useAuth();
+  const signedIn = status === "authenticated";
 
-  if (status === "authenticated") {
-    return (
-      <div className={cn("flex flex-wrap gap-3", className)}>
-        <Link href="/bots" className={buttonVariants({ size })}>
-          رفتن به داشبورد
-        </Link>
-      </div>
-    );
-  }
-  return (
-    <div className={cn("flex flex-wrap gap-3", className)}>
-      <Link href="/signup" className={buttonVariants({ size })}>
-        شروع کنید
-      </Link>
-      <Link href="/login" className={buttonVariants({ size, variant: "outline" })}>
-        ورود
-      </Link>
-    </div>
-  );
+  return <div className={cn("flex flex-wrap items-center gap-3", className)}>
+    <ButtonLink href={signedIn ? "/bots" : "/signup"} variant="primary" size="lg" className="rounded-xl shadow-[0_13px_26px_-15px_rgba(0,105,134,.65)]">{signedIn ? "رفتن به داشبورد" : "ساخت ربات را شروع کنید"}<ArrowLeft className="size-4" /></ButtonLink>
+    {!signedIn && <ButtonLink href="/login" variant="outline" size="lg" className="rounded-xl">حساب دارم</ButtonLink>}
+  </div>;
 }
 
-/** Compact header button: «ورود / داشبورد». */
 export function HeaderCta() {
   const { status } = useAuth();
   const signedIn = status === "authenticated";
-  return (
-    <Link href={signedIn ? "/bots" : "/login"} className={buttonVariants({ size: "sm", variant: signedIn ? "default" : "outline" })}>
-      {signedIn ? "داشبورد" : "ورود"}
-    </Link>
-  );
+  return <ButtonLink href={signedIn ? "/bots" : "/login"} variant="outline" size="sm" className="rounded-xl whitespace-nowrap">{signedIn ? "داشبورد" : "ورود"}</ButtonLink>;
 }

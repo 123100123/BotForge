@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { WifiOff, X } from "lucide-react";
+import { Activity, ArrowUpLeft, Sparkles, WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { LaunchChecklist } from "@/components/app/launch-checklist";
 import { IS_MOCK } from "@/lib/config";
 import { GOLDEN_CREATE_PROMPT, GOLDEN_MODIFY_PROMPT } from "@/lib/fixtures/common";
 import { latestReport, type FeedItem, type RunView } from "@/lib/agent-state";
@@ -39,21 +40,23 @@ function reviewDecision(
   return status === "waiting_approval" ? "pending" : "closed";
 }
 
-function EmptyState({ live, onPick }: { live: boolean; onPick: (text: string) => void }) {
+function EmptyState({ live, onPick, bot, onOpenTab }: { live: boolean; onPick: (text: string) => void; bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
   const example = live ? GOLDEN_MODIFY_PROMPT : GOLDEN_CREATE_PROMPT;
   return (
-    <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
-      <h3 className="text-base font-semibold">{live ? "چه تغییری در ربات می‌خواهید؟" : "ربات‌تان را برای من توضیح دهید"}</h3>
-      <p className="max-w-md text-sm leading-7 text-muted-foreground">
+    <div className="flex flex-1 flex-col items-center justify-center gap-4 px-3 py-8 text-center sm:py-14">
+      <div className="grid size-16 place-items-center rounded-3xl bg-primary/10 text-primary shadow-inner"><Sparkles className="size-8" /></div>
+      <h3 className="text-xl font-bold tracking-tight">{live ? "چه تغییری در ربات می‌خواهید؟" : "ربات‌تان را برای من توضیح دهید"}</h3>
+      <p className="max-w-lg text-sm leading-7 text-muted-foreground">
         {live
           ? "تغییر را به زبان ساده بنویسید. ایجنت آن را روی یک نسخهٔ پیش‌نویس اعمال و آزمایش می‌کند و فقط با تأیید شما فعال می‌شود."
           : "کسب‌وکارتان و کاری که ربات باید انجام دهد را بنویسید. ایجنت در صورت نیاز چند پرسش می‌پرسد، ربات را می‌سازد و آزمایش می‌کند."}
       </p>
       {IS_MOCK && (
-        <Button variant="outline" size="sm" onClick={() => onPick(example)}>
-          استفاده از پیام نمونه
+        <Button variant="outline" size="sm" onPress={() => onPick(example)}>
+          استفاده از پیام نمونه <ArrowUpLeft className="size-4" />
         </Button>
       )}
+      {!live && <div className="mt-4 w-full max-w-xl text-start"><LaunchChecklist bot={bot} onOpenTab={onOpenTab} compact /></div>}
     </div>
   );
 }
@@ -163,8 +166,12 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
   else if (status === "waiting_approval") placeholder = "برای درخواست تغییر در پیش‌نویس، پیام بنویسید…";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
-      <div className="flex min-w-0 flex-col gap-3">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,1fr)_18rem] 2xl:grid-cols-[minmax(0,1fr)_21rem]">
+      <section className="flex min-w-0 flex-col gap-3 rounded-[1.5rem] border border-border/70 bg-card/80 p-3 shadow-sm sm:p-5" aria-label="گفتگو و ساخت ربات">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/60 pb-4">
+          <div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><Sparkles className="size-5" /></span><div><h3 className="font-semibold">گفتگو با سازنده</h3><p className="text-xs text-muted-foreground">از ایده تا نسخهٔ آمادهٔ تأیید</p></div></div>
+          <span className="inline-flex items-center gap-1.5 rounded-full border border-border bg-background px-2.5 py-1 text-xs text-muted-foreground"><Activity className="size-3.5 text-primary" /> {status === "running" ? "در حال ساخت" : status === "waiting_approval" ? "در انتظار تأیید" : status === "waiting_user" ? "در انتظار پاسخ" : "آماده"}</span>
+        </div>
         {agent.connection === "reconnecting" && (
           <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-sm">
             <WifiOff className="size-4 text-warning" />
@@ -186,6 +193,8 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
               <EmptyState
                 live={Boolean(bot.active_revision_id)}
                 onPick={(text) => setSeed((prev) => ({ key: (prev?.key ?? 0) + 1, text }))}
+                bot={bot}
+                onOpenTab={onOpenTab}
               />
             )
           }
@@ -194,8 +203,8 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
           placeholder={placeholder}
           seed={seed}
         />
-      </div>
-      <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+      </section>
+      <aside className="min-w-0 xl:sticky xl:top-5 xl:self-start">
         <ActivityTimeline phases={view.phases} status={status} usage={view.usage} />
       </aside>
     </div>

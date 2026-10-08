@@ -4,7 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { ChoiceSelect } from "@/components/data/controls";
+import { PageHeader, SectionToolbar } from "@/components/app/presentation";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { fa, formatDateTime } from "@/lib/format";
@@ -100,17 +101,13 @@ function AnalystScreen({ botId }: { botId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-bold">تحلیل‌گر داده</h2>
-        <p className="text-sm leading-7 text-muted-foreground">
-          فایل اکسل یا CSV را بارگذاری کنید؛ دستیار ساختار آن را می‌فهمد و یک پروفایل تحلیل قابل‌استفادهٔ مجدد می‌سازد.
-        </p>
-      </header>
+    <div className="flex min-w-0 flex-col gap-7">
+      <PageHeader eyebrow="بینش" title="تحلیل‌گر داده" description="فایل اکسل یا CSV را بارگذاری کنید؛ ساختار آن بررسی می‌شود و می‌توانید پروفایل تحلیل قابل‌استفادهٔ مجدد بسازید." />
 
       {notice && <InfoNote>{notice}</InfoNote>}
 
-      <section aria-label="بارگذاری فایل" className="flex flex-col gap-3">
+      <section aria-label="بارگذاری فایل" className="app-surface flex min-w-0 flex-col gap-4 p-4 sm:p-6">
+        <SectionToolbar title="۱. فایل را وارد کنید" description="فایل تازه را بارگذاری کنید یا یکی از فایل‌های قبلی را برای بررسی باز کنید." />
         <UploadZone
           botId={botId}
           onUploaded={(u) => {
@@ -122,14 +119,7 @@ function AnalystScreen({ botId }: { botId: string }) {
         {uploads.length > 0 && (
           <div className="flex flex-col gap-1.5 sm:max-w-sm">
             <Label htmlFor="analyst-inspect">بررسی فایل‌های قبلی</Label>
-            <Select id="analyst-inspect" value={inspectedId ?? ""} onChange={(e) => setInspectedId(e.target.value || null)}>
-              <option value="">انتخاب فایل…</option>
-              {uploads.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.filename} — {formatDateTime(u.created_at)}
-                </option>
-              ))}
-            </Select>
+            <ChoiceSelect id="analyst-inspect" label="بررسی فایل‌های قبلی" value={inspectedId ?? ""} onChange={(v) => setInspectedId(v || null)} placeholder="انتخاب فایل…" options={uploads.map((u) => ({ value: u.id, label: `${u.filename} — ${formatDateTime(u.created_at)}` }))} />
           </div>
         )}
       </section>
@@ -140,10 +130,8 @@ function AnalystScreen({ botId }: { botId: string }) {
         </InspectionView>
       )}
 
-      <section aria-label="پروفایل‌های تحلیل" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
-          پروفایل‌های تحلیل{profiles.length > 0 && <span className="ms-1 text-muted-foreground">({fa(profiles.length)})</span>}
-        </h3>
+      <section aria-label="پروفایل‌های تحلیل" className="flex min-w-0 flex-col gap-4">
+        <SectionToolbar title={`۲. پروفایل‌های تحلیل${profiles.length > 0 ? ` (${fa(profiles.length)})` : ""}`} description="تنظیمات تحلیل را یک بار بسازید و برای فایل‌های بعدی دوباره اجرا کنید." />
         {profiles.length === 0 ? (
           <EmptyState title="هنوز پروفایل تحلیلی ساخته نشده است">
             {uploads.length === 0
@@ -151,7 +139,7 @@ function AnalystScreen({ botId }: { botId: string }) {
               : "یکی از فایل‌های بارگذاری‌شده را بررسی کنید و از آن پروفایل تحلیل بسازید."}
           </EmptyState>
         ) : (
-          <div className="grid items-start gap-3 md:grid-cols-2">
+          <div className="grid min-w-0 items-start gap-4 xl:grid-cols-2">
             {profiles.map((p) => (
               <ProfileCard
                 key={p.id}
@@ -173,10 +161,8 @@ function AnalystScreen({ botId }: { botId: string }) {
         </div>
       )}
 
-      <section aria-label="سابقهٔ اجراها" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
-          سابقهٔ اجراها{runs.length > 0 && <span className="ms-1 text-muted-foreground">({fa(runs.length)})</span>}
-        </h3>
+      <section aria-label="سابقهٔ اجراها" className="flex min-w-0 flex-col gap-4">
+        <SectionToolbar title={`۳. سابقهٔ اجراها${runs.length > 0 ? ` (${fa(runs.length)})` : ""}`} description="نتیجهٔ تحلیل‌های پیشین و هشدارها را دوباره باز کنید." />
         {runs.length === 0 ? (
           <EmptyState title="هنوز تحلیلی اجرا نشده است">
             بعد از ساخت پروفایل، «اجرای تحلیل» را بزنید تا نتیجه‌ها اینجا ثبت شوند.
@@ -192,7 +178,7 @@ function AnalystScreen({ botId }: { botId: string }) {
                     onClick={() => setActiveRunId(r.id)}
                     aria-pressed={selected}
                     className={cn(
-                      "flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2.5 text-start transition-colors outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      "flex w-full min-w-0 flex-wrap items-center justify-between gap-3 rounded-2xl border border-border bg-card px-4 py-3 text-start transition-colors outline-none hover:bg-secondary focus-visible:ring-[3px] focus-visible:ring-ring/40",
                       selected && "border-primary bg-accent/30",
                     )}
                   >

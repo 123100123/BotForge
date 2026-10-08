@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ChevronDown, Loader2, SendHorizontal, Wrench } from "lucide-react";
+import { ChevronDown, DatabaseZap, Loader2, SendHorizontal, ShieldCheck, Wrench } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
@@ -161,11 +161,12 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
   const lastIsUser = turns.length > 0 && turns[turns.length - 1].role === "user";
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-4">
+    <Card className="min-w-0 overflow-hidden rounded-[1.5rem] border-border/70 shadow-sm">
+      <CardContent className="flex min-w-0 flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/70 pb-4"><div className="flex items-center gap-3"><span className="grid size-10 place-items-center rounded-xl bg-primary/10 text-primary"><DatabaseZap className="size-5" /></span><div><h3 className="font-semibold">پرسش از داده‌ها</h3><p className="text-xs text-muted-foreground">پاسخ‌ها از اطلاعات همین ربات تهیه می‌شوند.</p></div></div><span className="inline-flex items-center gap-1.5 rounded-full bg-success/10 px-3 py-1 text-xs text-success"><ShieldCheck className="size-3.5" /> فقط خواندن داده‌ها</span></div>
         {turns.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <h3 className="text-base font-semibold">از کسب‌وکارتان بپرسید</h3>
+          <div className="flex flex-col items-center gap-4 px-2 py-8 text-center sm:py-12">
+            <span className="grid size-16 place-items-center rounded-3xl bg-primary/10 text-primary"><DatabaseZap className="size-8" /></span><h3 className="text-lg font-bold">از کسب‌وکارتان بپرسید</h3>
             <p className="max-w-md text-sm leading-7 text-muted-foreground">
               دستیار از داده‌های ربات پاسخ می‌دهد و چیزی را تغییر نمی‌دهد. یکی از پرسش‌های زیر را امتحان کنید یا سؤال خودتان را بنویسید.
             </p>
@@ -176,7 +177,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
                     type="button"
                     disabled={busy}
                     onClick={() => ask(s)}
-                    className="rounded-full border bg-card px-3 py-1.5 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-50"
+                    className="rounded-xl border border-border/70 bg-card px-3 py-2 text-sm outline-none transition-colors hover:border-primary/30 hover:bg-primary/5 focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-50"
                   >
                     {s}
                   </button>
@@ -185,13 +186,13 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             </ul>
           </div>
         ) : (
-          <ul className="flex max-h-[28rem] flex-col gap-3 overflow-y-auto" aria-live="polite" aria-label="گفتگو با دستیار">
+          <ul className="flex min-h-64 max-h-[36rem] flex-col gap-4 overflow-y-auto px-1 py-3" aria-live="polite" aria-label="گفتگو با دستیار">
             {turns.map((t, i) => (
               <li
                 key={i}
                 className={cn(
-                  "flex max-w-[90%] flex-col rounded-lg p-3 text-sm leading-7 sm:max-w-[85%]",
-                  t.role === "user" ? "self-start bg-primary/10" : "self-end bg-muted",
+                  "flex max-w-[93%] flex-col rounded-2xl p-4 text-sm leading-7 shadow-sm sm:max-w-[78%]",
+                  t.role === "user" ? "self-start rounded-ss-md bg-primary text-primary-foreground" : "self-end rounded-se-md border border-border/70 bg-surface-secondary/70",
                 )}
               >
                 <p className="whitespace-pre-wrap break-words">{t.role === "assistant" ? toFaDigits(t.content) : t.content}</p>
@@ -206,7 +207,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
               </li>
             ))}
             {busy && (
-              <li className="flex items-center gap-2 self-end rounded-lg bg-muted p-3 text-sm text-muted-foreground" role="status">
+              <li className="flex items-center gap-2 self-end rounded-lg bg-surface-secondary p-3 text-sm text-muted-foreground" role="status">
                 <Loader2 className="size-4 animate-spin" aria-hidden />
                 در حال فکر کردن…
               </li>
@@ -220,7 +221,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             <InfoNote tone="warning" className="w-full">
               {failure.message}
             </InfoNote>
-            <Button variant="outline" size="sm" onClick={() => onOpenTab("capabilities")}>
+            <Button variant="outline" size="sm" onPress={() => onOpenTab("capabilities")}>
               فعال‌سازی در قابلیت‌ها
             </Button>
           </div>
@@ -229,14 +230,14 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
           <div className="flex flex-col items-start gap-2">
             <ErrorNote className="w-full">{failure.message}</ErrorNote>
             {lastIsUser && failure.kind !== "limit" && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => void send(turns)}>
+              <Button variant="outline" size="sm" isDisabled={busy} onPress={() => void send(turns)}>
                 تلاش دوباره
               </Button>
             )}
           </div>
         )}
 
-        <form onSubmit={onSubmit} className="flex items-end gap-2">
+        <form onSubmit={onSubmit} className="flex items-end gap-2 rounded-2xl border border-border/70 bg-background p-2 shadow-sm sm:p-3">
           <Textarea
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -244,9 +245,9 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             rows={2}
             placeholder="سؤال خود را بنویسید… (Enter برای ارسال، Shift+Enter برای خط جدید)"
             aria-label="پرسش از کسب‌وکار"
-            className="min-h-0 flex-1"
+            className="min-h-0 min-w-0 flex-1 border-0 bg-transparent shadow-none"
           />
-          <Button type="submit" disabled={busy || draft.trim() === ""}>
+          <Button type="submit" isDisabled={busy || draft.trim() === ""}>
             <SendHorizontal className="rtl:-scale-x-100" />
             <span className="hidden sm:inline">{busy ? "در حال فکر کردن…" : "ارسال"}</span>
             <span className="sr-only sm:hidden">ارسال</span>

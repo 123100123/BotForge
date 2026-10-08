@@ -8,6 +8,7 @@ import { openSection } from "@/components/capabilities/labels";
 import { MetricGrid } from "@/components/reports/metric-view";
 import { PeriodSelect } from "@/components/reports/period-select";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/app/presentation";
 import { api } from "@/lib/api";
 import { formatDate } from "@/lib/format";
 import type { Bot, CapabilityOut, Period } from "@/lib/types";
@@ -73,7 +74,7 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
       <EmptyState
         title="هنوز گزارشی وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => openSection("capabilities", onOpenTab)}>
+          <Button variant="outline" onPress={() => openSection("capabilities", onOpenTab)}>
             رفتن به قابلیت‌ها
           </Button>
         }
@@ -86,9 +87,12 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
   const current = reportable.find((r) => selected?.botId === bot.id && r.key === selected.key) ?? reportable[0];
 
   return (
-    <div className="flex flex-col gap-4 md:grid md:grid-cols-[13rem_minmax(0,1fr)] md:items-start md:gap-6">
-      <nav aria-label="قابلیت‌های دارای گزارش">
-        <ul className="flex flex-wrap gap-2 md:flex-col md:gap-1">
+    <div className="flex min-w-0 flex-col gap-6">
+      <PageHeader eyebrow="بینش" title="گزارش‌های کسب‌وکار" description="عملکرد هر قابلیت را در بازه‌های زمانی مختلف ببینید و روندها را مقایسه کنید." action={<PeriodSelect value={period} onChange={setPeriod} />} />
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+      <nav aria-label="قابلیت‌های دارای گزارش" className="app-subtle-surface min-w-0 p-3 lg:sticky lg:top-24">
+        <p className="mb-3 px-2 text-xs font-bold text-muted-foreground">گزارش‌های فعال</p>
+        <ul className="flex flex-wrap gap-2 lg:flex-col lg:gap-1">
           {reportable.map((r) => {
             const active = r.key === current.key;
             return (
@@ -98,9 +102,9 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
                   aria-current={active ? "true" : undefined}
                   onClick={() => setSelected({ botId: bot.id, key: r.key })}
                   className={cn(
-                    "w-full rounded-md border px-3 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    "w-full rounded-xl border px-3 py-2.5 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
                     active
-                      ? "border-primary/40 bg-accent font-medium text-accent-foreground"
+                      ? "border-primary/35 bg-primary/10 font-bold text-primary"
                       : "bg-card text-muted-foreground hover:text-foreground",
                   )}
                 >
@@ -112,13 +116,13 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
         </ul>
       </nav>
       <div className="flex min-w-0 flex-col gap-4">
-        <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border pb-3">
+          <h2 className="text-xl font-bold">
             <RowLabel row={current} />
           </h2>
-          <PeriodSelect value={period} onChange={setPeriod} />
         </div>
         <ReportBody botId={bot.id} capKey={current.key} period={period} />
+      </div>
       </div>
     </div>
   );

@@ -24,7 +24,7 @@ export function BreakdownList({ points, unit }: { points: SeriesPoint[]; unit?: 
                 <span className="text-xs text-muted-foreground">{fa(share)}٪</span>
               </span>
             </div>
-            <div className="h-2 overflow-hidden rounded-full bg-muted" aria-hidden>
+            <div className="h-2 overflow-hidden rounded-full bg-surface-secondary" aria-hidden>
               <div className="h-full rounded-full bg-primary" style={{ width: `${(p.value / max) * 100}%` }} />
             </div>
           </li>

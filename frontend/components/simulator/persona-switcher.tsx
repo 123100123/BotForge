@@ -14,20 +14,19 @@ interface PersonaSwitcherProps {
 /** Who the owner is playing. A badge counts messages that arrived for a persona that is not selected. */
 export function PersonaSwitcher({ value, unread, onChange }: PersonaSwitcherProps) {
   return (
-    <div role="tablist" aria-label="کاربر آزمایشی" className="grid grid-cols-5 gap-1 rounded-lg bg-muted p-1">
+    <div role="group" aria-label="کاربر آزمایشی" className="grid grid-cols-2 gap-1.5 rounded-2xl bg-surface-secondary/70 p-1.5 sm:grid-cols-5 xl:grid-cols-2 2xl:grid-cols-3">
       {PERSONAS.map((p) => {
         const active = p.id === value;
         const count = unread[p.id];
         return (
           <button
             key={p.id}
-            role="tab"
             type="button"
-            aria-selected={active}
+            aria-pressed={active}
             onClick={() => onChange(p.id)}
             className={cn(
-              "relative rounded-md px-2 py-1.5 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-              active ? "bg-card font-medium shadow-xs" : "text-muted-foreground hover:text-foreground",
+              "relative min-h-10 rounded-xl px-2 py-2 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              active ? "bg-card font-semibold text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
             )}
           >
             {p.label}

@@ -61,11 +61,11 @@ export function RecordTable({
     if (isResource) {
       return (
         <div className="flex justify-end gap-1">
-          <Button variant="ghost" size="sm" onClick={() => onEdit(r)} aria-label={`ویرایش مورد ${fa(r.id)}`}>
+          <Button variant="ghost" size="sm" onPress={() => onEdit(r)} aria-label={`ویرایش مورد ${fa(r.id)}`}>
             <Pencil />
             ویرایش
           </Button>
-          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => onDelete(r)} aria-label={`حذف مورد ${fa(r.id)}`}>
+          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onPress={() => onDelete(r)} aria-label={`حذف مورد ${fa(r.id)}`}>
             <Trash2 />
             حذف
           </Button>
@@ -82,7 +82,7 @@ export function RecordTable({
             key={a.key}
             variant="outline"
             size="sm"
-            onClick={() => onAction(r, a)}
+            onPress={() => onAction(r, a)}
             aria-label={collection.kind === "booking" ? `${a.label} ${fa(r.id)}` : undefined}
           >
             {a.label}
@@ -100,9 +100,9 @@ export function RecordTable({
       {isOrders ? (
         <OrdersTable collection={collection} records={records} statusChip={statusChip} rowActions={rowActions} />
       ) : (
-      <div className="relative overflow-x-auto rounded-lg border">
+      <div className="relative max-w-full overflow-x-auto rounded-xl border border-border">
         <table className="w-full min-w-max text-sm">
-          <thead className="bg-muted/60 text-xs text-muted-foreground">
+          <thead className="bg-surface-secondary/60 text-xs text-muted-foreground">
             <tr>
               {!isResource && hasItem && <th className="px-3 py-2 text-start font-medium">مورد</th>}
               {!isResource && <th className="px-3 py-2 text-start font-medium">مشتری</th>}
@@ -154,14 +154,14 @@ export function RecordTable({
 
       {total > limit && (
         <div className="flex items-center justify-between text-sm">
-          <Button variant="outline" size="sm" disabled={page <= 1} onClick={() => onPage(offset - limit)}>
+          <Button variant="outline" size="sm" isDisabled={page <= 1} onPress={() => onPage(offset - limit)}>
             <ChevronRight />
             قبلی
           </Button>
           <span className="text-muted-foreground">
             صفحهٔ {fa(page)} از {fa(pageCount)}
           </span>
-          <Button variant="outline" size="sm" disabled={page >= pageCount} onClick={() => onPage(offset + limit)}>
+          <Button variant="outline" size="sm" isDisabled={page >= pageCount} onPress={() => onPage(offset + limit)}>
             بعدی
             <ChevronLeft />
           </Button>

@@ -2,11 +2,10 @@
 
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Modal } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { ChoiceSelect, ToggleField } from "./controls";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { ApiError, ERROR_CODES, errorMessage } from "@/lib/errors";
@@ -27,13 +26,16 @@ interface RecordFormProps {
 }
 
 export function RecordForm({ botId, collection, record, open, onOpenChange, onSaved }: RecordFormProps) {
+  const [saving, setSaving] = useState(false);
   // The dialog content is unmounted when closed, so state starts fresh for every open.
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <RecordFormBody botId={botId} collection={collection} record={record} onClose={() => onOpenChange(false)} onSaved={onSaved} />
-      </DialogContent>
-    </Dialog>
+      <Modal.Backdrop isOpen={open} onOpenChange={(next) => !saving && onOpenChange(next)} isDismissable={!saving} isKeyboardDismissDisabled={saving}>
+        <Modal.Container size="lg" scroll="inside" className="max-h-[90dvh]">
+          <Modal.Dialog className="max-h-[90dvh] overflow-y-auto">
+            <RecordFormBody botId={botId} collection={collection} record={record} saving={saving} setSaving={setSaving} onClose={() => onOpenChange(false)} onSaved={onSaved} />
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
   );
 }
 
@@ -43,18 +45,21 @@ function RecordFormBody({
   record,
   onClose,
   onSaved,
+  saving,
+  setSaving,
 }: {
   botId: string;
   collection: DataCollection;
   record: DataRecord | null;
   onClose: () => void;
   onSaved: () => void;
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
 }) {
   const fields = collection.fields;
   const [values, setValues] = useState<FormValues>(() => initialValues(fields, record?.data));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
 
   const set = (key: string, value: FormValue) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -86,6 +91,7 @@ function RecordFormBody({
       } else {
         setGeneralErrors([errorMessage(err)]);
       }
+    } finally {
       setSaving(false);
     }
   }
@@ -94,12 +100,12 @@ function RecordFormBody({
 
   return (
     <form onSubmit={submit} noValidate className="grid gap-4">
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>
+      <Modal.Header>
+        <Modal.Heading>{title}</Modal.Heading>
+        <p className="text-sm leading-7 text-muted-foreground">
           {record ? "تغییرات بلافاصله در ربات اعمال می‌شود." : "پس از ذخیره، این مورد بلافاصله در ربات نمایش داده می‌شود."}
-        </DialogDescription>
-      </DialogHeader>
+        </p>
+      </Modal.Header>
 
       {fields.map((f) => (
         <FieldInput
@@ -120,14 +126,14 @@ function RecordFormBody({
         </div>
       )}
 
-      <DialogFooter>
-        <Button type="submit" disabled={saving}>
+      <Modal.Footer className="flex flex-wrap gap-2">
+        <Button type="submit" isDisabled={saving} isPending={saving}>
           {saving ? "در حال ذخیره…" : "ذخیره"}
         </Button>
-        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+        <Button type="button" variant="outline" onPress={onClose} isDisabled={saving}>
           انصراف
         </Button>
-      </DialogFooter>
+      </Modal.Footer>
     </form>
   );
 }
@@ -184,21 +190,14 @@ function FieldInput({
     case "boolean":
       control = (
         <div className="flex items-center gap-2">
-          <Switch id={id} checked={value === true} onCheckedChange={onChange} aria-describedby={invalid ? errId : undefined} />
+          <ToggleField id={id} label={field.label} describedBy={invalid ? errId : undefined} isInvalid={invalid} value={value === true} onChange={onChange} />
           <span className="text-sm text-muted-foreground">{value === true ? "بله" : "خیر"}</span>
         </div>
       );
       break;
     case "choice":
       control = (
-        <Select {...common} value={str} onChange={(e) => onChange(e.target.value)}>
-          <option value="">انتخاب کنید…</option>
-          {(field.choices ?? []).map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
+        <ChoiceSelect id={id} label={field.label} describedBy={invalid ? errId : undefined} isInvalid={invalid} value={str} onChange={onChange} options={(field.choices ?? []).map((c) => ({ value: c, label: c }))} />
       );
       break;
     case "datetime":

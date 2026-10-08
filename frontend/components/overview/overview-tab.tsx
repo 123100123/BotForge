@@ -10,6 +10,8 @@ import { PeriodSelect } from "@/components/reports/period-select";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { LaunchChecklist } from "@/components/app/launch-checklist";
+import { PageHeader } from "@/components/app/presentation";
 import { api } from "@/lib/api";
 import { fa, relativeTime } from "@/lib/format";
 import type { Bot, OverviewOut, Period } from "@/lib/types";
@@ -32,14 +34,9 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
   const open = (tab: WorkspaceTab) => openSection(tab, onOpenTab);
 
   return (
-    <div className="flex flex-col gap-5">
-      <header className="flex flex-wrap items-center justify-between gap-3">
-        <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-bold">نمای کلی کسب‌وکار</h2>
-          <p className="text-sm text-muted-foreground">شاخص‌های کلیدی، قابلیت‌های فعال و آخرین رویدادها</p>
-        </div>
-        <PeriodSelect value={period} onChange={setPeriod} />
-      </header>
+    <div className="flex min-w-0 flex-col gap-7">
+      <PageHeader eyebrow="میز کار" title="نمای کلی کسب‌وکار" description="شاخص‌های کلیدی، آمادگی راه‌اندازی و تازه‌ترین اتفاق‌های ربات در یک نگاه" action={<PeriodSelect value={period} onChange={setPeriod} />} />
+      <LaunchChecklist bot={bot} onOpenTab={open} />
 
       {error ? (
         <ErrorNote>{error}</ErrorNote>
@@ -52,8 +49,8 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
               title="هنوز داده‌ای ثبت نشده"
               action={
                 <div className="flex flex-wrap justify-center gap-2">
-                  <Button onClick={() => open("settings")}>اتصال به تلگرام</Button>
-                  <Button variant="outline" onClick={() => open("simulator")}>
+                  <Button onPress={() => open("settings")}>اتصال به تلگرام</Button>
+                  <Button variant="outline" onPress={() => open("simulator")}>
                     تست در شبیه‌ساز
                   </Button>
                 </div>
@@ -64,13 +61,13 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
           ) : (
             <>
               {data.kpis.length > 0 && (
-                <section aria-label="شاخص‌های کلیدی" className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+                <section aria-label="شاخص‌های کلیدی" className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-4">
                   {data.kpis.map((m) => (
                     <StatTile key={m.id} label={m.label} value={m.value} unit={m.unit} previous={m.previous} />
                   ))}
                 </section>
               )}
-              <Card>
+              <Card className="rounded-2xl border border-border">
                 <CardHeader>
                   <CardTitle className="text-base">فعالیت‌های اخیر</CardTitle>
                 </CardHeader>
@@ -78,11 +75,11 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
                   {data.activity.length === 0 ? (
                     <p className="text-sm text-muted-foreground">هنوز فعالیتی ثبت نشده است.</p>
                   ) : (
-                    <ul className="flex flex-col divide-y">
+                    <ul className="flex flex-col divide-y divide-border">
                       {data.activity.map((a, i) => (
                         <li
                           key={`${a.at}-${i}`}
-                          className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 text-sm"
+                          className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-3 text-sm"
                         >
                           <span>{a.text}</span>
                           <span className="text-xs text-muted-foreground">{relativeTime(a.at)}</span>
@@ -95,12 +92,12 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
             </>
           )}
 
-          <Card>
-            <CardHeader className="flex-row items-center justify-between gap-2">
+          <Card className="rounded-2xl border border-border">
+            <CardHeader className="flex-row flex-wrap items-center justify-between gap-2">
               <CardTitle className="text-base">
                 قابلیت‌های فعال{data.enabled_capabilities.length > 0 && ` (${fa(data.enabled_capabilities.length)})`}
               </CardTitle>
-              <Button variant="link" size="sm" className="h-auto p-0" onClick={() => open("capabilities")}>
+              <Button variant="ghost" size="sm" className="h-auto p-0" onPress={() => open("capabilities")}>
                 مدیریت قابلیت‌ها
               </Button>
             </CardHeader>

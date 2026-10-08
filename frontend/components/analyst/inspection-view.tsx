@@ -4,7 +4,7 @@ import { useState } from "react";
 import { InfoNote } from "@/components/app/state-blocks";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tabs } from "@/components/ui/tabs";
 import { fa, formatNumber } from "@/lib/format";
 import type { ColumnProfile, SheetProfile, UploadOut } from "@/lib/types";
 import { fileSizeText, TYPE_LABELS } from "./labels";
@@ -16,9 +16,9 @@ function cell(value: unknown) {
 function ColumnTable({ columns }: { columns: ColumnProfile[] }) {
   if (columns.length === 0) return <p className="text-sm text-muted-foreground">این برگه ستونی ندارد.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="max-w-full overflow-x-auto rounded-xl border border-border">
       <table className="w-full min-w-[40rem] text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-surface-secondary/50 text-xs text-muted-foreground">
           <tr>
             {["ستون", "نوع", "غیرخالی", "یکتا", "کمترین", "بیشترین", "میانگین", "نمونه"].map((h) => (
               <th key={h} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -61,9 +61,9 @@ function SampleRows({ sheet }: { sheet: SheetProfile }) {
   const rows = sheet.sample_rows ?? [];
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">ردیف نمونه‌ای وجود ندارد.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="max-w-full overflow-x-auto rounded-xl border border-border">
       <table className="w-full min-w-max text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-surface-secondary/50 text-xs text-muted-foreground">
           <tr>
             {sheet.columns.map((c) => (
               <th key={c.name} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -95,7 +95,7 @@ export function InspectionView({ upload, children }: { upload: UploadOut; childr
   const active = sheets.find((s) => s.name === chosen)?.name ?? sheets[0]?.name;
 
   return (
-    <Card className="gap-4 py-5">
+    <Card className="min-w-0 gap-4 rounded-2xl border border-border py-5">
       <CardHeader className="gap-1">
         <CardTitle className="text-base">
           بررسی فایل <bdi>{upload.filename}</bdi>
@@ -111,17 +111,17 @@ export function InspectionView({ upload, children }: { upload: UploadOut; childr
         {sheets.length === 0 ? (
           <p className="text-sm text-muted-foreground">برگه‌ای در این فایل پیدا نشد.</p>
         ) : (
-          <Tabs value={active} onValueChange={setChosen}>
-            <TabsList aria-label="برگه‌های فایل">
+          <Tabs selectedKey={active} onSelectionChange={(key) => setChosen(String(key))}>
+            <Tabs.List aria-label="برگه‌های فایل" className="max-w-full overflow-x-auto">
               {sheets.map((s) => (
-                <TabsTrigger key={s.name} value={s.name}>
+                <Tabs.Tab key={s.name} id={s.name} className="shrink-0">
                   <bdi>{s.name}</bdi>
                   <span className="text-xs text-muted-foreground">{fa(s.rows)} ردیف</span>
-                </TabsTrigger>
+                </Tabs.Tab>
               ))}
-            </TabsList>
+            </Tabs.List>
             {sheets.map((s) => (
-              <TabsContent key={s.name} value={s.name} className="flex flex-col gap-4">
+              <Tabs.Panel key={s.name} id={s.name} className="flex flex-col gap-4">
                 <section className="flex flex-col gap-2">
                   <h4 className="text-sm font-semibold">ستون‌ها</h4>
                   <ColumnTable columns={s.columns ?? []} />
@@ -130,7 +130,7 @@ export function InspectionView({ upload, children }: { upload: UploadOut; childr
                   <h4 className="text-sm font-semibold">نمونهٔ ردیف‌ها</h4>
                   <SampleRows sheet={s} />
                 </section>
-              </TabsContent>
+              </Tabs.Panel>
             ))}
           </Tabs>
         )}

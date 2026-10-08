@@ -23,8 +23,8 @@ function MetricTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (rows.length === 0 || columns.length === 0) return <p className="text-sm text-muted-foreground">داده‌ای برای نمایش نیست.</p>;
   const shown = rows.slice(0, MAX_TABLE_ROWS);
   return (
-    <div className="overflow-x-auto">
-      <table className="w-full text-sm">
+    <div className="max-w-full overflow-x-auto rounded-xl border border-border">
+      <table className="w-full min-w-max text-sm">
         <thead>
           <tr className="border-b text-muted-foreground">
             {columns.map((c) => (
@@ -57,7 +57,7 @@ function MetricTable({ rows }: { rows: Record<string, unknown>[] }) {
 export function MetricCard({ metric }: { metric: MetricValue }) {
   const points = metric.series ?? [];
   return (
-    <Card className="gap-3">
+    <Card className="min-w-0 gap-3 rounded-2xl border border-border">
       <CardHeader>
         <CardTitle className="text-sm">{metric.label}</CardTitle>
       </CardHeader>
@@ -82,13 +82,13 @@ export function MetricGrid({ metrics }: { metrics: MetricValue[] }) {
   return (
     <div className="flex flex-col gap-4">
       {scalars.length > 0 && (
-        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
           {scalars.map((m) => (
             <StatTile key={m.id} label={m.label} value={m.value} unit={m.unit} previous={m.previous} />
           ))}
         </div>
       )}
-      <div className="grid gap-4 xl:grid-cols-2">
+      <div className="grid min-w-0 gap-4 xl:grid-cols-2">
         {others.map((m) => (
           <div key={m.id} className={m.kind === "table" ? "xl:col-span-2" : undefined}>
             <MetricCard metric={m} />

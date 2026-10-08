@@ -1,14 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Play, RotateCcw } from "lucide-react";
+import { CirclePlay, Play, RotateCcw, ShieldCheck } from "lucide-react";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { defaultRevision, revisionOptionLabel } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { ListBox, Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { ApiError, ERROR_CODES, errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
@@ -103,12 +103,12 @@ export function SimulatorTab({ bot, onBotChanged, onOpenTab }: SimulatorTabProps
       <EmptyState
         title="هنوز چیزی برای امتحان کردن نیست"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onPress={() => onOpenTab("agent")}>
+            رفتن به بخش دستیار هوشمند
           </Button>
         }
       >
-        ابتدا در تب ایجنت ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید.
+        ابتدا در بخش دستیار هوشمند ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید.
       </EmptyState>
     );
   }
@@ -141,9 +141,10 @@ export function SimulatorTab({ bot, onBotChanged, onOpenTab }: SimulatorTabProps
   }
 
   return (
-    <div className="grid gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:items-start">
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-1.5">
+    <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,19rem)_minmax(0,1fr)] xl:items-start">
+      <aside className="flex min-w-0 flex-col gap-5 rounded-[1.5rem] border border-border/70 bg-card p-5 shadow-sm sm:p-6 xl:sticky xl:top-5">
+        <div className="border-b border-border/70 pb-4"><span className="mb-3 inline-grid size-11 place-items-center rounded-2xl bg-primary/10 text-primary"><CirclePlay className="size-6" /></span><h2 className="text-lg font-bold">محیط آزمایش ربات</h2><p className="mt-1 text-sm leading-7 text-muted-foreground">گفتگوی مشتری و مدیر را پیش از انتشار امتحان کنید.</p></div>
+        <div className="grid gap-2">
           <Label>کاربر آزمایشی</Label>
           <PersonaSwitcher
             value={persona}
@@ -155,31 +156,30 @@ export function SimulatorTab({ bot, onBotChanged, onOpenTab }: SimulatorTabProps
           />
         </div>
 
-        <div className="grid gap-1.5">
-          <Label htmlFor="sim-revision">نسخهٔ مورد آزمایش</Label>
+        <div className="grid gap-2">
+          <Label>نسخهٔ مورد آزمایش</Label>
           <Select
-            id="sim-revision"
             value={revisionId ?? ""}
-            onChange={(e) => {
-              setPickedId(e.target.value);
-              void reset(e.target.value);
+            isDisabled={busy}
+            onChange={(key) => {
+              const next = String(key ?? "");
+              setPickedId(next);
+              void reset(next);
             }}
-            disabled={busy}
           >
-            {selectable.map((r) => (
-              <option key={r.id} value={r.id}>
-                {revisionOptionLabel(r)}
-              </option>
-            ))}
+            <Select.Trigger aria-label="نسخهٔ مورد آزمایش"><Select.Value /></Select.Trigger>
+            <Select.Popover><ListBox aria-label="نسخه‌های قابل آزمایش">
+              {selectable.map((r) => <ListBox.Item key={r.id} id={r.id} textValue={revisionOptionLabel(r)}>{revisionOptionLabel(r)}</ListBox.Item>)}
+            </ListBox></Select.Popover>
           </Select>
         </div>
 
         <div className="flex flex-wrap gap-2">
-          <Button onClick={() => send("start")} disabled={busy}>
+          <Button onPress={() => send("start")} isDisabled={busy}>
             <Play />
             شروع
           </Button>
-          <Button variant="outline" onClick={() => reset(revisionId)} disabled={busy}>
+          <Button variant="outline" onPress={() => reset(revisionId)} isDisabled={busy}>
             <RotateCcw />
             بازنشانی
           </Button>
@@ -187,19 +187,17 @@ export function SimulatorTab({ bot, onBotChanged, onOpenTab }: SimulatorTabProps
 
         {error && <ErrorNote>{error}</ErrorNote>}
         {notice && <InfoNote tone="warning">{notice}</InfoNote>}
-        <p className="text-sm leading-7 text-muted-foreground">
-          این گفتگو فقط آزمایشی است و به تلگرام نمی‌رود. وقتی پیامی برای کاربر دیگری برسد (مثلاً اعلان ثبت‌نام برای مدیر)، روی نام او نشانگر می‌بینید.
-        </p>
-      </div>
+        <p className="flex items-start gap-2 rounded-2xl bg-primary/5 p-3 text-xs leading-6 text-muted-foreground"><ShieldCheck className="mt-1 size-4 shrink-0 text-primary" /> این گفتگو آزمایشی است و به تلگرام نمی‌رود. پیام‌های کاربر دیگر با نشانگر کنار نام او دیده می‌شوند.</p>
+      </aside>
 
-      <PhoneFrame
+      <div className="min-w-0 rounded-[1.5rem] border border-border/70 bg-gradient-to-bl from-primary/5 via-card to-accent/5 p-3 shadow-sm sm:p-6"><PhoneFrame
         botName={bot.name}
         personaLabel={personaLabel}
         items={conv.chats[persona]}
         busy={busy}
         onPress={(item: ChatItem, b: RuntimeButton) => send("callback", { data: b.data, label: b.label, sourceId: item.id })}
         onSendText={(text) => send("text", { text })}
-      />
+      /></div>
     </div>
   );
 }

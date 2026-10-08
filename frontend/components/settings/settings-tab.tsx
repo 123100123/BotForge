@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import { PageHeader } from "@/components/app/presentation";
+import { Button } from "@/components/ui/button";
 import { ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { api } from "@/lib/api";
@@ -50,11 +52,15 @@ export function SettingsTab({
     }
   }, [bot.id]);
 
+  const [section, setSection] = useState("connection");
   if (!status) return error ? <ErrorNote>{error}</ErrorNote> : <LoadingBlock />;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+    <div className="min-w-0 space-y-6">
+      <PageHeader eyebrow="مدیریت ربات" title="تنظیمات و اتصال‌ها" description="تلگرام، اعضای تیم و ارتباط با مشتری‌ها را از یک جای مشخص مدیریت کنید." />
+      <div className="flex flex-wrap gap-2" role="group" aria-label="بخش تنظیمات">{[{id:"connection",label:"تلگرام و مدیر"},{id:"team",label:"تیم"},{id:"groups",label:"گروه‌ها"},{id:"messages",label:"اعلان و زمان‌بندی"}].map((item) => <Button key={item.id} variant={section === item.id ? "secondary" : "ghost"} aria-pressed={section === item.id} onPress={() => setSection(item.id)} size="sm">{item.label}</Button>)}</div>
       {error && <ErrorNote>{error}</ErrorNote>}
+      <div hidden={section !== "connection"} className="grid min-w-0 items-start gap-5 xl:grid-cols-2">
       <TelegramConnect
         botId={bot.id}
         status={status}
@@ -71,10 +77,11 @@ export function SettingsTab({
           onBotChanged();
         }}
       />
-      <TeamSection botId={bot.id} />
-      <GroupsSection botId={bot.id} />
-      <AnnouncementsSection botId={bot.id} />
-      <SchedulesSection botId={bot.id} onOpenTab={onOpenTab} />
+      </div>
+      <div hidden={section !== "team"} className="min-w-0"><TeamSection botId={bot.id} /></div>
+      <div hidden={section !== "groups"} className="min-w-0"><GroupsSection botId={bot.id} /></div>
+      <div hidden={section !== "messages"} className="grid min-w-0 items-start gap-5 xl:grid-cols-2"><AnnouncementsSection botId={bot.id} />
+      <SchedulesSection botId={bot.id} onOpenTab={onOpenTab} /></div>
     </div>
   );
 }

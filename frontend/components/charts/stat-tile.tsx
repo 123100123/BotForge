@@ -33,17 +33,17 @@ export function StatTile({
 }) {
   const delta = computeDelta(value, previous);
   return (
-    <Card className={cn("gap-2 py-4", className)}>
-      <CardContent className="flex flex-col gap-1.5">
-        <span className="text-xs text-muted-foreground">{label}</span>
-        <span className="text-2xl leading-tight font-bold">
-          {value === null ? "-" : formatNumber(value)}
+    <Card className={cn("min-w-0 gap-4 rounded-2xl border border-border py-5", className)}>
+      <CardContent className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-muted-foreground">{label}</span>
+        <span className="flex min-w-0 flex-wrap items-baseline gap-1 text-3xl leading-tight font-extrabold tabular-nums tracking-tight">
+          <span className="min-w-0 [overflow-wrap:anywhere]">{value === null ? "-" : formatNumber(value)}</span>
           {unit && <span className="ms-1 text-xs font-normal text-muted-foreground">{unit}</span>}
         </span>
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-xs",
+              "inline-flex flex-wrap items-center gap-1 text-xs",
               delta.direction === "up" && "text-success",
               delta.direction === "down" && "text-destructive",
               delta.direction === "flat" && "text-muted-foreground",

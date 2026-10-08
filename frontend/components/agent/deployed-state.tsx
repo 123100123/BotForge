@@ -11,10 +11,10 @@ interface DeployedStateProps {
 /** Shown once a revision is active: what to do next. */
 export function DeployedState({ number, onOpenTab }: DeployedStateProps) {
   return (
-    <Card className="border-success/40 bg-success/5">
+    <Card className="border-success/40 bg-success/5 shadow-sm">
       <CardContent className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-base font-semibold text-success">
-          <CircleCheck className="size-5" />
+        <div className="flex items-center gap-3 text-lg font-bold text-success">
+          <span className="grid size-11 place-items-center rounded-2xl bg-success/10"><CircleCheck className="size-6" /></span>
           نسخهٔ {fa(number)} فعال شد
         </div>
         <p className="text-sm leading-7">
@@ -22,10 +22,10 @@ export function DeployedState({ number, onOpenTab }: DeployedStateProps) {
           توکن آن را در تب «تنظیمات» وارد کنید.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => onOpenTab("data")}>
+          <Button size="sm" variant="outline" onPress={() => onOpenTab("data")}>
             رفتن به داده‌ها
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onOpenTab("settings")}>
+          <Button size="sm" variant="outline" onPress={() => onOpenTab("settings")}>
             رفتن به تنظیمات
           </Button>
         </div>

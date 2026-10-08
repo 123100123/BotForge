@@ -65,8 +65,8 @@ export function UploadZone({
         }}
         aria-busy={busy}
         className={cn(
-          "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-card px-4 text-center transition-colors",
-          compact ? "py-4" : "py-8",
+          "flex min-w-0 flex-col items-center gap-3 rounded-2xl border-2 border-dashed bg-secondary/50 px-4 text-center transition-colors",
+          compact ? "py-4" : "py-10 sm:py-12",
           dragging ? "border-primary bg-accent/40" : "border-border",
           busy && "opacity-70",
         )}
@@ -92,7 +92,7 @@ export function UploadZone({
           disabled={busy}
           onChange={(e) => void send(e.target.files?.[0])}
         />
-        <Button type="button" variant="outline" disabled={busy} onClick={() => input.current?.click()}>
+        <Button type="button" variant="outline" isDisabled={busy} onPress={() => input.current?.click()}>
           انتخاب فایل
         </Button>
       </div>

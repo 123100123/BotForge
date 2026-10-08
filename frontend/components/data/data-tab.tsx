@@ -7,6 +7,7 @@ import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { PageHeader } from "@/components/app/presentation";
 import { api } from "@/lib/api";
 import { ApiError, ERROR_CODES, errorMessage } from "@/lib/errors";
 import type { Bot, CollectionAction, DataCollection, DataRecord, RecordsPage } from "@/lib/types";
@@ -80,12 +81,12 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
       <EmptyState
         title="هنوز داده‌ای وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onPress={() => onOpenTab("agent")}>
+            رفتن به بخش دستیار هوشمند
           </Button>
         }
       >
-        این ربات هنوز نسخهٔ فعالی ندارد. ابتدا در تب ایجنت ربات را بسازید و تأیید کنید؛ بعد می‌توانید موارد آن (مثل کارگاه‌ها) را اینجا اضافه کنید.
+        این ربات هنوز نسخهٔ فعالی ندارد. ابتدا در بخش دستیار هوشمند ربات را بسازید و تأیید کنید؛ بعد می‌توانید موارد آن (مثل کارگاه‌ها) را اینجا اضافه کنید.
       </EmptyState>
     );
   }
@@ -93,9 +94,11 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
 
   const current = overview.collections.find((c) => c.key === selected) ?? null;
   return (
-    <div className="flex flex-col gap-5 md:flex-row md:items-start">
-      <CollectionNav collections={overview.collections} selected={selected} counts={counts} onSelect={setSelected} />
-      <div className="min-w-0 flex-1">
+    <div className="flex min-w-0 flex-col gap-6">
+      <PageHeader eyebrow="عملیات" title="مدیریت داده‌ها" description="مجموعه‌ها، سفارش‌ها و درخواست‌های ثبت‌شده در ربات را مدیریت کنید." />
+      <div className="grid min-w-0 gap-5 lg:grid-cols-[15rem_minmax(0,1fr)] lg:items-start">
+        <CollectionNav collections={overview.collections} selected={selected} counts={counts} onSelect={setSelected} />
+        <div className="min-w-0 flex-1">
         {current ? (
           <CollectionPanel
             key={current.key}
@@ -107,6 +110,7 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
         ) : (
           <EmptyState title="مجموعه‌ای وجود ندارد">این نسخهٔ ربات داده‌ای برای مدیریت ندارد.</EmptyState>
         )}
+        </div>
       </div>
     </div>
   );
@@ -163,13 +167,13 @@ function CollectionPanel({ botId, collection, tick, onChanged }: PanelProps) {
   const writable = collection.writable && collection.kind !== "orders";
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center justify-between gap-3">
-        <CardTitle className="text-base">{collection.label_plural}</CardTitle>
+    <Card className="min-w-0 rounded-2xl border border-border">
+      <CardHeader className="flex flex-col gap-3 border-b border-border pb-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="min-w-0"><CardTitle className="text-xl font-bold">{collection.label_plural}</CardTitle><p className="mt-1 text-sm text-muted-foreground">{loaded ? `${loaded.total.toLocaleString("fa-IR")} مورد ثبت‌شده` : "فهرست و اقدام‌های این مجموعه"}</p></div>
         {writable && (
           <Button
             size="sm"
-            onClick={() => {
+            onPress={() => {
               setEditing(null);
               setFormOpen(true);
             }}

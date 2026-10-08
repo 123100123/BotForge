@@ -16,6 +16,31 @@ deploying the project.
 
 ## Repository layout
 
+The frontend uses HeroUI V3, bundled Vazirmatn and Persian RTL. Its light/dark/system control persists
+across visits. The landing, authentication, bot directory and all eight workspace sections share the
+new responsive design; below 1024px the workspace navigation opens in a keyboard-accessible drawer.
+
+For frontend checks, run these from `frontend/`:
+
+```sh
+npm ci
+npm run lint
+npm run typecheck
+npm run test:next-path
+npm run test:schema-parity
+npm run build
+```
+
+Browser regression tests require a separately running **mock** frontend (`NEXT_PUBLIC_MOCK=1`),
+then `npm run test:ui`. The suite uses installed Microsoft Edge; `UI_BASE_URL` overrides
+`http://127.0.0.1:3000`. Every mutating test checks for the mock notice before proceeding.
+Mock tests exercise local fixtures; they do not establish live Telegram, LLM or Supabase behavior.
+The redesign verification passed clean installation, lint, TypeScript, route/schema checks,
+production builds for mock/local/Supabase configurations and all 24 browser regression tests.
+The browser suite checks both themes at 375, 768, 1024 and 1440px, keyboard modal focus,
+200% CSS layout zoom, reduced motion and shared theme text contrast. Review screenshots are
+generated in the ignored `frontend/ui-review/` directory.
+
 | Path | Contents |
 |---|---|
 | `backend/app/` | FastAPI app: `api/` routes, `agent/` (LLM orchestration), `botspec/` (contracts), `runtime/` (bot engines, `PgStore`), `integrations/telegram/`, `simulator/`, `revisions/`, `testing/`, `security/`, `db/` |

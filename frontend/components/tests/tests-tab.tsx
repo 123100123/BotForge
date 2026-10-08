@@ -9,7 +9,7 @@ import { useRevisions } from "@/components/app/use-revisions";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { ListBox, Select } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
@@ -90,8 +90,8 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
       <EmptyState
         title="هنوز آزمونی وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onPress={() => onOpenTab("agent")}>
+            رفتن به بخش دستیار هوشمند
           </Button>
         }
       >
@@ -106,22 +106,21 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
   const selected = scenarios.find((s) => s.id === selectedId) ?? null;
 
   return (
-    <div className="flex flex-col gap-5">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="grid min-w-56 gap-1.5">
-          <Label htmlFor="tests-revision">نسخه</Label>
-          <Select id="tests-revision" value={revisionId ?? ""} onChange={(e) => {
-              setPickedId(e.target.value);
+    <div className="flex min-w-0 flex-col gap-5">
+      <div className="flex flex-wrap items-end justify-between gap-4 rounded-[1.5rem] border border-border/70 bg-card p-5 shadow-sm">
+        <div className="grid min-w-56 flex-1 gap-1.5 sm:max-w-sm">
+          <Label>نسخهٔ مورد آزمون</Label>
+          <Select value={revisionId ?? ""} onChange={(key) => {
+              setPickedId(String(key ?? ""));
               setRunError(null);
             }}>
-            {revisions.map((r) => (
-              <option key={r.id} value={r.id}>
-                {revisionOptionLabel(r)}
-              </option>
-            ))}
+            <Select.Trigger aria-label="نسخهٔ مورد آزمون"><Select.Value /></Select.Trigger>
+            <Select.Popover><ListBox aria-label="نسخه‌های ربات">
+              {revisions.map((r) => <ListBox.Item key={r.id} id={r.id} textValue={revisionOptionLabel(r)}>{revisionOptionLabel(r)}</ListBox.Item>)}
+            </ListBox></Select.Popover>
           </Select>
         </div>
-        <Button variant="outline" onClick={runAgain} disabled={!detail || running}>
+        <Button variant="outline" onPress={runAgain} isDisabled={!detail || running}>
           <Play />
           {running ? "در حال اجرا…" : scenarios.length === 0 ? "اجرای آزمون" : "اجرای دوباره"}
         </Button>
@@ -133,8 +132,8 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
 
       {detail && (
         <>
-          <Card className={report ? (allPassed ? "border-success/40" : "border-destructive/40") : undefined}>
-            <CardContent className="flex items-center gap-2 text-lg font-semibold">
+          <Card className={report ? (allPassed ? "border-success/40 bg-success/5" : "border-destructive/40 bg-destructive/5") : undefined}>
+            <CardContent className="flex items-center gap-3 text-lg font-semibold">
               {report ? (
                 <>
                   {allPassed ? <CircleCheck className="size-5 text-success" /> : <CircleX className="size-5 text-destructive" />}
@@ -152,7 +151,7 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             <EmptyState
               title="برای این نسخه سناریوی آزمونی ذخیره نشده است"
               action={
-                <Button onClick={runAgain} disabled={running}>
+                <Button onPress={runAgain} isDisabled={running}>
                   <Play />
                   {running ? "در حال اجرا…" : "اجرای آزمون"}
                 </Button>
@@ -163,7 +162,7 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
           )}
 
           {scenarios.length > 0 && (
-            <div className="grid gap-5 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] md:items-start">
+            <div className="grid min-w-0 gap-5 xl:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] xl:items-start">
               <Card className="py-3">
                 <CardContent className="px-2">
                   <ScenarioList scenarios={scenarios} results={results} selectedId={selectedId} onSelect={setSelectedId} />

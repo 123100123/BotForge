@@ -1,13 +1,12 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
 import { AUDIENCE_LABELS, configLabel } from "@/components/capabilities/labels";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { ChoiceSelect, ToggleField } from "@/components/data/controls";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import type { CapabilityOut } from "@/lib/types";
@@ -35,16 +34,20 @@ export function CapabilityConfig({
   botId,
   cap,
   onSaved,
+  onBusyChange,
 }: {
   botId: string;
   cap: CapabilityOut;
   onSaved: (updated: CapabilityOut) => void;
+  onBusyChange?: (busy: boolean) => void;
 }) {
   const [initial, setInitial] = useState(() => initialDraft(cap));
   const [draft, setDraft] = useState<Draft>(initial);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
+  const feedback = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (!busy && (saved || error)) feedback.current?.focus(); }, [saved, error, busy]);
 
   const keys = Object.keys(initial);
   const changed = keys.filter((k) => draft[k] !== initial[k]);
@@ -70,6 +73,7 @@ export function CapabilityConfig({
       }
     }
     setBusy(true);
+    onBusyChange?.(true);
     setError(null);
     try {
       onSaved(await api.updateCapabilityConfig(botId, cap.id, { config }));
@@ -79,6 +83,7 @@ export function CapabilityConfig({
       setError(errorMessage(err));
     } finally {
       setBusy(false);
+      onBusyChange?.(false);
     }
   }
 
@@ -91,21 +96,14 @@ export function CapabilityConfig({
           return (
             <div key={key} className="flex flex-col gap-1.5">
               <Label htmlFor={id}>چه کسانی می‌توانند از این قابلیت استفاده کنند؟</Label>
-              <Select id={id} value={String(value)} onChange={(e) => set(key, e.target.value)}>
-                {Object.entries(AUDIENCE_LABELS).map(([v, label]) => (
-                  <option key={v} value={v}>
-                    {label}
-                  </option>
-                ))}
-              </Select>
+              <ChoiceSelect id={id} label="مخاطب قابلیت" isDisabled={busy} value={String(value)} onChange={(v) => set(key, v)} options={Object.entries(AUDIENCE_LABELS).map(([v, label]) => ({ value: v, label }))} />
             </div>
           );
         }
         if (typeof value === "boolean") {
           return (
             <div key={key} className="flex items-center justify-between gap-3">
-              <Label htmlFor={id}>{configLabel(key)}</Label>
-              <Switch id={id} checked={value} onCheckedChange={(v) => set(key, v)} />
+              <ToggleField id={id} label={configLabel(key)} isDisabled={busy} value={value} onChange={(v) => set(key, v)} />
             </div>
           );
         }
@@ -115,6 +113,7 @@ export function CapabilityConfig({
             <Label htmlFor={id}>{configLabel(key)}</Label>
             <Input
               id={id}
+              disabled={busy}
               value={String(value)}
               onChange={(e) => set(key, e.target.value)}
               type={numeric ? "number" : "text"}
@@ -126,9 +125,8 @@ export function CapabilityConfig({
           </div>
         );
       })}
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {saved && <InfoNote>تنظیمات ذخیره شد.</InfoNote>}
-      <Button variant="outline" size="sm" className="self-start" disabled={busy || changed.length === 0} onClick={save}>
+      {(error || saved) && <div ref={feedback} tabIndex={-1} className="rounded-2xl outline-none focus-visible:ring-2 focus-visible:ring-ring">{error ? <ErrorNote>{error}</ErrorNote> : <InfoNote>تنظیمات ذخیره شد.</InfoNote>}</div>}
+      <Button variant="outline" size="sm" className="self-start" isDisabled={busy || changed.length === 0} onPress={save}>
         {busy ? "در حال ذخیره…" : "ذخیرهٔ تنظیمات"}
       </Button>
     </div>

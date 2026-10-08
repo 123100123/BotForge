@@ -95,9 +95,9 @@ export function ReviewCard({
     approval && !approval.can_approve ? approval.blocked_reason || "تأیید این نسخه فعلاً ممکن نیست." : null;
 
   return (
-    <Card>
-      <CardHeader className="flex-row items-center gap-2">
-        <CardTitle>{kind === "modify" ? "بازبینی تغییر" : "بازبینی ربات"}</CardTitle>
+    <Card className="overflow-hidden border-primary/25 bg-primary/[.025] shadow-sm">
+      <CardHeader className="flex-row flex-wrap items-center gap-2 border-b border-primary/10 bg-primary/5">
+        <CardTitle>{kind === "modify" ? "بازبینی تغییر پیش از انتشار" : "بازبینی ربات پیش از انتشار"}</CardTitle>
         {diff && (
           <Badge variant={RISK_VARIANT[diff.risk]} className="ms-auto">
             {RISK_LABELS[diff.risk]}
@@ -107,7 +107,7 @@ export function ReviewCard({
         {decision === "rejected" && <Badge variant="secondary" className="ms-auto">رد شد</Badge>}
       </CardHeader>
 
-      <CardContent className="flex flex-col gap-5">
+      <CardContent className="flex flex-col gap-6">
         {diff ? (
           <>
             <section>
@@ -119,7 +119,7 @@ export function ReviewCard({
                   {diff.changes.map((c, i) => {
                     const Icon = CHANGE_ICON[c.kind];
                     return (
-                      <li key={i} className="flex items-center gap-2 rounded-md border p-2 text-sm">
+                      <li key={i} className="flex items-center gap-3 rounded-xl border border-border/70 bg-card p-3 text-sm">
                         <span className={`flex size-5 shrink-0 items-center justify-center rounded ${CHANGE_STYLE[c.kind]}`}>
                           <Icon className="size-3.5" />
                         </span>
@@ -193,12 +193,12 @@ export function ReviewCard({
       </CardContent>
 
       {pending && approval && (
-        <CardFooter className="gap-2">
-          <Button onClick={onApprove} disabled={!canApprove || busy}>
+        <CardFooter className="flex flex-wrap gap-2 border-t border-primary/10 bg-primary/5">
+          <Button onPress={onApprove} isDisabled={!canApprove || busy}>
             <Check />
             تأیید و فعال‌سازی
           </Button>
-          <Button variant="outline" onClick={onReject} disabled={busy}>
+          <Button variant="outline" onPress={onReject} isDisabled={busy}>
             <X />
             رد کردن
           </Button>

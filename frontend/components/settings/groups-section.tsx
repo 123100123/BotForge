@@ -7,7 +7,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import { Select, ListBox } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { formatDate } from "@/lib/format";
@@ -57,7 +57,7 @@ export function GroupsSection({ botId }: { botId: string }) {
       <CardContent className="flex flex-col gap-3">
         {error && <ErrorNote>{error}</ErrorNote>}
         {!groups ? (
-          !error && <div role="status" aria-label="در حال بارگذاری" className="h-20 animate-pulse rounded-xl bg-muted" />
+          !error && <div role="status" aria-label="در حال بارگذاری" className="h-20 animate-pulse rounded-xl bg-surface-secondary" />
         ) : groups.length === 0 ? (
           <p className="text-sm leading-7 text-muted-foreground">
             هنوز ربات در هیچ گروهی نیست. در تلگرام وارد گروه یا کانال خود شوید، ربات را از بخش افزودن عضو اضافه کنید (برای کانال، ربات باید
@@ -74,7 +74,7 @@ export function GroupsSection({ botId }: { botId: string }) {
                   </span>
                 </div>
                 <Badge variant={g.active ? "success" : "secondary"}>{g.active ? "فعال" : "غیرفعال"}</Badge>
-                <Button variant="outline" size="sm" disabled={!g.active} onClick={() => setPublishing(g)}>
+                <Button variant="outline" size="sm" isDisabled={!g.active} onPress={() => setPublishing(g)}>
                   <Megaphone />
                   انتشار رویداد
                 </Button>
@@ -204,30 +204,30 @@ function PublishDialog({
           <>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="publish-collection">مجموعه</Label>
-              <Select id="publish-collection" value={collection} onChange={(e) => setPicked(e.target.value)}>
-                {candidates.map((c) => (
-                  <option key={c.key} value={c.key}>
+              <Select id="publish-collection" value={collection} aria-label="مجموعه" onChange={(key) => setPicked(String(key ?? ""))}>
+                <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>{candidates.map((c) => (
+                  <ListBox.Item key={c.key} id={c.key} textValue={c.label_plural || c.label}>
                     {c.label_plural || c.label}
-                  </option>
+                  </ListBox.Item>
                 ))}
-              </Select>
+              </ListBox></Select.Popover></Select>
             </div>
             <div className="flex flex-col gap-1.5">
               <Label htmlFor="publish-record">رویداد</Label>
               {recordError ? (
                 <ErrorNote>{recordError}</ErrorNote>
               ) : !items ? (
-                <div className="h-9 animate-pulse rounded-md bg-muted" role="status" aria-label="در حال بارگذاری" />
+                <div className="h-9 animate-pulse rounded-md bg-surface-secondary" role="status" aria-label="در حال بارگذاری" />
               ) : items.length === 0 ? (
                 <p className="text-sm leading-7 text-muted-foreground">این مجموعه هنوز رکوردی ندارد.</p>
               ) : (
-                <Select id="publish-record" value={recordId} onChange={(e) => setRecordId(e.target.value)}>
-                  {items.map((r) => (
-                    <option key={r.id} value={r.id}>
+                <Select id="publish-record" value={recordId} aria-label="رویداد" onChange={(key) => setRecordId(String(key ?? ""))}>
+                  <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>{items.map((r) => (
+                    <ListBox.Item key={r.id} id={String(r.id)} textValue={recordTitle(r, col)}>
                       {recordTitle(r, col)}
-                    </option>
+                    </ListBox.Item>
                   ))}
-                </Select>
+                </ListBox></Select.Popover></Select>
               )}
             </div>
           </>

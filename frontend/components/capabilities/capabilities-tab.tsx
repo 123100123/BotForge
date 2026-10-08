@@ -8,6 +8,7 @@ import { CapabilityCard } from "@/components/capabilities/capability-card";
 import { CapabilityDialog, type ToggleSuccess } from "@/components/capabilities/capability-dialog";
 import { openSection } from "@/components/capabilities/labels";
 import { Button } from "@/components/ui/button";
+import { PageHeader } from "@/components/app/presentation";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import { fa } from "@/lib/format";
@@ -82,17 +83,8 @@ export function CapabilitiesTab({
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-bold">مرکز قابلیت‌ها</h2>
-        <p className="text-sm leading-7 text-muted-foreground">
-          <span className="font-semibold text-foreground">
-            {fa(enabledCount)} قابلیت فعال از {fa(all.length)}
-          </span>
-          {" · "}
-          هر قابلیت را روشن یا خاموش کنید؛ پیش از هر تغییر، اثر آن را می‌بینید.
-        </p>
-      </header>
+    <div className="flex min-w-0 flex-col gap-7">
+      <PageHeader eyebrow="ساخت ربات" title="مرکز قابلیت‌ها" description="امکانات کسب‌وکارتان را مرور کنید؛ پیش از روشن یا خاموش کردن هر قابلیت، اثر تغییر را می‌بینید." action={<span className="rounded-full bg-primary/10 px-3 py-1.5 text-sm font-bold text-primary">{fa(enabledCount)} فعال از {fa(all.length)}</span>} />
 
       {success && (
         <InfoNote className="flex flex-wrap items-center justify-between gap-2">
@@ -101,7 +93,7 @@ export function CapabilitiesTab({
             {success.revisionNumber !== null && ` نسخهٔ ${fa(success.revisionNumber)} ساخته و فعال شد.`}
           </span>
           {success.revisionNumber !== null && (
-            <Button variant="link" size="sm" className="h-auto p-0" onClick={() => openSection("versions", onOpenTab)}>
+            <Button variant="ghost" size="sm" className="h-auto p-0" onPress={() => openSection("versions", onOpenTab)}>
               مشاهدهٔ نسخه‌ها
             </Button>
           )}
@@ -110,9 +102,9 @@ export function CapabilitiesTab({
       {refreshError && <ErrorNote>{refreshError}</ErrorNote>}
 
       {categories.map((category) => (
-        <section key={category.id} aria-label={category.name} className="flex flex-col gap-3">
-          <h3 className="text-base font-semibold">{category.name}</h3>
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+        <section key={category.id} aria-label={category.name} className="flex flex-col gap-4">
+          <h3 className="border-b border-border pb-2 text-lg font-bold">{category.name}</h3>
+          <div className="grid gap-4 sm:grid-cols-2 2xl:grid-cols-3">
             {category.capabilities.map((c) => (
               <CapabilityCard key={c.id} cap={c} byId={byId} onOpen={() => setSelectedId(c.id)} />
             ))}
