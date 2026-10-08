@@ -41,7 +41,7 @@ function Toaster() {
           </div>
           <ToastPrimitive.Close
             aria-label="بستن"
-            className="absolute end-2 top-2 inline-flex size-7 items-center justify-center rounded-xs text-fg-muted transition-colors duration-fast outline-none hover:bg-surface-sunken hover:text-fg"
+            className="absolute end-2 top-2 inline-flex size-7 items-center justify-center rounded-xs text-fg-muted transition-colors duration-fast hover:bg-surface-sunken hover:text-fg"
           >
             <XIcon className="size-4" strokeWidth={1.75} />
           </ToastPrimitive.Close>

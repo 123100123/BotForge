@@ -28,7 +28,7 @@ export function UpcomingList({ items, loading }: { items: UpcomingItem[]; loadin
             <span className="min-w-0 flex-1 basis-40 text-small font-medium text-fg">{u.title}</span>
             <span className="flex flex-wrap items-baseline gap-x-3 text-caption text-fg-muted">
               <span>
-                {formatDate(u.at)}، <span className="tabular-nums">{formatTime(u.at)}</span>
+                {formatDate(u.at)}، {formatTime(u.at)}
               </span>
               <span className="font-medium text-fg-secondary">{relativeTime(u.at)}</span>
             </span>

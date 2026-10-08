@@ -211,6 +211,7 @@ export function ReportsTab({ bot, capabilityKey }: { bot: Bot; capabilityKey: st
 
       {!current ? (
         <EmptyState
+          as="h2"
           icon={<BarChart3Icon />}
           title="این گزارش پیدا نشد"
           description="ممکن است قابلیتش غیرفعال شده باشد. یکی از گزارش‌های بالا را انتخاب کنید."

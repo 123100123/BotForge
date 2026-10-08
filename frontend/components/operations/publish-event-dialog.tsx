@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { ErrorNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -84,19 +86,15 @@ function PublishBody({ botId, resourceKey, eventId, eventTitle, onClose }: { bot
         </DialogDescription>
       </DialogHeader>
       {loadError ? (
-        <p role="alert" className="rounded-sm bg-danger-soft p-3 text-small text-danger-text">
-          {loadError}
-        </p>
+        <ErrorNote>{loadError}</ErrorNote>
       ) : groups === null ? (
-        <p role="status" className="text-small text-fg-muted">
-          در حال بارگذاری گروه‌ها…
-        </p>
+        <Skeleton aria-label="در حال بارگذاری گروه‌ها" role="status" className="h-10 rounded-sm" />
       ) : groups.length === 0 ? (
         <p className="text-small text-fg-secondary">
           ربات هنوز در هیچ گروه فعالی نیست. ربات را در تلگرام به گروه یا کانال اضافه کنید (برای کانال، ربات باید مدیر باشد) و دوباره تلاش کنید.
         </p>
       ) : (
-        <div className="grid gap-1.5">
+        <div className="flex flex-col gap-1.5">
           <Label htmlFor="publish-group">گروه</Label>
           <Select id="publish-group" value={picked} onChange={(e) => setPicked(e.target.value)}>
             {groups.map((g) => (
@@ -107,11 +105,7 @@ function PublishBody({ botId, resourceKey, eventId, eventTitle, onClose }: { bot
           </Select>
         </div>
       )}
-      {error && (
-        <p role="alert" className="rounded-sm bg-danger-soft p-3 text-small text-danger-text">
-          {error}
-        </p>
-      )}
+      {error && <ErrorNote>{error}</ErrorNote>}
       <DialogFooter>
         <Button onClick={publish} loading={busy} disabled={!group}>
           انتشار

@@ -27,7 +27,7 @@ export function DateTimeValue({
   const shown = compact ? formatDate(value) : full;
   const recent = Math.abs(now - t) < DAY;
   return (
-    <time dateTime={value} title={recent || compact ? full : undefined} className={cn("whitespace-nowrap tabular-nums", className)}>
+    <time dateTime={value} title={recent || compact ? full : undefined} className={cn("whitespace-nowrap", className)}>
       {recent ? relativeTime(value, now) : shown}
     </time>
   );
@@ -80,7 +80,7 @@ export function FieldCell({ field, value, timeZone }: { field: FieldDef; value: 
       );
     case "phone":
       return (
-        <span dir="ltr" className="inline-block tabular-nums">
+        <span dir="ltr" className="inline-block">
           {toFaDigits(String(value))}
         </span>
       );

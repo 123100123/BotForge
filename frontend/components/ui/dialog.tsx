@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
+import { useRestoreFocus } from "@/lib/use-restore-focus";
 import { cn } from "@/lib/utils";
 
 function Dialog(props: React.ComponentProps<typeof DialogPrimitive.Root>) {
@@ -22,14 +23,17 @@ export const OVERLAY_CLASS =
   "fixed inset-0 z-overlay bg-scrim data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 data-[state=open]:duration-slow";
 
 export const CLOSE_CLASS =
-  "absolute end-3 top-3 inline-flex size-8 items-center justify-center rounded-sm text-fg-muted transition-colors duration-fast outline-none hover:bg-surface-sunken hover:text-fg";
+  "absolute end-3 top-3 inline-flex size-8 items-center justify-center rounded-sm text-fg-muted transition-colors duration-fast hover:bg-surface-sunken hover:text-fg";
 
 /** Centered with inset-0 + m-auto (no left/translate), so it is correct in both directions. */
 function DialogContent({
   className,
   children,
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content>) {
+  const restoreFocus = useRestoreFocus({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay data-slot="dialog-overlay" className={OVERLAY_CLASS} />
@@ -40,6 +44,7 @@ function DialogContent({
           "data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:animate-in data-[state=open]:fade-in-0 motion-safe:data-[state=closed]:zoom-out-95 motion-safe:data-[state=open]:zoom-in-95 data-[state=open]:duration-slow",
           className,
         )}
+        {...restoreFocus}
         {...props}
       >
         {children}

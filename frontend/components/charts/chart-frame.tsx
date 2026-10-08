@@ -69,7 +69,7 @@ export function ChartFrame({
           >
             <span className="text-fg-muted">{tip.title}</span>
             {tip.lines.map((line) => (
-              <span key={line} className="font-medium tabular-nums">
+              <span key={line} className="font-medium">
                 {line}
               </span>
             ))}

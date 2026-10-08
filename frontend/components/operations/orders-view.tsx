@@ -79,7 +79,7 @@ export function OrdersTable({ botId, collection, initialStatus }: { botId: strin
         header: "شماره",
         className: "w-20",
         sortValue: (r) => r.id,
-        cell: (r) => <span className="tabular-nums">{fa(r.id)}</span>,
+        cell: (r) => <span>{fa(r.id)}</span>,
       },
       {
         id: "customer",

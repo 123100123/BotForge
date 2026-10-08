@@ -52,11 +52,10 @@ export function sectionHref(botId: string, section: SectionTarget, opts: Section
     case "overview":
       return base;
     case "changes":
+    case "versions": // /changes/versions is only a redirect for old links; versions live inside Changes
     case "copilot":
     case "agent":
       return `${base}/changes`;
-    case "versions":
-      return `${base}/changes/versions`;
     case "capabilities":
       return `${base}/capabilities`;
     case "operations":

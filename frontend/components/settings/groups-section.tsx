@@ -2,13 +2,14 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, CircleSlash, Megaphone, MessagesSquare } from "lucide-react";
-import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
+import { ErrorNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { EmptyState } from "@/components/ui/empty-state";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
+import { toast } from "@/components/ui/use-toast";
 import { StatusBadge } from "@/components/ui/status-badge";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
@@ -133,7 +134,6 @@ export function PublishDialog({
   const [step, setStep] = useState<"pick" | "confirm">("pick");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<string | null>(null);
 
   const col = candidates.find((c) => c.key === collection);
 
@@ -163,10 +163,10 @@ export function PublishDialog({
     setError(null);
     try {
       const out = await api.publishToGroup(botId, group.chat_id, { collection, record_id: chosen.id });
-      setDone(out.message || "در صف ارسال قرار گرفت.");
+      toast({ title: out.message || "کارت رویداد در صف ارسال قرار گرفت.", description: `گروه: ${group.title}`, tone: "success" });
+      onClose();
     } catch (err) {
       setError(errorMessage(err));
-    } finally {
       setBusy(false);
       setStep("pick");
     }
@@ -174,68 +174,57 @@ export function PublishDialog({
 
   const title = chosen && col ? recordTitle(chosen, col) : "";
   const confirming = step === "confirm" && !!chosen;
-  const heading = done ? "انتشار رویداد" : confirming ? "انتشار در گروه؟" : "انتشار رویداد";
-  const lead = done
-    ? `در «${group.title}»`
-    : confirming
-      ? `کارت «${title}» در «${group.title}» ارسال می‌شود و همهٔ اعضای گروه آن را می‌بینند.`
-      : `کارت یک رویداد را در «${group.title}» منتشر کنید.`;
+  const lead = confirming
+    ? `کارت «${title}» با دکمهٔ ثبت‌نام در «${group.title}» فرستاده می‌شود و همهٔ اعضای گروه آن را می‌بینند.`
+    : `کارت یک رویداد را در «${group.title}» منتشر کنید.`;
 
   return (
     <Dialog open onOpenChange={(next) => !next && !busy && onClose()}>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>{heading}</DialogTitle>
+          <DialogTitle>انتشار در گروه</DialogTitle>
           <DialogDescription>{lead}</DialogDescription>
         </DialogHeader>
 
-        {done ? (
-          <InfoNote>{done}</InfoNote>
-        ) : (
-          <>
-            {error && <ErrorNote>{error}</ErrorNote>}
-            {!confirming &&
-              (candidates.length === 0 ? (
-                <p className="text-small text-fg-secondary">برای انتشار باید حداقل یک مجموعهٔ داده (مثلاً رویدادها) داشته باشید.</p>
-              ) : (
-                <div className="flex flex-col gap-3">
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="publish-collection">مجموعه</Label>
-                    <Select id="publish-collection" value={collection} onChange={(e) => setPicked(e.target.value)}>
-                      {candidates.map((c) => (
-                        <option key={c.key} value={c.key}>
-                          {c.label_plural || c.label}
-                        </option>
-                      ))}
-                    </Select>
-                  </div>
-                  <div className="flex flex-col gap-1.5">
-                    <Label htmlFor="publish-record">رویداد</Label>
-                    {recordError ? (
-                      <ErrorNote>{recordError}</ErrorNote>
-                    ) : !items ? (
-                      <Skeleton className="h-10 rounded-sm" />
-                    ) : items.length === 0 ? (
-                      <p className="text-small text-fg-secondary">این مجموعه هنوز رکوردی ندارد.</p>
-                    ) : (
-                      <Select id="publish-record" value={recordId} onChange={(e) => setRecordId(e.target.value)}>
-                        {items.map((r) => (
-                          <option key={r.id} value={r.id}>
-                            {recordTitle(r, col)}
-                          </option>
-                        ))}
-                      </Select>
-                    )}
-                  </div>
-                </div>
-              ))}
-          </>
-        )}
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {!confirming &&
+          (candidates.length === 0 ? (
+            <p className="text-small text-fg-secondary">برای انتشار باید حداقل یک مجموعهٔ داده (مثلاً رویدادها) داشته باشید.</p>
+          ) : (
+            <div className="flex flex-col gap-3">
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="publish-collection">مجموعه</Label>
+                <Select id="publish-collection" value={collection} onChange={(e) => setPicked(e.target.value)}>
+                  {candidates.map((c) => (
+                    <option key={c.key} value={c.key}>
+                      {c.label_plural || c.label}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <div className="flex flex-col gap-1.5">
+                <Label htmlFor="publish-record">رویداد</Label>
+                {recordError ? (
+                  <ErrorNote>{recordError}</ErrorNote>
+                ) : !items ? (
+                  <Skeleton className="h-10 rounded-sm" />
+                ) : items.length === 0 ? (
+                  <p className="text-small text-fg-secondary">این مجموعه هنوز رکوردی ندارد.</p>
+                ) : (
+                  <Select id="publish-record" value={recordId} onChange={(e) => setRecordId(e.target.value)}>
+                    {items.map((r) => (
+                      <option key={r.id} value={r.id}>
+                        {recordTitle(r, col)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </div>
+            </div>
+          ))}
 
         <DialogFooter>
-          {done ? (
-            <Button onClick={onClose}>بستن</Button>
-          ) : confirming ? (
+          {confirming ? (
             <>
               <Button onClick={() => void publish()} loading={busy}>
                 انتشار

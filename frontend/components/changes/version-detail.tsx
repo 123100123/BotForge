@@ -119,7 +119,7 @@ export function VersionDetail({ botId, revisionId, activeNumber, justActivated =
           <Button asChild variant={canActivate ? "secondary" : "primary"}>
             <Link href={simulatorHref}>
               <FlaskConical strokeWidth={1.75} />
-              امتحان در شبیه‌ساز
+              آزمایش ربات
             </Link>
           </Button>
         </div>

@@ -91,7 +91,7 @@ export function LineChart({
             {ticks.map((t) => (
               <g key={t}>
                 <line x1={g.left} x2={g.right} y1={gy(g, t, top)} y2={gy(g, t, top)} className="stroke-chart-grid" strokeWidth={1} />
-                <text x={g.gutterX} y={gy(g, t, top) + 4} textAnchor="middle" className="fill-chart-label" fontSize={LABEL_PX}>
+                <text x={g.gutterX} y={gy(g, t, top) + 4} textAnchor="middle" className="fill-chart-label tabular-nums" fontSize={LABEL_PX}>
                   {compactNumber(t)}
                 </text>
               </g>

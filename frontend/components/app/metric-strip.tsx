@@ -91,7 +91,7 @@ export function MetricStrip({
               <div key={item.id} className={CELL}>
                 <span className="text-caption text-fg-muted">{item.label}</span>
                 <span className="flex flex-wrap items-baseline gap-x-1.5">
-                  <span className="text-metric text-fg tabular-nums">{item.value === null ? "—" : formatNumber(item.value)}</span>
+                  <span className="text-metric text-fg">{item.value === null ? "—" : formatNumber(item.value)}</span>
                   {item.unit && <span className="text-caption text-fg-muted">{item.unit}</span>}
                 </span>
                 <Comparison item={item} />

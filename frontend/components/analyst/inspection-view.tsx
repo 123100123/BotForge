@@ -12,7 +12,7 @@ const SAMPLES = 3;
 function FillRate({ column, rows }: { column: ColumnProfile; rows: number }) {
   const pct = rows > 0 ? Math.round((column.non_null / rows) * 100) : 0;
   return (
-    <span className="flex items-center gap-2 tabular-nums">
+    <span className="flex items-center gap-2">
       <span aria-hidden className="h-1.5 w-12 shrink-0 rounded-xs bg-border">
         <span className="block h-full rounded-xs bg-chart-1" style={{ width: `${pct}%` }} />
       </span>

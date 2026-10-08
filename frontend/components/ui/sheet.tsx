@@ -3,6 +3,7 @@
 import * as React from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { XIcon } from "lucide-react";
+import { useRestoreFocus } from "@/lib/use-restore-focus";
 import { cn } from "@/lib/utils";
 import { CLOSE_CLASS, OVERLAY_CLASS } from "@/components/ui/dialog";
 
@@ -32,8 +33,11 @@ function SheetContent({
   className,
   children,
   side = "end",
+  onOpenAutoFocus,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof DialogPrimitive.Content> & { side?: keyof typeof SIDES }) {
+  const restoreFocus = useRestoreFocus({ onOpenAutoFocus, onCloseAutoFocus });
   return (
     <DialogPrimitive.Portal>
       <DialogPrimitive.Overlay data-slot="sheet-overlay" className={OVERLAY_CLASS} />
@@ -46,6 +50,7 @@ function SheetContent({
           SIDES[side],
           className,
         )}
+        {...restoreFocus}
         {...props}
       >
         {children}

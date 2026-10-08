@@ -11,7 +11,8 @@ export function Hero() {
     <section aria-labelledby="hero-title" className={`${CONTAINER} grid items-start gap-10 pt-8 pb-14 lg:grid-cols-[minmax(0,5fr)_minmax(0,7fr)] lg:gap-12 lg:pt-12 lg:pb-20`}>
       <div className="flex flex-col items-start gap-6 lg:pt-6">
         <h1 id="hero-title" className="text-display text-fg">
-          کسب‌وکارتان را از تلگرام اداره کنید.
+          کسب‌وکارتان را <br className="hidden lg:block" />
+          از&nbsp;تلگرام اداره کنید.
         </h1>
         <p className="max-w-[34rem] text-h3 font-normal text-fg-secondary">
           بگویید کسب‌وکارتان چطور کار می‌کند. دستیار بات‌فورج ربات تلگرامی می‌سازد که سفارش، رزرو، رویداد و گزارش را برایتان می‌گرداند.

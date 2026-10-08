@@ -29,7 +29,7 @@ export function SetupStepper({ current }: { current: 1 | 2 | 3 | 4 }) {
           >
             <span
               className={cn(
-                "relative z-10 flex size-7 items-center justify-center rounded-full text-caption font-semibold tabular-nums",
+                "relative z-10 flex size-7 items-center justify-center rounded-full text-caption font-semibold",
                 done && "bg-brand text-on-brand",
                 active && "border-2 border-brand bg-brand-soft text-brand-text",
                 !done && !active && "border border-border-strong bg-page text-fg-muted",

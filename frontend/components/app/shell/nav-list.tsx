@@ -53,7 +53,7 @@ export function NavCount({ badge, className }: { badge: NavBadge; className?: st
   return (
     <span
       className={cn(
-        "ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-xs bg-brand-soft px-1.5 text-caption leading-none font-semibold text-brand-text tabular-nums",
+        "ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-xs bg-brand-soft px-1.5 text-caption leading-none font-semibold text-brand-text",
         className,
       )}
     >

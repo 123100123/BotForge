@@ -6,7 +6,7 @@ import { useBusiness } from "@/components/app/business-context";
 import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Segmented } from "@/components/app/segmented";
 import { FilterTabs } from "@/components/data/data-table";
 import { recordTitle } from "@/components/data/record-utils";
 import { useRecordActions } from "@/components/data/use-record-actions";
@@ -37,15 +37,7 @@ export function BookingsView() {
     >
       <div className="flex flex-col gap-4">
         {collections.length > 1 && (
-          <Tabs value={booking?.key ?? ""} onValueChange={setActive}>
-            <TabsList variant="segmented" aria-label="نوع رزرو">
-              {collections.map((c) => (
-                <TabsTrigger key={c.key} value={c.key}>
-                  {c.label_plural}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          <Segmented label="نوع رزرو" value={booking?.key ?? ""} onChange={setActive} options={collections.map((c) => ({ value: c.key, label: c.label_plural }))} />
         )}
         {booking &&
           (resource ? (
@@ -198,13 +190,13 @@ function BookingItemRow({
         onClick={onOpen}
         className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 p-3 text-start transition-colors duration-fast hover:bg-surface-sunken sm:flex-nowrap sm:px-4"
       >
-        <span className="w-14 shrink-0 text-small text-fg-secondary tabular-nums">{parts ? parts.time : "—"}</span>
+        <span className="w-14 shrink-0 text-small text-fg-secondary">{parts ? parts.time : "—"}</span>
         <span className={cn("min-w-0 flex-1 basis-40 truncate text-body font-medium", past ? "text-fg-secondary" : "text-fg")}>
           {recordTitle(item, resource)}
         </span>
         <span className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 sm:w-auto sm:shrink-0">
           {capacity === null && stats.waitlisted === 0 ? (
-            <span className="text-small tabular-nums">{fa(stats.confirmed)} ثبت‌نام</span>
+            <span className="text-small">{fa(stats.confirmed)} ثبت‌نام</span>
           ) : (
             <CapacityMeter stats={stats} capacity={capacity} className="w-full sm:w-44" />
           )}

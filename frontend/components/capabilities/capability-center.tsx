@@ -13,7 +13,7 @@ import { EmptyState } from "@/components/ui/empty-state";
 import { ErrorState } from "@/components/ui/error-state";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Segmented } from "@/components/app/segmented";
 import { fa } from "@/lib/format";
 import { useMediaQuery } from "@/lib/use-media-query";
 import type { CapabilityOut } from "@/lib/types";
@@ -90,15 +90,7 @@ export function CapabilityCenter() {
           </span>
         </p>
         <div className="flex flex-wrap items-center gap-3">
-          <Tabs value={filter} onValueChange={(v) => setFilter(v as Filter)} className="gap-0">
-            <TabsList variant="segmented" aria-label="نمایش قابلیت‌ها">
-              {FILTERS.map((f) => (
-                <TabsTrigger key={f.value} value={f.value}>
-                  {f.label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
-          </Tabs>
+          <Segmented<Filter> label="نمایش قابلیت‌ها" value={filter} onChange={setFilter} options={FILTERS} />
           <div className="relative min-w-52 max-w-sm flex-1">
             <SearchIcon className="pointer-events-none absolute start-3 top-1/2 size-4 -translate-y-1/2 text-fg-muted" strokeWidth={1.75} aria-hidden />
             <Input

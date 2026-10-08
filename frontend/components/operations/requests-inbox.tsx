@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { useSearchParams } from "next/navigation";
-import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Segmented } from "@/components/app/segmented";
 import type { DataCollection } from "@/lib/types";
 import { ActivityTable } from "./activity-table";
 import { OperationsPage, useScope } from "./scope";
@@ -42,15 +42,7 @@ function Inbox({ botId, collections, wanted, status }: { botId: string; collecti
   return (
     <div className="flex flex-col gap-4">
       {collections.length > 1 && (
-        <Tabs value={current.key} onValueChange={setActive}>
-          <TabsList variant="segmented" aria-label="نوع درخواست">
-            {collections.map((c) => (
-              <TabsTrigger key={c.key} value={c.key}>
-                {c.label_plural}
-              </TabsTrigger>
-            ))}
-          </TabsList>
-        </Tabs>
+        <Segmented label="نوع درخواست" value={current.key} onChange={setActive} options={collections.map((c) => ({ value: c.key, label: c.label_plural }))} />
       )}
       <ActivityTable
         key={current.key}

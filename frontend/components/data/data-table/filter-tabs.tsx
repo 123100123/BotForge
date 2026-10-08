@@ -38,7 +38,7 @@ export function FilterTabs({
             aria-pressed={active}
             onClick={() => onChange(o.key)}
             className={cn(
-              "-mb-px inline-flex min-h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-small font-medium whitespace-nowrap transition-colors duration-fast outline-none",
+              "-mb-px inline-flex min-h-10 shrink-0 items-center gap-1.5 border-b-2 px-3 text-small font-medium whitespace-nowrap transition-colors duration-fast",
               active ? "border-brand text-fg" : "border-transparent text-fg-muted hover:text-fg",
             )}
           >
@@ -46,7 +46,7 @@ export function FilterTabs({
             {o.count !== undefined && (
               <span
                 className={cn(
-                  "min-w-5 rounded-xs px-1 text-center text-caption tabular-nums",
+                  "min-w-5 rounded-xs px-1 text-center text-caption",
                   active ? "bg-brand-soft text-brand-text" : "bg-surface-sunken text-fg-muted",
                 )}
               >

@@ -19,7 +19,7 @@ export function CapacityMeter({ stats, capacity, className }: { stats: BookingSt
   return (
     <div className={cn("flex min-w-0 flex-col gap-1", className)}>
       <div className="flex items-baseline justify-between gap-2 text-small">
-        <span className="tabular-nums">{capacity === null ? `${fa(stats.confirmed)} ثبت‌نام` : `${fa(stats.confirmed)} از ${fa(capacity)}`}</span>
+        <span>{capacity === null ? `${fa(stats.confirmed)} ثبت‌نام` : `${fa(stats.confirmed)} از ${fa(capacity)}`}</span>
         {full && <span className="text-caption text-warning-text">تکمیل ظرفیت</span>}
       </div>
       {capacity !== null && (

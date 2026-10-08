@@ -3,16 +3,16 @@ import { REQUIREMENT_KIND_LABELS } from "@/components/agent/labels";
 import { fa } from "@/lib/format";
 import type { Requirement, Requirements, RequirementsDeltaView } from "@/lib/types";
 
-/** Requirement code as a quiet superscript footnote (the label says it is a reference, not prose). */
+/** Requirement code: a quiet fixed-width marker at the row end (a reference, never part of the sentence). */
 function Code({ id }: { id: string }) {
   return (
-    <sup
+    <span
       dir="ltr"
       title={`شمارهٔ نیاز ${id.replace(/\d+/, (d) => fa(d))}`}
-      className="ms-1 inline-block align-super font-mono text-caption leading-none text-fg-muted"
+      className="mt-1 w-7 shrink-0 text-center font-mono text-caption text-fg-muted"
     >
       {id}
-    </sup>
+    </span>
   );
 }
 
@@ -24,10 +24,10 @@ function Row({ item, icon }: { item: Requirement; icon: React.ReactNode }) {
       </span>
       <span className="min-w-0 flex-1">
         {item.statement}
-        <Code id={item.id} />
         <span className="block text-caption text-fg-muted sm:hidden">{REQUIREMENT_KIND_LABELS[item.kind]}</span>
       </span>
-      <span className="mt-1 shrink-0 text-caption text-fg-muted max-sm:hidden">{REQUIREMENT_KIND_LABELS[item.kind]}</span>
+      <span className="mt-1 w-20 shrink-0 text-caption text-fg-muted max-sm:hidden">{REQUIREMENT_KIND_LABELS[item.kind]}</span>
+      <Code id={item.id} />
     </li>
   );
 }
@@ -107,30 +107,28 @@ export function RequirementsList({ requirements, changes }: RequirementsListProp
             {added.map((r) => (
               <li key={`a-${r.id}`} className="flex items-start gap-2.5 text-body">
                 <Plus strokeWidth={1.75} aria-label="افزوده شد" className="mt-2 size-4 shrink-0 text-success-text" />
-                <span>
-                  {r.statement}
-                  <Code id={r.id} />
-                </span>
+                <span className="min-w-0 flex-1">{r.statement}</span>
+                <Code id={r.id} />
               </li>
             ))}
             {changed.map((r) => (
               <li key={`c-${r.id}`} className="flex items-start gap-2.5 text-body">
                 <Pencil strokeWidth={1.75} aria-label="تغییر کرد" className="mt-2 size-4 shrink-0 text-warning-text" />
-                <span>
+                <span className="min-w-0 flex-1">
                   <del className="text-fg-muted">{r.before}</del>
                   <br />
                   <ins className="font-medium no-underline">{r.after}</ins>
-                  <Code id={r.id} />
                 </span>
+                <Code id={r.id} />
               </li>
             ))}
             {removed.map((r) => (
               <li key={`r-${r.id}`} className="flex items-start gap-2.5 text-body">
                 <Minus strokeWidth={1.75} aria-label="حذف شد" className="mt-2 size-4 shrink-0 text-danger-text" />
-                <span>
+                <span className="min-w-0 flex-1">
                   <del className="text-fg-muted">{r.statement}</del>
-                  <Code id={r.id} />
                 </span>
+                <Code id={r.id} />
               </li>
             ))}
           </ul>

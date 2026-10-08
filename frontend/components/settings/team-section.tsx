@@ -194,11 +194,13 @@ export function TeamSection({ botId }: { botId: string }) {
                       <tr key={m.actor_id} className="border-t border-border">
                         <td className="min-w-0 px-5 py-3">
                           <div className="text-body text-fg">{name}</div>
-                          <div className="text-caption text-fg-muted">
-                            <span dir="ltr" className="inline-block">
-                              {m.actor_id}
-                            </span>
-                          </div>
+                          {!m.display_name?.trim() && (
+                            <div className="text-caption text-fg-muted">
+                              <span dir="ltr" className="inline-block">
+                                {m.actor_id}
+                              </span>
+                            </div>
+                          )}
                         </td>
                         <td className="hidden px-3 py-3 text-fg-secondary md:table-cell">{formatDate(m.first_seen)}</td>
                         <td className="px-5 py-3">

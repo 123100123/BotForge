@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { isNavItemActive, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
 import { SidebarNav } from "./app-sidebar";
-import { NAV_ITEM_ACTIVE_CLASS, useNavBadges, type NavBadge } from "./nav-list";
+import { NAV_ITEM_ACTIVE_CLASS, NavCount, useNavBadges, type NavBadge } from "./nav-list";
 
 function RailLink({ item, pathname, badge }: { item: NavItem; pathname: string; badge?: NavBadge }) {
   const active = isNavItemActive(item, pathname);
@@ -28,7 +28,7 @@ function RailLink({ item, pathname, badge }: { item: NavItem; pathname: string; 
           )}
         >
           <Icon className="size-5" strokeWidth={1.75} aria-hidden />
-          {badge && <span aria-hidden className="absolute end-1.5 top-1.5 size-2 rounded-full bg-warning" />}
+          {badge && <NavCount badge={badge} className="absolute -end-1 -top-1 ms-0 h-[18px] min-w-[18px] px-1" />}
         </Link>
       </TooltipTrigger>
       {/* The rail is on the right (RTL): labels open toward the content. */}

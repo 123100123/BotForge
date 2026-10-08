@@ -89,12 +89,23 @@ They set size, line height and weight; pair with a color class. Headings get `te
 | `text-body` | 15 / 1.8 / 400 | default text, inputs, buttons |
 | `text-small` | 13.5 / 1.75 | secondary text, table cells, labels |
 | `text-caption` | 12.5 / 1.7 / 500 | badges, hints, chart labels. Nothing smaller |
-| `text-metric` | 28 / 1.2 / 700, tabular | headline number of a stat tile |
-| `text-metric-sm` | 22 / 1.3 / 650, tabular | secondary numbers |
+| `text-metric` | 28 / 1.2 / 700 | headline number of a stat tile or MetricStrip cell |
+| `text-metric-sm` | 22 / 1.3 / 650 | secondary numbers |
 
-Body default is 15px / 1.8. Table cells use tabular numbers globally. Do not use `text-xs`, `text-[11px]` or
+Body default is 15px / 1.8. Do not use `text-xs`, `text-[11px]` or
 other ad-hoc sizes; `text-sm`/`text-base`/`text-lg` remain only in not-yet-migrated screens. A `font-*` or
 `leading-*` utility overrides the weight or line height of a type class.
+
+### Numeric figures
+
+Vazirmatn's tabular Persian digits are very wide (۰ most of all), so tabular figures are the exception:
+
+- **Proportional (the default):** every single value read on its own: `text-metric` and `text-metric-sm`
+  values, badges and counts, times and dates in lists and feeds, durations, sentences with numbers.
+- **`tabular-nums`:** only where digits must line up in a column: numeric table columns (`FieldCell` integer
+  and decimal, `isNumericField`, `MetricTable` numeric columns, order totals), ranked value lists such as
+  `BreakdownList`, and chart y-axis labels. Never on a table cell by default (there is no global
+  `td, th` rule), never on a `text-metric*` role, never on a badge or a time.
 
 ## Shape, spacing, borders
 
@@ -161,7 +172,10 @@ always up (cancellations): color follows polarity, the arrow follows direction.
 
 `PageHeader` (the only h1, optional breadcrumb, description, actions) then sections (h2) then panels (h3). No
 skipped heading levels; heading size is visual (`text-h3` on an h2 is fine), level is structural. Empty and
-error states use the same heading level as their siblings (`EmptyState as="h3"`).
+error states use the same heading level as their siblings (`EmptyState as="h3"`). A requirement or record
+code (R1, order number) is a quiet fixed-width muted marker at the row end, never inside a sentence.
+Filters that change what one region shows are a `Segmented` radiogroup (`components/app/segmented.tsx`, one tab
+stop, arrow keys); ARIA tabs are only for real panels (`Tabs` with `TabsContent`).
 
 ## Persian glossary
 
@@ -209,25 +223,80 @@ new work); `segmented.tsx` (legacy radio-style control; prefer `TabsList variant
 `lib`: `theme.tsx` (`ThemeProvider`, `useTheme`, `THEME_INIT_SCRIPT`), `utils.ts` (`cn`, aware of the type
 classes so `cn("text-h1","text-fg-muted")` keeps both).
 
-### Shell and routes (Phase 2)
+### Shell and routes
 
 - Routes: every section of a business is a URL under `/bots/[id]`; `lib/routes.ts` `sectionHref(botId, section)`
   is the only place that builds them. Cross-links use `useOpenSection()` (`components/app/shell/use-open-section.ts`),
-  never local tab state. Sub-pages (Changes, Reports, Settings) use `SubNav` (`components/app/shell/sub-nav.tsx`).
+  never local tab state. `/changes/versions` is only a redirect for old links; versions live inside Changes and
+  `sectionHref("versions")` points to `/changes`. Reports and Settings use `SubNav` (`components/app/shell/sub-nav.tsx`).
+  Public: `/` (landing), `/login`, `/signup`. Authenticated: `/bots` (list), `/bots/new`, then
+  `/bots/[id]` (Overview), `changes`, `capabilities[/capId]`, `orders`, `events`, `bookings`, `requests`,
+  `records[/collection]`, `announcements`, `reports[/capability | /schedules]`, `spreadsheets[?run=]`, `test`,
+  `settings/{telegram,team,groups,account}`.
 - Navigation: `lib/nav.ts` `buildNav(collections, capabilities, botId)` is a pure adapter: Overview; Operations
   generated from collections (orders, events, bookings, requests, one item per resource; more than six collapse
   under «سایر داده‌ها»; announcements when its capability is on); Insights; Build; Settings. Count badges are
-  attached by item id in `useNavBadges()` (`components/app/shell/nav-list.tsx`).
+  attached by item id in `useNavBadges()` (`components/app/shell/nav-list.tsx`) and drawn by `NavCount` (brand-soft
+  small count with a screen-reader label) in the sidebar, the sheet and the icon rail (badge sits at the corner of the icon).
 - Contexts mounted by `app/bots/[id]/layout.tsx` (`components/app/shell/business-root.tsx`): `useBusiness()`
   (bot, collections, capabilities, nav, reload), `useAgentRunContext()` (the agent run; survives navigation),
   `useAssistant()` (open(prefill?), close, toggle, isOpen; Ctrl/⌘+K).
-- Frame (`components/app/shell/app-shell.tsx`): ≥1024 a 248px sidebar on the start edge; 640–1023 a 64px icon rail
-  with tooltips that expands into a sheet; <640 a top bar plus a fixed five-item bottom tab bar (content reserves
-  its height; anything sticky to the viewport bottom must sit above it below 640px). Top bar 56px, content max
-  width 1360, padding 24 (16 on mobile). Pages render `PageHeader` (the h1) first; focus moves to it on navigation.
+- Frame (`components/app/shell/app-shell.tsx`): at 1024 and wider a 248px sidebar on the start edge; 640 to 1023 a
+  64px icon rail with tooltips that expands into a sheet; below 640 a top bar plus a fixed five-item bottom tab bar
+  (content reserves its height; anything sticky to the viewport bottom must sit above it below 640px). Top bar 56px,
+  content max width 1360, padding 24 (16 on mobile). Pages render `PageHeader` (the h1) first; focus moves to it on
+  navigation. The skip link is the first tab stop.
 
-Charts (`components/charts`) use `chart-*` tokens; labels are 12.5 viewBox units (they scale with the chart;
-phase work on charts should make them size-stable on narrow screens).
+### Page template
+
+`PageHeader` (h1, optional breadcrumb, description, actions), then sections (h2), then panels (h3). Operations pages
+use `OperationsPage` (header, loading, inactive-capability state). Lists are `DataTable` (rows, search, status
+filter, sort, row actions) with a `RecordDrawer` for one record; loading is skeleton rows, errors are an inline
+`ErrorState` with retry, empty is an `EmptyState` with a next step.
+
+### Shared components
+
+One line each; props are in the files.
+
+- `MetricStrip` (`components/app/metric-strip.tsx`): `items: {id,label,value,unit?,previous?,polarity?}[]`, `loading?`;
+  3 to 5 numbers in one ruled row, comparison line by arrow plus word, colour by polarity.
+- `AttentionList` (`components/app/attention-list.tsx`): `items: {id,tone,text,href,actionLabel}[]`, `emptyText?`; ruled
+  rows with a tone stripe; one quiet line when empty. Pure.
+- `DataTable` (`components/data/data-table`): `label, rows|null (loading), rowKey, columns: DataColumn[] (id, header,
+  cell, sortValue?, align?, hideBelow?), mobile {title, meta?, status?}, empty {title, ...}`, plus `searchText?`,
+  `statusFilter?`, `rowActions?`, `onRowOpen?`, `selectedKey?`, `total/hasMore/onLoadMore?`, `error/onRetry?`; below 640px a
+  row is a list entry. `RowActionsMenu` is the per-row menu; `FilterTabs options value onChange label` (aria-pressed
+  buttons over one list); `RecordDrawer open onOpenChange title description? badge? wide?` (sheet from the end edge,
+  bottom sheet below 640px) with `DrawerSection` and `DetailList`; `FieldCell`/`FieldValue` render stored values by type.
+- Changes (`components/changes`, all pure, props only): `ChangeTimeline items selectedKey expanded`, `ChangeStateBadge state`,
+  `ProposalDetail`/`VersionDetail`, `RequirementsList requirements changes?`, `ConfigDiff changes isFirst?`,
+  `TestSummary`, `QuestionCard questions answer onAnswer`, `DecisionBar phase` (sticky above the mobile bar),
+  `ChangeComposer`, `BuildSteps current`, `Disclosure title meta? defaultOpen? as?`, `DetailSection`.
+- `PhoneFrame title subtitle? badge? footer?` and `ChatMessageList messages onButtonPress? disabled? emptyText?
+  autoScroll?` (`components/simulator`): the real Telegram preview, reused by the test page and the landing page.
+- Charts (`components/charts`): `LineChart`/`BarChart points label unit? compare? compareLabel? height?` (labels size-stable,
+  tooltip and keyboard point focus via `ChartFrame`), `BreakdownList points unit?`, `StatTile`.
+- `ConsequenceSheet botId cap byId open onClose` (`components/capabilities`): the dry-run plan of a capability toggle
+  (what turns on or off, what depends on it) in a sheet before the owner confirms.
+- `Logo size? withWordmark?` (`components/app/logo.tsx`) and `ThemeMenu` (light, dark, system).
+- `Segmented label value onChange options` (`components/app/segmented.tsx`): radiogroup for filters and modes.
+- `ConfirmDialog` (`components/app/confirm-dialog.tsx`): confirm with the backend's refusal shown inside. Publish
+  dialogs (`components/operations/publish-event-dialog.tsx` record first, `PublishDialog` in
+  `components/settings/groups-section.tsx` group first) share one layout: title «انتشار در گروه», lead sentence,
+  `ErrorNote` for failures, primary «انتشار» then secondary «انصراف», success as a toast and the dialog closes.
+
+### Adapters and mock flags
+
+- `lib/adapters/attention.ts`: assembles the Overview attention list, the upcoming list and the nav counts from
+  existing endpoints (orders and requests waiting in their first status, schema-changed spreadsheet runs, upcoming
+  events). Each source settles on its own. Counts beyond the first 50 rows show as a lower bound («۵۰+»).
+- `lib/polarity.ts`: `metricPolarity(id)` (which direction is good) and `comparePeriods(current, previous, polarity)`
+  (word, arrow, tone, percent). Colour follows polarity, the arrow follows direction.
+- `lib/nav.ts`: `buildNav` and `isNavItemActive`. `lib/routes.ts`: `sectionHref`.
+- Mock mode (`NEXT_PUBLIC_MOCK=1`): sign in with localStorage `botforge.mock.user`; `botforge.mock.analyst` is a comma
+  list of demo switches for the spreadsheet flow (`empty` starts with no profile, see `lib/mock/analyst.ts`);
+  `botforge.theme` forces a theme. Mock businesses: `bot_sepehr` (live, workshops), `bot_novin` (draft, setup
+  checklist and first build), `bot_tamir` (live), `bot_niloofar` (events).
 
 ## How to verify a surface
 
@@ -243,5 +312,9 @@ From `frontend/`:
    `botforge.theme` = `dark`): screenshot the surface at 1440, 834 and 390 wide, in light and in dark.
    Look for: unreadable text, invisible borders or icons in dark, anything clipped or scrolling sideways at 390,
    mirrored icons, Latin or digit runs reordered inside Persian, focus ring visible by keyboard, one h1 and no
-   skipped heading levels, status shown by word plus shape.
-7. Keyboard pass: Tab through the surface, open and close every dialog, sheet and menu with Esc.
+   skipped heading levels, status shown by word plus shape, digits spaced evenly (no tabular figures on single
+   values), no horizontal page scroll at 390, nothing hidden behind the mobile bottom bar.
+7. Keyboard pass: Tab from the skip link through the sidebar to the main content, focus ring visible on every
+   stop, Ctrl/⌘+K opens the assistant, Esc closes every dialog, sheet and menu and returns focus to its trigger.
+   (A visible toast is the topmost Radix layer, so the first Esc dismisses it before the sheet underneath.)
+8. Reduced motion: emulate `prefers-reduced-motion: reduce`; nothing slides or scales, only opacity and colour change.

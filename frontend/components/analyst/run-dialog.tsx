@@ -80,7 +80,7 @@ export function RunDialog({
             <Select id="run-upload" value={uploadId} onChange={(e) => setChosen(e.target.value)} disabled={busy}>
               {uploads.map((u) => (
                 <option key={u.id} value={u.id}>
-                  {u.filename} — {formatDateTime(u.created_at)}
+                  {u.filename} · {formatDateTime(u.created_at)}
                 </option>
               ))}
             </Select>

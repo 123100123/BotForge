@@ -133,7 +133,7 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
               onChange={(e) => setText(e.target.value)}
               placeholder="مثلاً: فردا ساعت ۱۰ فروشگاه دیرتر باز می‌شود."
             />
-            <span className={cn("text-caption tabular-nums", text.length > MAX_TEXT * 0.9 ? "text-warning-text" : "text-fg-muted")}>
+            <span className={cn("text-caption", text.length > MAX_TEXT * 0.9 ? "text-warning-text" : "text-fg-muted")}>
               {fa(text.length)} از {fa(MAX_TEXT)} نویسه
             </span>
           </div>
@@ -217,8 +217,8 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
                       {st?.label ?? a.status}
                     </StatusBadge>
                     <span>{audienceLabel(a.audience)}</span>
-                    <span className="tabular-nums">{fa(a.recipients)} گیرنده</span>
-                    <time dateTime={a.created_at} className="ms-auto tabular-nums">
+                    <span>{fa(a.recipients)} گیرنده</span>
+                    <time dateTime={a.created_at} className="ms-auto">
                       {formatDateTime(a.created_at)}
                     </time>
                   </div>

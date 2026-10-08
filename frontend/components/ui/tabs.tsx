@@ -34,7 +34,7 @@ function TabsTrigger({ className, ...props }: React.ComponentProps<typeof TabsPr
     <TabsPrimitive.Trigger
       data-slot="tabs-trigger"
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 text-small font-medium whitespace-nowrap text-fg-muted transition-colors duration-fast outline-none hover:text-fg data-[state=active]:text-fg",
+        "inline-flex shrink-0 items-center gap-1.5 text-small font-medium whitespace-nowrap text-fg-muted transition-colors duration-fast hover:text-fg data-[state=active]:text-fg",
         "group-data-[variant=underline]/tabs-list:-mb-px group-data-[variant=underline]/tabs-list:border-b-2 group-data-[variant=underline]/tabs-list:border-transparent group-data-[variant=underline]/tabs-list:px-4 group-data-[variant=underline]/tabs-list:py-2.5 group-data-[variant=underline]/tabs-list:data-[state=active]:border-brand",
         "group-data-[variant=segmented]/tabs-list:rounded-xs group-data-[variant=segmented]/tabs-list:border group-data-[variant=segmented]/tabs-list:border-transparent group-data-[variant=segmented]/tabs-list:px-3 group-data-[variant=segmented]/tabs-list:py-1 group-data-[variant=segmented]/tabs-list:data-[state=active]:border-border group-data-[variant=segmented]/tabs-list:data-[state=active]:bg-surface",
         className,

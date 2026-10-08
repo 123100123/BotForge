@@ -123,7 +123,7 @@ export function SetupFlow({
                 <option value="">انتخاب فایل…</option>
                 {uploads.map((u) => (
                   <option key={u.id} value={u.id}>
-                    {u.filename} — {formatDateTime(u.created_at)}
+                    {u.filename} · {formatDateTime(u.created_at)}
                   </option>
                 ))}
               </Select>

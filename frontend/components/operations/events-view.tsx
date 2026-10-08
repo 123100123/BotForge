@@ -292,9 +292,9 @@ function EventRow({
           {parts ? (
             <>
               <span className="text-caption text-fg-secondary">{parts.weekday}</span>
-              <span className="text-h2 tabular-nums">{parts.day}</span>
+              <span className="text-h2">{parts.day}</span>
               <span className="text-caption">{parts.month}</span>
-              <span className="mt-0.5 text-caption text-fg-secondary tabular-nums">{parts.time}</span>
+              <span className="mt-0.5 text-caption text-fg-secondary">{parts.time}</span>
             </>
           ) : (
             <span className="text-caption text-fg-muted">بدون تاریخ</span>

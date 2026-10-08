@@ -77,7 +77,7 @@ export function DecisionBar({
               <Button asChild variant="link" className="ms-auto max-sm:ms-0">
                 <Link href={simulatorHref}>
                   <FlaskConical strokeWidth={1.75} />
-                  امتحان در شبیه‌ساز
+                  آزمایش ربات
                 </Link>
               </Button>
             )}

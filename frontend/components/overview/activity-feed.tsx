@@ -37,7 +37,7 @@ export function ActivityFeed({ items }: { items: ActivityItem[] }) {
             {group.items.map((a, i) => (
               <li key={`${a.at}-${i}`} className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-0.5 px-4 py-2.5">
                 <span className="min-w-0 flex-1 basis-56 text-small text-fg">{a.text}</span>
-                <span className="text-caption text-fg-muted tabular-nums">{formatTime(a.at)}</span>
+                <span className="text-caption text-fg-muted">{formatTime(a.at)}</span>
               </li>
             ))}
           </ul>

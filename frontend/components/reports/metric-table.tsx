@@ -102,7 +102,7 @@ export function MetricTable({
             {shown.map((row, i) => (
               <tr key={i} className="border-t border-border">
                 {columns.map((c) => (
-                  <td key={c.key} className={cn("px-3 py-2 tabular-nums", c.numeric ? "text-end" : "text-start")}>
+                  <td key={c.key} className={cn("px-3 py-2", c.numeric ? "text-end tabular-nums" : "text-start")}>
                     {c.render ? c.render(row[c.key], row) : defaultCell(row[c.key], !!c.numeric)}
                   </td>
                 ))}

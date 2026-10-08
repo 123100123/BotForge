@@ -52,7 +52,7 @@ function AnomalyRow({ a }: { a: AnalysisAnomaly }) {
             </>
           )}
         </span>
-        {comparison && <span className="text-small text-fg-secondary tabular-nums">{comparison}</span>}
+        {comparison && <span className="text-small text-fg-secondary">{comparison}</span>}
       </div>
     </li>
   );
