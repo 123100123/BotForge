@@ -7,15 +7,18 @@ dependency, dispatch service) owns the transaction.
 import hashlib
 import uuid
 from datetime import datetime
-from typing import Any, Literal
+from typing import TYPE_CHECKING, Any, Literal
 
 from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import BotUser, RecordRow, SessionRow
+from app.db.models import Bot, BotUser, RecordRow, SessionRow
 from app.runtime.contracts import Actor
 from app.runtime.store import Record
+
+if TYPE_CHECKING:
+    from app.schemas.business import TeamOut
 
 Env = Literal["live", "sandbox"]
 
@@ -221,3 +224,26 @@ class PgStore:
 
     async def owner_actor_id(self) -> str | None:
         return self._owner_actor_id
+
+    # ------------------------------------------------------------------ optional extensions
+    # Not part of the Store protocol: the Telegram manager screens (runtime/manager_team.py) look
+    # them up with getattr, so other stores need not have them. Read only.
+
+    async def display_names(self, actor_ids: list[str]) -> dict[str, str]:
+        """``{actor_id: display_name}`` of this ``(bot_id, env)``'s users among ``actor_ids``."""
+        if not actor_ids:
+            return {}
+        stmt = select(BotUser.actor_id, BotUser.display_name).where(
+            BotUser.bot_id == self._bot_id,
+            BotUser.env == self._env,
+            BotUser.actor_id.in_(list(actor_ids)),
+        )
+        return {actor_id: name for actor_id, name in (await self._session.execute(stmt)).all()}
+
+    async def team_overview(self) -> "TeamOut | None":
+        """The live bot's team as the Team API shows it (``roles.service.team_of``): staff link,
+        members, role counts. None when the bot row is gone."""
+        from app.roles.service import team_of  # roles.service imports this module
+
+        bot = await self._session.get(Bot, self._bot_id)
+        return await team_of(self._session, bot) if bot is not None else None

@@ -168,3 +168,9 @@ class MemoryStore:
 
     async def owner_actor_id(self) -> str | None:
         return self._owner_actor_id
+
+    # --- optional extensions (not part of the Store protocol; runtime/manager_team.py) -------
+
+    async def display_names(self, actor_ids: list[str]) -> dict[str, str]:
+        """``{actor_id: display_name}`` of the users seen so far among ``actor_ids``."""
+        return {a: self._users[a].display_name for a in actor_ids if a in self._users}

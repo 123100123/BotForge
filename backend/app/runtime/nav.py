@@ -32,12 +32,13 @@ Route table (id -> binding -> parent; role is the minimum effective role):
   info[.<pg>]  info capabilities -> engine.open(main), or on_callback(show, <pg>)           home
   staff.q      request capabilities (staff) -> engine.open(main), the staff queue           home
   mgr          manager home (managers)                                                      (root)
-  mgr.ord      orders capabilities (managers) -> placeholder until U6                       mgr
+  mgr.ord[.<a>] orders capabilities (managers) -> the order queue (``runtime/manager_orders.py``) mgr
   mgr.evt[.<id>] events capabilities (managers) -> engine list / item until U7              mgr
   mgr.evt.new  events capabilities (managers) -> placeholder until U7                       mgr.evt
-  mgr.req      request capabilities (managers) -> engine.open(main), the request queue      mgr
+  mgr.req      request capabilities (managers) -> engine.open(main), the request queue,     mgr
+               framed with the manager heading by ``runtime/manager.py``
   mgr.rep[.<k>] reports (managers): the report list; <k> = "all" or a capability key       mgr
-  mgr.team     managers -> placeholder until U6                                             mgr
+  mgr.team     managers -> the team screen (``runtime/manager_team.py``)                    mgr
 
 A route with ``ready=False`` is a placeholder: role homes leave it out and pressing it answers with
 a short "not ready yet" notice plus the manager home. A later unit makes it real by registering a
@@ -53,8 +54,12 @@ Homes (``compile_home``): fixed canonical order, only enabled capabilities the r
               A catalog is left out when an orders capability the role may use sells from the
               same resource (one shop). One entry per capability; when a route has several
               entries their labels name the capability.
-  manager     attention lines (``register_attention``; U6), then mgr.ord, mgr.evt, mgr.req,
-              mgr.rep (when a capability has metrics), mgr.team, and «👁 نمای مشتری» (cust).
+  manager     summary lines (``register_summary``), attention lines (``register_attention``),
+              then mgr.ord, mgr.evt, mgr.req, mgr.rep (when a capability has metrics), mgr.team,
+              and «👁 نمای مشتری» (cust). The manager screens live in ``runtime/manager.py`` and
+              the modules it imports; they register their routes and providers on import, and
+              ``load_extensions`` imports them lazily before any route or home is resolved, so the
+              registry is complete whoever imported nav first (a top-level import would be circular).
   Owners and managers land on the manager home on /start and on Home; the customer home stays
   reachable through ``cust``. Back is the route's parent (for a manager, a user route's parent
   ``home`` becomes ``cust``); Home is always ``nav:go:home``.
@@ -69,6 +74,7 @@ Public API for later units:
   route_for(spec, cap, view)                the user route that opens (cap, view), or None
   show_home(ctx, ...), show_user_home(ctx, ...), stale_home(ctx), go(ctx, route)
   register_attention(provider)              manager-home attention lines (async, U6)
+  register_summary(provider)                manager-home lines under the heading (async, U6)
 """
 
 from __future__ import annotations
@@ -195,6 +201,24 @@ def register_attention(provider: AttentionProvider) -> None:
     """Add a provider of manager-home attention items (called in registration order)."""
     if provider not in ATTENTION:
         ATTENTION.append(provider)
+
+
+SummaryProvider = Callable[["Ctx", list[AttentionItem]], Awaitable[list[str]]]
+SUMMARY: list[SummaryProvider] = []
+
+
+def register_summary(provider: SummaryProvider) -> None:
+    """Add a provider of manager-home lines shown right under the heading (before the attention
+    block). It gets the attention items already collected, so it can also say that nothing is
+    waiting."""
+    if provider not in SUMMARY:
+        SUMMARY.append(provider)
+
+
+def load_extensions() -> None:
+    """Import the manager screens (``runtime/manager.py`` and what it imports), which register
+    their routes and home providers on import. Cached by Python after the first call."""
+    from app.runtime import manager  # noqa: F401  (manager imports nav: no top-level import)
 
 
 # --- payloads ------------------------------------------------------------------------------------
@@ -536,6 +560,7 @@ def compile_user_home(spec: BotSpec, role: Role) -> list[Entry]:
 def compile_manager_home(spec: BotSpec) -> list[Entry]:
     """The manager home entries (without attention items): manage sections, reports, team, and
     the customer view."""
+    load_extensions()
     actor = _role_actor("manager")
     entries: list[Entry] = []
     for route_id in MANAGER_ROUTES:
@@ -664,8 +689,10 @@ def _user_home_view(ctx: Ctx, text: str | None = None) -> tuple[str, Rows]:
     return text, rows
 
 
-def _manager_home_view(ctx: Ctx, attention: list[AttentionItem]) -> tuple[str, Rows]:
-    lines = [_fill(tx.MANAGER_HEADING, business=ctx.spec.bot.name)]
+def _manager_home_view(
+    ctx: Ctx, attention: list[AttentionItem], summary: list[str] | None = None
+) -> tuple[str, Rows]:
+    lines = [_fill(tx.MANAGER_HEADING, business=ctx.spec.bot.name), *(summary or [])]
     rows: Rows = []
     if attention:
         lines.append(tx.ATTENTION_HEADING)
@@ -713,8 +740,17 @@ async def _attention(ctx: Ctx) -> list[AttentionItem]:
     return items
 
 
+async def _summary(ctx: Ctx, attention: list[AttentionItem]) -> list[str]:
+    lines: list[str] = []
+    for provider in SUMMARY:
+        lines += await provider(ctx, attention)
+    return lines
+
+
 async def show_manager_home(ctx: Ctx, *, notice: str | None = None, edit: bool | None = None) -> None:
-    text, rows = _manager_home_view(ctx, await _attention(ctx))
+    load_extensions()
+    attention = await _attention(ctx)
+    text, rows = _manager_home_view(ctx, attention, await _summary(ctx, attention))
     ctx.reply(_with_notice(notice, text), rows, edit=edit)
 
 
@@ -740,6 +776,7 @@ async def stale_home(ctx: Ctx) -> None:
 
 async def go(ctx: Ctx, route: str) -> None:
     """Resolve ``nav:go:<route>`` (module docstring). Never raises for bad input."""
+    load_extensions()
     parsed = parse_route(route)
     if parsed is None:
         await stale_home(ctx)
@@ -767,6 +804,7 @@ __all__ = [
     "HOME",
     "MGR",
     "ROUTES",
+    "SUMMARY",
     "AttentionItem",
     "Entry",
     "Route",
@@ -780,11 +818,13 @@ __all__ = [
     "heading",
     "home_button",
     "home_rows",
+    "load_extensions",
     "nav_button",
     "nav_data",
     "parse_route",
     "register_attention",
     "register_route",
+    "register_summary",
     "route_for",
     "route_payload",
     "show_home",
