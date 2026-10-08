@@ -235,11 +235,15 @@ class AgentEvent(Base):
 
 class TgUpdate(Base):
     __tablename__ = "tg_updates"
+    __table_args__ = (Index("ix_tg_updates_received_at", "received_at"),)  # the poller prunes by age
 
     bot_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey(f"{SCHEMA}.bots.id", ondelete="CASCADE"), primary_key=True
     )
     update_id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=False)
+    received_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
 
 
 # --- Business OS (migration 0005) -------------------------------------------------------------------

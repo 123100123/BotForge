@@ -173,3 +173,15 @@ async def test_an_unusable_retry_after_in_the_body_is_dropped(raw: str, no_sleep
         await stub.client().get_updates(offset=None, timeout=25, allowed_updates=ALLOWED_UPDATES)
     assert raised.value.error_code == 429 and raised.value.retry_after is None
     assert no_sleep == []
+
+
+async def test_get_updates_sends_a_limit_only_when_asked_and_get_webhook_info_reads_the_url() -> None:
+    stub = Stub(ok([]), ok([]), ok({"url": "https://x.example/tg/1", "pending_update_count": 0}), ok("odd"))
+    client = stub.client()
+    await client.get_updates(offset=None, timeout=6, allowed_updates=ALLOWED_UPDATES, limit=1)
+    await client.get_updates(offset=None, timeout=6, allowed_updates=ALLOWED_UPDATES)
+    bodies = [json.loads(r.content) for r in stub.requests]
+    assert bodies[0]["limit"] == 1 and "offset" not in bodies[0] and "limit" not in bodies[1]
+    assert (await client.get_webhook_info())["url"] == "https://x.example/tg/1"
+    assert stub.requests[2].url.path == f"/bot{TOKEN}/getWebhookInfo"
+    assert await client.get_webhook_info() == {}  # an unexpected result is an empty answer

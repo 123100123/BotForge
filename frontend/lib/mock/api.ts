@@ -56,6 +56,7 @@ export const mockApi: Api = {
   getTelegram: (botId) => call(() => tabs.getTelegram(botId)),
   connectTelegram: (botId, token) => call(() => tabs.connectTelegram(botId, token)),
   disconnectTelegram: (botId) => call(() => tabs.disconnectTelegram(botId)),
+  retryTelegram: (botId) => call(() => tabs.retryTelegram(botId)),
 
   listCapabilities: () => call(() => capabilities.listCapabilities()),
   enableCapability: (_botId, capId, body) => call(() => capabilities.enableCapability(capId, body)),

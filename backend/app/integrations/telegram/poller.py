@@ -3,13 +3,15 @@
 For servers Telegram cannot reach (inbound connections from Telegram are blocked where the owner's
 servers run; outbound calls work through ``HTTPS_PROXY``/``ALL_PROXY``). The webhook stays the
 default. Started and stopped by the app lifespan (``app.main``); one backend process only, because
-Telegram allows one ``getUpdates`` consumer per bot (a second one gets 409).
+Telegram allows one ``getUpdates`` consumer per bot (the older of two gets 409).
 
 Supervisor: every ``interval`` seconds it reads the bots with a stored token and keeps exactly one
 poll task per bot and token. A bot that was disconnected, or whose stored token changed (every
 connect re-encrypts, so a reconnect counts as a change), has its task stopped; the new token gets a
-new task. A task that stopped on purpose (token revoked, token unreadable) is not restarted until
-the stored token changes; one that crashed is restarted on the next pass.
+new task. A task that stopped on purpose (token revoked, token unreadable, parked) is not restarted until
+the stored token changes (a parked one also when the owner retries, which clears the conflict error);
+one that crashed is restarted on the next pass. The same loop deletes ``tg_updates`` rows older than
+``UPDATES_KEEP`` once per ``PRUNE_INTERVAL``.
 
 Per bot: ``deleteWebhook(drop_pending_updates=False)`` once (a leftover webhook makes getUpdates
 fail with 409, and queued updates are kept), then sequential long polls. Every update goes through
@@ -26,9 +28,19 @@ update whose processing dies half way (process killed) is recorded as seen and n
 
 Errors: network errors, 5xx and other failures back off exponentially with jitter (1 s doubling to
 ``BACKOFF_CAP``); 429 waits ``retry_after`` clamped to [1 s, 5 min] (a non-finite or invalid value is
-an ordinary backoff step); 409 removes the webhook again and backs off; 401
-and 404 (token revoked or invalid) are recorded in ``bots.tg_last_error`` like delivery errors and
-stop the bot's polling until its token changes.
+an ordinary backoff step); 401 and 404 (token revoked or invalid) are recorded in
+``bots.tg_last_error`` like delivery errors and stop the bot's polling until its token changes.
+
+409 is told apart by Telegram's description. "Terminated by other getUpdates request" means another
+consumer (typically a second BotForge server holding the same token) is polling: the two would take
+turns serving updates, each against its own spec. The bot's task counts consecutive conflicts
+(``PARK_AFTER`` within ``PARK_WINDOW`` seconds, reset by any successful poll); at the limit it parks:
+it records ``tg_last_error = POLLING_CONFLICT: ...`` (Persian text, stable prefix the web app matches),
+stops, and is not restarted until the stored token changes or the owner retries
+(``POST /bots/{id}/telegram/retry`` clears the error; the next pass respawns the task). It never
+calls ``deleteWebhook`` for this case: that would only help the other consumer. A 409 saying a
+webhook is active keeps removing the webhook and backing off. A restarted process tries parked bots
+again and clears a stale conflict error on its first successful poll.
 
 Shutdown (``stop``): every task is asked to stop; a long poll or a wait is abandoned at once, an
 update being handled is finished (up to ``stop_grace`` seconds, then the task is cancelled).
@@ -41,19 +53,24 @@ a token or update content: only bot ids, update ids, method names and Telegram's
 import asyncio
 import logging
 import random
+import time
 import uuid
+from collections import deque
 from collections.abc import Awaitable, Callable, Collection
 from dataclasses import dataclass
-from typing import Any
+from datetime import timedelta
+from typing import Any, Literal
 
 import httpx
-from sqlalchemy import select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.api.webhook import process_update
-from app.db.models import Bot
+from app.db.models import Bot, TgUpdate
+from app.integrations.telegram import texts
 from app.integrations.telegram.client import (
     ALLOWED_UPDATES,
+    COMPETING_POLLER,
     TIMEOUT,
     TelegramApi,
     TelegramClient,
@@ -79,6 +96,13 @@ REVOKED = (401, 404)  # Telegram's answers for an invalid or revoked token
 # through the proxy), and asking again after 5 minutes costs one request, which just gets a new 429.
 RETRY_AFTER_MIN = 1.0
 RETRY_AFTER_CAP = 300.0
+# Competing consumers: this many "terminated by other getUpdates request" 409s in a row within
+# PARK_WINDOW seconds park the bot (see the module docstring).
+PARK_AFTER = 3
+PARK_WINDOW = 30.0
+# tg_updates is the webhook/poller dedupe record: Telegram never redelivers an update that old.
+UPDATES_KEEP = timedelta(days=3)
+PRUNE_INTERVAL = 3600.0
 
 # Shown to the owner in Settings ("آخرین خطا: ..."), hence Persian.
 TOKEN_UNREADABLE = (
@@ -86,6 +110,11 @@ TOKEN_UNREADABLE = (
 )
 
 Sleep = Callable[[float], Awaitable[None]]
+Outcome = Literal["crashed", "stopped", "parked"]
+
+
+class _Parked(Exception):
+    """Another consumer polls this bot's token: the task recorded the conflict and stops."""
 
 
 class _Stale(Exception):
@@ -112,15 +141,23 @@ class Backoff:
 @dataclass
 class _Run:
     """One bot's poll task and the stored token (encrypted) it polls with. The task's result is
-    ``True`` when it crashed (restart it) and ``False`` when it stopped on purpose."""
+    ``"crashed"`` (restart it), ``"stopped"`` (on purpose: wait for a new token) or ``"parked"``
+    (a competing consumer: wait for a new token or the owner's retry)."""
 
     token_enc: str
-    task: "asyncio.Task[bool]"
+    task: "asyncio.Task[Outcome]"
     stop: asyncio.Event
+
+    def _outcome(self) -> Outcome | None:
+        return self.task.result() if self.task.done() and not self.task.cancelled() else None
 
     @property
     def crashed(self) -> bool:
-        return self.task.done() and not self.task.cancelled() and self.task.result()
+        return self._outcome() == "crashed"
+
+    @property
+    def parked(self) -> bool:
+        return self._outcome() == "parked"
 
 
 class TelegramPoller:
@@ -139,6 +176,7 @@ class TelegramPoller:
         stop_grace: float = STOP_GRACE,
         bot_ids: Collection[uuid.UUID] | None = None,
         http: httpx.AsyncClient | None = None,
+        clock: Callable[[], float] = time.monotonic,
     ) -> None:
         self._sessions = sessions
         self._provider = provider
@@ -149,6 +187,8 @@ class TelegramPoller:
         self._stop_grace = stop_grace
         self._only = frozenset(bot_ids) if bot_ids is not None else None
         self._http = http  # owned: closed by ``stop``
+        self._clock = clock
+        self._last_prune: float | None = None
         self._runs: dict[uuid.UUID, _Run] = {}
         self._closing = asyncio.Event()
         self._supervisor: asyncio.Task[None] | None = None
@@ -170,17 +210,23 @@ class TelegramPoller:
                 await self.sync_once()
             except Exception:
                 log.exception("telegram poller: supervisor pass failed; retrying")
+            await self.prune_if_due()
             await self._wait(self._closing, self._interval)
 
     async def sync_once(self) -> None:
         """One supervisor pass: stop the tasks of bots whose stored token changed or went away, then
         start a task for every connected bot without one (or whose task crashed)."""
         connected = await self._connected_bots()
-        changed = [bot_id for bot_id, run in self._runs.items() if connected.get(bot_id) != run.token_enc]
+        changed = [
+            bot_id
+            for bot_id, run in self._runs.items()
+            if bot_id not in connected or connected[bot_id][0] != run.token_enc
+        ]
         await self._stop_runs(changed)
-        for bot_id, token_enc in connected.items():
+        for bot_id, (token_enc, last_error) in connected.items():
             run = self._runs.get(bot_id)
-            if run is not None and run.crashed:
+            retried = run is not None and run.parked and not _is_conflict_error(last_error)
+            if run is not None and (run.crashed or retried):
                 del self._runs[bot_id]
                 run = None
             if run is None and not self._closing.is_set():
@@ -198,13 +244,33 @@ class TelegramPoller:
         if self._http is not None:
             await self._http.aclose()
 
-    async def _connected_bots(self) -> dict[uuid.UUID, str]:
-        query = select(Bot.id, Bot.tg_token_enc).where(Bot.tg_token_enc.is_not(None))
+    async def prune_if_due(self) -> None:
+        """Delete ``tg_updates`` rows older than ``UPDATES_KEEP``, at most once per ``PRUNE_INTERVAL``
+        (one cheap indexed DELETE). A failure is logged and tried again on the next pass."""
+        now = self._clock()
+        if self._last_prune is not None and now - self._last_prune < PRUNE_INTERVAL:
+            return
+        try:
+            async with self._sessions() as session:
+                await session.execute(
+                    delete(TgUpdate)
+                    .where(TgUpdate.received_at < func.now() - UPDATES_KEEP)
+                    .execution_options(synchronize_session=False)
+                )
+                await session.commit()
+        except Exception:
+            log.exception("telegram poller: could not prune tg_updates")
+            return
+        self._last_prune = now
+
+    async def _connected_bots(self) -> dict[uuid.UUID, tuple[str, str | None]]:
+        """Bot id -> (encrypted token, last error) of every bot with a stored token."""
+        query = select(Bot.id, Bot.tg_token_enc, Bot.tg_last_error).where(Bot.tg_token_enc.is_not(None))
         if self._only is not None:
             query = query.where(Bot.id.in_(self._only))
         async with self._sessions() as session:
             rows = (await session.execute(query)).all()
-        return {row.id: row.tg_token_enc for row in rows}
+        return {row.id: (row.tg_token_enc, row.tg_last_error) for row in rows}
 
     def _spawn(self, bot_id: uuid.UUID, token_enc: str) -> _Run:
         stop = asyncio.Event()
@@ -224,16 +290,18 @@ class TelegramPoller:
 
     # --- one bot ------------------------------------------------------------------------------------
 
-    async def _run_bot(self, bot_id: uuid.UUID, token_enc: str, stop: asyncio.Event) -> bool:
-        """The bot's task. ``True`` when it crashed."""
+    async def _run_bot(self, bot_id: uuid.UUID, token_enc: str, stop: asyncio.Event) -> Outcome:
+        """The bot's task; its result says whether the supervisor may restart it."""
         try:
             await self._poll(bot_id, token_enc, stop)
+        except _Parked:
+            return "parked"
         except _Stale:
             log.info("bot %s: Telegram connection changed; its polling stopped", bot_id)
         except Exception:
             log.exception("bot %s: polling failed; restarting on the next supervisor pass", bot_id)
-            return True
-        return False
+            return "crashed"
+        return "stopped"
 
     async def _poll(self, bot_id: uuid.UUID, token_enc: str, stop: asyncio.Event) -> None:
         client = await self._client(bot_id, token_enc)
@@ -244,12 +312,14 @@ class TelegramPoller:
             return
         log.info("bot %s: polling Telegram for updates", bot_id)
         backoff = Backoff(self._rng)
+        conflicts: deque[float] = deque()  # when the recent competing-consumer 409s happened
+        cleared = False
         while not stop.is_set():
             delay: float | None
             try:
                 batch = await self._fetch(client, offset, stop)
             except TelegramError as exc:
-                delay = await self._after_error(bot_id, token_enc, client, exc, backoff)
+                delay = await self._after_error(bot_id, token_enc, client, exc, backoff, conflicts)
                 if delay is None:
                     return
             except Exception:
@@ -258,6 +328,10 @@ class TelegramPoller:
             else:
                 if batch is None:  # asked to stop during the long poll
                     return
+                conflicts.clear()
+                if not cleared:  # polling works: a conflict error left by an earlier run is stale
+                    cleared = True
+                    await self._clear_conflict(bot_id, token_enc)
                 if not batch:  # the long poll ended with nothing new: Telegram already waited
                     backoff.reset()
                     continue
@@ -364,13 +438,32 @@ class TelegramPoller:
         return next_offset
 
     async def _after_error(
-        self, bot_id: uuid.UUID, token_enc: str, client: TelegramApi, exc: TelegramError, backoff: Backoff
+        self,
+        bot_id: uuid.UUID,
+        token_enc: str,
+        client: TelegramApi,
+        exc: TelegramError,
+        backoff: Backoff,
+        conflicts: deque[float],
     ) -> float | None:
-        """How long to wait after a failed getUpdates; ``None``: stop polling this bot."""
+        """How long to wait after a failed getUpdates; ``None``: stop polling this bot. Raises
+        ``_Parked`` when a competing consumer is confirmed."""
         if exc.error_code in REVOKED:
             await self._revoked(bot_id, token_enc, exc)
             return None
-        if exc.error_code == 409:
+        if exc.error_code == 409 and COMPETING_POLLER in exc.description.lower():
+            now = self._clock()
+            conflicts.append(now)
+            while conflicts and now - conflicts[0] > PARK_WINDOW:
+                conflicts.popleft()
+            if len(conflicts) >= PARK_AFTER:
+                log.warning("bot %s: another consumer polls this token; parking the bot", bot_id)
+                await self._record_error(bot_id, token_enc, texts.POLLING_CONFLICT)
+                raise _Parked
+            delay = backoff.next()
+            log.warning("bot %s: getUpdates conflict with another consumer; retrying in %.1fs", bot_id, delay)
+            return delay
+        if exc.error_code == 409:  # a webhook is set: remove it
             log.warning("bot %s: getUpdates conflict (%s); deleting the webhook", bot_id, exc.description)
             if not await self._remove_webhook(bot_id, token_enc, client):
                 return None
@@ -391,6 +484,24 @@ class TelegramPoller:
             exc.description,
         )
         await self._record_error(bot_id, token_enc, redact(str(exc)))  # "<method>: <description>"
+
+    async def _clear_conflict(self, bot_id: uuid.UUID, token_enc: str) -> None:
+        """Drop a stale ``POLLING_CONFLICT`` error (one UPDATE per task, after its first good poll)."""
+        try:
+            async with self._sessions() as session:
+                await session.execute(
+                    update(Bot)
+                    .where(
+                        Bot.id == bot_id,
+                        Bot.tg_token_enc == token_enc,
+                        Bot.tg_last_error.like(f"{texts.POLLING_CONFLICT_PREFIX}%"),
+                    )
+                    .values(tg_last_error=None)
+                    .execution_options(synchronize_session=False)
+                )
+                await session.commit()
+        except Exception:
+            log.exception("bot %s: could not clear the polling conflict error", bot_id)
 
     async def _record_error(self, bot_id: uuid.UUID, token_enc: str, error: str) -> None:
         """Store ``error`` in ``bots.tg_last_error`` unless the bot's token changed meanwhile."""
@@ -419,6 +530,10 @@ class TelegramPoller:
                 task.cancel()
             await asyncio.gather(sleeper, waiter, return_exceptions=True)
         return stop.is_set()
+
+
+def _is_conflict_error(error: str | None) -> bool:
+    return error is not None and error.startswith(texts.POLLING_CONFLICT_PREFIX)
 
 
 def _update_id(tg_update: dict[str, Any]) -> int | None:

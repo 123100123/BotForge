@@ -672,6 +672,16 @@ export function connectTelegram(botId: string, token: string): TelegramStatus {
   return statusOf(botId);
 }
 
+/** onboarding / POST retry: clears a POLLING_CONFLICT error only; any other error stays. */
+export function retryTelegram(botId: string): TelegramStatus {
+  const d = getDb();
+  if (d.telegramErrors[botId]?.startsWith("POLLING_CONFLICT:")) {
+    delete d.telegramErrors[botId];
+    persist();
+  }
+  return statusOf(botId);
+}
+
 export function disconnectTelegram(botId: string): TelegramStatus {
   const d = getDb();
   const bot = d.bots.find((b) => b.id === botId);

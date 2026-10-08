@@ -9,6 +9,7 @@ import { api } from "@/lib/api";
 import { fa } from "@/lib/format";
 import { operationsScope } from "@/lib/nav";
 import { sectionHref } from "@/lib/routes";
+import { isPollingConflict } from "@/lib/telegram";
 import type { Bot, CapabilityOut, DataCollection, DataRecord } from "@/lib/types";
 
 /**
@@ -51,6 +52,8 @@ interface Sources {
   /** null = not applicable (capability off) */
   schemaChanged: number | null;
   events: { soon: number; upcoming: UpcomingItem[] } | null;
+  /** The poller parked the bot because another server polls the same Telegram bot (POLLING_CONFLICT). */
+  telegramConflict: boolean;
   /** How many of the attempted sources failed. */
   failed: number;
 }
@@ -131,15 +134,25 @@ async function schemaChangedCount(botId: string): Promise<number> {
   return runs.filter((r) => r.status === "schema_changed" && new Date(r.created_at).getTime() >= since).length;
 }
 
-async function loadSources(botId: string, collections: DataCollection[], spreadsheets: boolean): Promise<Sources> {
+async function telegramConflict(botId: string): Promise<boolean> {
+  return isPollingConflict((await api.getTelegram(botId)).last_error);
+}
+
+async function loadSources(
+  botId: string,
+  collections: DataCollection[],
+  spreadsheets: boolean,
+  telegramConnected: boolean,
+): Promise<Sources> {
   const visible = collections.filter((c) => c.enabled !== false);
   const ordersCols = visible.filter((c) => c.kind === "orders");
   const requestCols = visible.filter((c) => c.kind === "request");
-  const [orders, requests, schema, events] = await Promise.allSettled([
+  const [orders, requests, schema, events, conflict] = await Promise.allSettled([
     ordersCols.length ? pendingCount(botId, ordersCols) : Promise.resolve(null),
     requestCols.length ? pendingCount(botId, requestCols) : Promise.resolve(null),
     spreadsheets ? schemaChangedCount(botId) : Promise.resolve(null),
     upcomingEvents(botId, collections),
+    telegramConnected ? telegramConflict(botId) : Promise.resolve(false),
   ]);
   const value = <T,>(r: PromiseSettledResult<T | null>): T | null => (r.status === "fulfilled" ? r.value : null);
   return {
@@ -147,7 +160,8 @@ async function loadSources(botId: string, collections: DataCollection[], spreads
     requests: value(requests),
     schemaChanged: value(schema),
     events: value(events),
-    failed: [orders, requests, schema, events].filter((r) => r.status === "rejected").length,
+    telegramConflict: value(conflict) === true,
+    failed: [orders, requests, schema, events, conflict].filter((r) => r.status === "rejected").length,
   };
 }
 
@@ -159,10 +173,17 @@ interface CacheEntry {
 }
 const cache = new Map<string, CacheEntry>();
 
-function sourcesFor(key: string, botId: string, collections: DataCollection[], spreadsheets: boolean, force = false): Promise<Sources> {
+function sourcesFor(
+  key: string,
+  botId: string,
+  collections: DataCollection[],
+  spreadsheets: boolean,
+  telegramConnected: boolean,
+  force = false,
+): Promise<Sources> {
   const hit = cache.get(key);
   if (hit && !force && Date.now() - hit.at < FRESH_MS) return hit.promise;
-  const promise = loadSources(botId, collections, spreadsheets);
+  const promise = loadSources(botId, collections, spreadsheets, telegramConnected);
   cache.set(key, { at: Date.now(), promise });
   return promise;
 }
@@ -197,6 +218,15 @@ function buildItems(
 ): AttentionItem[] {
   const id = bot.id;
   const items: AttentionItem[] = [];
+  if (s?.telegramConflict) {
+    items.push({
+      id: "telegram-conflict",
+      tone: "danger",
+      text: "دریافت پیام‌های تلگرام متوقف شده است",
+      href: sectionHref(id, "telegram"),
+      actionLabel: "بررسی و تلاش دوباره",
+    });
+  }
   if (awaitingOwner.waiting) {
     items.push({
       id: "changes",
@@ -281,7 +311,8 @@ export function useAttention(): AttentionState {
   const run = useOptionalAgentRun();
   const pathname = usePathname();
   const spreadsheets = isEnabled(capabilities, "spreadsheet_intelligence");
-  const key = `${bot.id}|${bot.active_revision_id ?? ""}|${collections.map((c) => `${c.key}:${c.enabled !== false}`).join(",")}|${spreadsheets}`;
+  const telegramConnected = bot.tg_username !== null;
+  const key = `${bot.id}|${bot.active_revision_id ?? ""}|${collections.map((c) => `${c.key}:${c.enabled !== false}`).join(",")}|${spreadsheets}|${telegramConnected}`;
   const [snap, setSnap] = useState<{ key: string; sources: Sources } | null>(null);
   const [tick, setTick] = useState(0);
   const ready = dataStatus === "ready";
@@ -289,7 +320,7 @@ export function useAttention(): AttentionState {
   useEffect(() => {
     if (!ready) return;
     let cancelled = false;
-    void sourcesFor(key, bot.id, collections, spreadsheets, tick > 0).then((sources) => {
+    void sourcesFor(key, bot.id, collections, spreadsheets, telegramConnected, tick > 0).then((sources) => {
       if (!cancelled) setSnap({ key, sources });
     });
     return () => {
