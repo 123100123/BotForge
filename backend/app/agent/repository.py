@@ -127,8 +127,17 @@ class AgentRepository(Protocol):
     async def load_run(self, run_id: str) -> RunRecord: ...
 
     async def save_run(
-        self, run_id: str, *, state: RunState, status: str, result_revision_id: str | None = _UNSET
-    ) -> None: ...
+        self,
+        run_id: str,
+        *,
+        state: RunState,
+        status: str,
+        result_revision_id: str | None = _UNSET,
+        event: tuple[str, dict[str, Any]] | None = None,
+    ) -> EventEnvelope | None:
+        """Persist the run. ``event`` is appended in the SAME transaction (and returned), so a
+        reader that sees the new status also sees its ``run_status`` event."""
+        ...
 
     async def claim_run(self, run_id: str, from_statuses: tuple[str, ...], to_status: str) -> bool:
         """Atomically move a run from one of ``from_statuses`` to ``to_status``; False if not."""
@@ -270,8 +279,14 @@ class SqlAgentRepository:
             return self._record(row)
 
     async def save_run(
-        self, run_id: str, *, state: RunState, status: str, result_revision_id: str | None = _UNSET
-    ) -> None:
+        self,
+        run_id: str,
+        *,
+        state: RunState,
+        status: str,
+        result_revision_id: str | None = _UNSET,
+        event: tuple[str, dict[str, Any]] | None = None,
+    ) -> EventEnvelope | None:
         values: dict[str, Any] = {
             "state": state.model_dump(mode="json"),
             "phase": state.phase,
@@ -281,9 +296,19 @@ class SqlAgentRepository:
         }
         if result_revision_id is not _UNSET:
             values["result_revision_id"] = _uuid(result_revision_id)
+        envelope: EventEnvelope | None = None
         async with self._sm() as session:
+            if event is not None:  # event first: same transaction, so never visible after the status
+                row = AgentEvent(run_id=_uuid(run_id), type=event[0], payload=event[1])
+                session.add(row)
+                await session.flush()
+                await session.refresh(row)
+                envelope = EventEnvelope(
+                    id=row.id, run_id=str(row.run_id), ts=row.ts, type=row.type, payload=row.payload
+                )
             await session.execute(update(AgentRun).where(AgentRun.id == _uuid(run_id)).values(**values))
             await session.commit()
+        return envelope
 
     async def claim_run(self, run_id: str, from_statuses: tuple[str, ...], to_status: str) -> bool:
         async with self._sm() as session:
@@ -537,8 +562,15 @@ class InMemoryAgentRepository:
         return replace(record, state=RunState.model_validate_json(record.state.model_dump_json()))
 
     async def save_run(
-        self, run_id: str, *, state: RunState, status: str, result_revision_id: str | None = _UNSET
-    ) -> None:
+        self,
+        run_id: str,
+        *,
+        state: RunState,
+        status: str,
+        result_revision_id: str | None = _UNSET,
+        event: tuple[str, dict[str, Any]] | None = None,
+    ) -> EventEnvelope | None:
+        envelope = await self.append_event(run_id, *event) if event is not None else None
         record = self.runs[run_id]
         record.state = RunState.model_validate_json(state.model_dump_json())
         record.phase = state.phase
@@ -547,6 +579,7 @@ class InMemoryAgentRepository:
         if result_revision_id is not _UNSET:
             record.result_revision_id = result_revision_id
         self.save_count += 1
+        return envelope
 
     async def claim_run(self, run_id: str, from_statuses: tuple[str, ...], to_status: str) -> bool:
         record = self.runs.get(run_id)

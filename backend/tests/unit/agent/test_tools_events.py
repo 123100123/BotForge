@@ -111,5 +111,9 @@ def test_payload_builders_match_the_contract() -> None:
         "blocked_reason": "چرا",
     }
     assert ev.tests_generated(3, 2)[1] == {"derived": 3, "acceptance": 2}
-    assert ev.error("خطا") == ("error", {"message": "خطا"})
+    assert ev.error("خطا") == (
+        "error",
+        {"message": "خطا", "code": "UNEXPECTED_ERROR", "applied": False, "retryable": True},
+    )
+    assert ev.error("x", "BUDGET_EXCEEDED")[1]["retryable"] is False
     assert set(ev.EVENT_TYPES) >= {"diff", "usage", "deployed"}

@@ -5,6 +5,7 @@ another reason (tool limit, no more tool calls) still proceeds when the draft is
 the run fails with a Persian explanation.
 """
 
+from app.agent import events as ev
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
 from app.agent.phases import BUDGET_MESSAGE, fail, note_loop_end, render_conversation, section, task_message
@@ -25,7 +26,7 @@ _STOP_MESSAGES = {
 async def run(ctx: RunContext) -> Next:
     state = ctx.state
     if ctx.over_budget():
-        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before build")
+        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before build", ev.BUDGET_EXCEEDED)
     assert state.requirements is not None
     names = BUILD_TOOLS if state.kind == "create" else BUILD_PATCH_TOOLS
     tools = AgentTools(state, loop="build", emit=ctx.emit, names=names)

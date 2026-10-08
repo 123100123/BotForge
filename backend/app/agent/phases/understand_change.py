@@ -20,7 +20,15 @@ from app.agent.modify import (
     requirement_lines,
     same_statement,
 )
-from app.agent.phases import BUDGET_MESSAGE, fail, render_conversation, say, section, task_message
+from app.agent.phases import (
+    BUDGET_MESSAGE,
+    fail,
+    llm_failure_code,
+    render_conversation,
+    say,
+    section,
+    task_message,
+)
 from app.agent.phases.understand import question_as_assumption, questions_text, unsupported_text
 from app.agent.prompts import system_prompt
 from app.agent.requirements import Question, RequirementsDelta
@@ -79,7 +87,9 @@ async def end_without_change(ctx: RunContext, text: str) -> Next:
 async def run(ctx: RunContext) -> Next:
     state = ctx.state
     if ctx.over_budget():
-        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before understand_change")
+        return await fail(
+            ctx, BUDGET_MESSAGE, "token budget exhausted before understand_change", ev.BUDGET_EXCEEDED
+        )
     assert state.base_spec is not None and state.draft_spec is not None
     base = state.base_requirements or empty_requirements()
     allow_questions = state.clarify_rounds < ctx.limits.max_clarify_rounds
@@ -113,7 +123,10 @@ async def run(ctx: RunContext) -> Next:
     except LLMError as exc:
         ctx.charge(exc.usage)
         return await fail(
-            ctx, "نتوانستم درخواست تغییر را تحلیل کنم. لطفاً دوباره تلاش کنید.", f"understand_change: {exc}"
+            ctx,
+            "نتوانستم درخواست تغییر را تحلیل کنم. لطفاً دوباره تلاش کنید.",
+            f"understand_change: {exc}",
+            llm_failure_code(exc),
         )
     ctx.charge(usage)
     assert isinstance(out, UnderstandChangeOut)

@@ -7,9 +7,10 @@ message, the requirement statements, and the spec outline only.
 
 from typing import Literal
 
+from app.agent import events as ev
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
-from app.agent.phases import BUDGET_MESSAGE, fail, say, section, task_message
+from app.agent.phases import BUDGET_MESSAGE, fail, llm_failure_code, say, section, task_message
 from app.agent.prompts import system_prompt
 from app.botspec.models import StrictModel
 from app.botspec.outline import spec_outline
@@ -32,7 +33,7 @@ class TriageOut(StrictModel):
 async def run(ctx: RunContext) -> Next:
     state = ctx.state
     if ctx.over_budget():
-        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before triage")
+        return await fail(ctx, BUDGET_MESSAGE, "token budget exhausted before triage", ev.BUDGET_EXCEEDED)
     assert state.base_spec is not None
     message = next((t.text for t in reversed(state.conversation) if t.role == "owner"), "")
     statements = [r.statement for r in (state.base_requirements.items if state.base_requirements else [])]
@@ -53,7 +54,7 @@ async def run(ctx: RunContext) -> Next:
         )
     except LLMError as exc:
         ctx.charge(exc.usage)
-        return await fail(ctx, TRIAGE_FAILED, f"triage: {exc}")
+        return await fail(ctx, TRIAGE_FAILED, f"triage: {exc}", llm_failure_code(exc))
     ctx.charge(usage)
     assert isinstance(out, TriageOut)
     state.triage = out.intent
