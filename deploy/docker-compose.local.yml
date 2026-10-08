@@ -26,6 +26,8 @@ services:
         https_proxy: http://host.docker.internal:10808
     environment:
       FRONTEND_ORIGIN: https://localhost
+      # The own login, as on the VPS (only the hosted Render deployment uses AUTH_PROVIDER=supabase).
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       # Telegram cannot reach this machine (and tunnels are blocked), so the backend polls Telegram for
       # updates instead of receiving webhooks: outbound only, through the proxy below.
       TELEGRAM_MODE: polling
@@ -47,6 +49,7 @@ services:
       args:
         http_proxy: http://host.docker.internal:10808
         https_proxy: http://host.docker.internal:10808
+        NEXT_PUBLIC_AUTH_PROVIDER: ${NEXT_PUBLIC_AUTH_PROVIDER:-local} # the backend's AUTH_PROVIDER
 
   caddy:
     environment:

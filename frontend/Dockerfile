@@ -17,8 +17,13 @@ COPY . .
 # "/api" is the path Caddy forwards to the backend (same origin, so no CORS and no mixed content).
 ARG NEXT_PUBLIC_API_BASE_URL=/api
 ARG NEXT_PUBLIC_MOCK=
+# Sign-in: "local", the backend's own login with its same-origin session cookie, is what this image's
+# stack (deploy/, behind Caddy) runs. "supabase" is the hosted Render deployment (render.yaml), which
+# builds the web app without this Dockerfile.
+ARG NEXT_PUBLIC_AUTH_PROVIDER=local
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
-    NEXT_PUBLIC_MOCK=$NEXT_PUBLIC_MOCK
+    NEXT_PUBLIC_MOCK=$NEXT_PUBLIC_MOCK \
+    NEXT_PUBLIC_AUTH_PROVIDER=$NEXT_PUBLIC_AUTH_PROVIDER
 
 # The project has no public/ folder today; create it so the runtime COPY below never fails.
 RUN mkdir -p public && npm run build
