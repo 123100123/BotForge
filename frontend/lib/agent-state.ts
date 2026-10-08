@@ -5,11 +5,13 @@
 import {
   isKnownEvent,
   type AgentEvent,
+  type ErrorCode,
   type EventPayloads,
   type Phase,
   type Question,
   type RawAgentEvent,
   type Requirements,
+  type RunKind,
   type RunStatus,
   type SpecOutline,
   type Usage,
@@ -65,6 +67,27 @@ export type FeedItem =
  */
 export type StatusSource = "inferred" | "server" | "event";
 
+/** What the assistant says it is doing right now (the latest `activity` event of the running phase). */
+export interface ActivityInfo {
+  phase: string;
+  label: string;
+}
+
+/** An LLM call is being retried (the latest `retrying` event of the running phase). */
+export interface RetryInfo {
+  phase: string;
+  attempt: number;
+  reason: string;
+}
+
+/** Why a run ended badly. `applied` null means the server did not say. */
+export interface RunFailure {
+  code: ErrorCode;
+  message: string;
+  applied: boolean | null;
+  retryable: boolean;
+}
+
 export interface RunView {
   lastEventId: number;
   status: RunStatus;
@@ -74,6 +97,19 @@ export interface RunView {
   requirements: Requirements | null;
   outline: SpecOutline | null;
   usage: Usage | null;
+  /** Set by `activity`, cleared when the phase ends or the run stops running. */
+  activity: ActivityInfo | null;
+  /** Set by `retrying`, cleared by the next `activity` or when the phase ends. */
+  retry: RetryInfo | null;
+  /** The last `error` event (or `run_interrupted`). Only shown while the run is failed or interrupted. */
+  failure: RunFailure | null;
+  /** The server restarted while the run was working. */
+  interrupted: boolean;
+  /** Timestamp of the first event, and the time the run spent in the `running` status (waiting for the owner excluded). */
+  startedAt: string | null;
+  workedMs: number;
+  /** Timestamp the current running stretch began, or null when the run is not running. */
+  runningSince: string | null;
 }
 
 export const emptyRunView: RunView = {
@@ -85,7 +121,28 @@ export const emptyRunView: RunView = {
   requirements: null,
   outline: null,
   usage: null,
+  activity: null,
+  retry: null,
+  failure: null,
+  interrupted: false,
+  startedAt: null,
+  workedMs: 0,
+  runningSince: null,
 };
+
+export const INTERRUPTED_MESSAGE = "سرور دوباره راه‌اندازی شد و کار دستیار نیمه‌کاره ماند.";
+export const UNKNOWN_FAILURE_MESSAGE = "کار دستیار با خطا پایان یافت.";
+
+function ms(ts: string): number {
+  const t = Date.parse(ts);
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/** Closes the running stretch at `ts` and adds it to `workedMs`. */
+function stopClock(state: RunView, ts: string): Pick<RunView, "workedMs" | "runningSince"> {
+  if (state.runningSince === null) return { workedMs: state.workedMs, runningSince: null };
+  return { workedMs: state.workedMs + Math.max(0, ms(ts) - ms(state.runningSince)), runningSince: null };
+}
 
 function withLastOf<T extends FeedItem["kind"]>(
   feed: FeedItem[],
@@ -111,7 +168,8 @@ function infer(state: RunView, status: RunStatus): Pick<RunView, "status" | "sta
 }
 
 function applyKnown(state: RunView, event: AgentEvent): RunView {
-  const base: RunView = { ...state, lastEventId: event.id };
+  const first = state.startedAt === null ? { startedAt: event.ts, runningSince: event.ts } : {};
+  const base: RunView = { ...state, ...first, lastEventId: event.id };
   switch (event.type) {
     case "owner_message": {
       // An owner message answers any open question card.
@@ -133,6 +191,8 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       return {
         ...base,
         ...infer(state, "running"),
+        activity: null,
+        retry: null,
         phases: [
           ...state.phases,
           { key: `${phase}-${attempt}`, phase, attempt, state: "running", summary: null, tools: [] },
@@ -155,7 +215,7 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
       } else {
         phases[idx] = { ...phases[idx], state: ok ? "done" : "failed", summary: summary ?? null };
       }
-      return { ...base, phases };
+      return { ...base, phases, activity: null, retry: null };
     }
 
     case "tool_call": {
@@ -241,13 +301,38 @@ function applyKnown(state: RunView, event: AgentEvent): RunView {
 
     case "usage":
       return { ...base, usage: event.payload };
-    case "run_status":
-      return { ...base, status: event.payload.status, statusSource: "event" };
-    case "error":
+    case "run_status": {
+      const { status } = event.payload;
+      if (status === "running") {
+        return { ...base, status, statusSource: "event", runningSince: base.runningSince ?? event.ts };
+      }
+      return { ...base, ...stopClock(base, event.ts), status, statusSource: "event", activity: null, retry: null };
+    }
+    case "error": {
       // An error event does not by itself end the run; the server status decides.
+      const { message, code, applied, retryable } = event.payload;
       return {
         ...base,
-        feed: [...state.feed, { kind: "error", id: event.id, message: event.payload.message }],
+        failure: {
+          code: code ?? "UNEXPECTED_ERROR",
+          message,
+          applied: typeof applied === "boolean" ? applied : null,
+          retryable: retryable ?? true,
+        },
+        feed: [...state.feed, { kind: "error", id: event.id, message }],
+      };
+    }
+    case "activity":
+      return { ...base, activity: { phase: event.payload.phase, label: event.payload.label }, retry: null };
+    case "retrying":
+      return { ...base, retry: { phase: event.payload.phase, attempt: event.payload.attempt, reason: event.payload.reason } };
+    case "run_interrupted":
+      return {
+        ...base,
+        interrupted: true,
+        activity: null,
+        retry: null,
+        failure: { code: "INTERRUPTED", message: INTERRUPTED_MESSAGE, applied: false, retryable: true },
       };
   }
 }
@@ -276,4 +361,212 @@ export function latestReport(view: RunView): TestReportPayload | null {
     if (item.kind === "tests" && item.reports.length > 0) return item.reports[item.reports.length - 1];
   }
   return null;
+}
+
+/* ------------------------------------------------------------------ derived: honest status */
+
+/** The assistant's own sentence about what it is doing, only while the run is running. */
+export function activeLabel(view: RunView): string | null {
+  return view.status === "running" ? (view.activity?.label ?? null) : null;
+}
+
+/** The retry in progress, only while the run is running. */
+export function retryInfo(view: RunView): RetryInfo | null {
+  return view.status === "running" ? view.retry : null;
+}
+
+/**
+ * How the run failed, or null while it did not fail. A failed run without an `error` event (an older
+ * backend) still gets a failure: generic message, `applied` unknown, retry offered (the endpoint accepts
+ * every failed or interrupted run).
+ */
+export function runFailure(view: RunView): RunFailure | null {
+  if (view.status === "interrupted") {
+    return view.failure ?? { code: "INTERRUPTED", message: INTERRUPTED_MESSAGE, applied: false, retryable: true };
+  }
+  if (view.status === "failed") {
+    return view.failure ?? { code: "UNEXPECTED_ERROR", message: UNKNOWN_FAILURE_MESSAGE, applied: null, retryable: true };
+  }
+  return null;
+}
+
+export type StepKey =
+  | "triage"
+  | "understand"
+  | "clarify"
+  | "build"
+  | "testgen"
+  | "run"
+  | "repair"
+  | "review"
+  | "await_approval"
+  | "deploy";
+
+export type StepState = "pending" | "running" | "done" | "failed" | "waiting_user" | "waiting_approval" | "skipped";
+
+export interface RunStep {
+  key: StepKey;
+  label: string;
+  state: StepState;
+  /** The phase's own one-line summary once it finished, or a short note («بعد از رفع مشکل دوباره اجرا می‌شود»). */
+  detail: string | null;
+}
+
+export const STEP_LABELS: Record<StepKey, string> = {
+  triage: "تشخیص نوع درخواست",
+  understand: "فهمیدن درخواست",
+  clarify: "پرسش از شما",
+  build: "ساخت پیکربندی",
+  testgen: "نوشتن آزمون‌ها",
+  run: "اجرای آزمون‌ها",
+  repair: "رفع مشکل",
+  review: "آماده‌سازی خلاصه",
+  await_approval: "تأیید شما",
+  deploy: "فعال‌سازی",
+};
+
+export interface StepOptions {
+  /** The owner's own approve/reject, known before the server confirms it. */
+  decided?: "approved" | "rejected" | null;
+}
+
+/**
+ * The ordered step list of a run, pending steps included, from the flow's real phase sequence.
+ * create: understand, [clarify], build, testgen, run, [repair], review, await_approval, deploy.
+ * modify: the same behind a triage step. `clarify` shows only when the assistant asked something,
+ * `repair` only when a repair happened. `kind` null (not yet known) is guessed from the phases.
+ * Once the run can no longer continue (done, failed, rejected, interrupted) steps that never ran are
+ * "skipped", and a failed or interrupted run marks the step it died in as "failed".
+ */
+export function deriveSteps(view: RunView, kind: RunKind | null, opts: StepOptions = {}): RunStep[] {
+  const { status } = view;
+  const flow: RunKind = kind ?? (view.phases.some((p) => p.phase === "triage") ? "modify" : "create");
+  const entriesOf = (key: StepKey) => view.phases.filter((p) => p.phase === key);
+  const hasDeployed = view.feed.some((i) => i.kind === "deployed");
+  const approvalAsked = view.feed.some((i) => i.kind === "review" && i.approval !== null) || entriesOf("await_approval").length > 0;
+  const asked = view.feed.some((i) => i.kind === "questions") || entriesOf("clarify").length > 0 || status === "waiting_user";
+  const repaired = entriesOf("repair").length > 0;
+  const terminalBad = status === "failed" || status === "interrupted";
+  const open = status === "running" || status === "waiting_user" || status === "waiting_approval";
+  const approved = opts.decided === "approved" || hasDeployed;
+  const rejected = status === "rejected" || opts.decided === "rejected";
+
+  const order: StepKey[] = [
+    ...(flow === "modify" ? (["triage"] as StepKey[]) : []),
+    "understand",
+    ...(asked ? (["clarify"] as StepKey[]) : []),
+    "build",
+    "testgen",
+    "run",
+    ...(repaired ? (["repair"] as StepKey[]) : []),
+    "review",
+    "await_approval",
+    "deploy",
+  ];
+
+  const steps: RunStep[] = order.map((key) => {
+    const last = entriesOf(key).at(-1) ?? null;
+    // A phase entry still "running" while the run is not running was cut short by the run's status.
+    const fromEntry = (): StepState => {
+      if (!last) return "pending";
+      if (last.state === "running") return status === "running" ? "running" : terminalBad ? "failed" : "done";
+      return last.state;
+    };
+    let state: StepState;
+    let detail: string | null = null;
+    switch (key) {
+      case "clarify":
+        state = status === "waiting_user" ? "waiting_user" : "done";
+        break;
+      case "await_approval":
+        if (approved || (rejected && approvalAsked)) state = "done";
+        else if (status === "waiting_approval") state = "waiting_approval";
+        else state = fromEntry();
+        break;
+      case "deploy":
+        if (hasDeployed) state = "done";
+        else if (rejected) state = "pending";
+        else if (last) state = fromEntry();
+        else if (opts.decided === "approved") state = terminalBad ? "failed" : "running";
+        else state = "pending";
+        break;
+      case "run":
+        state = fromEntry();
+        // Tests failed and the assistant repairs: this step runs again after the repair.
+        if (last?.state === "failed" && open) {
+          state = "pending";
+          detail = "بعد از رفع مشکل دوباره اجرا می‌شود";
+        }
+        break;
+      default:
+        state = fromEntry();
+    }
+    if (detail === null && (state === "done" || state === "failed")) detail = last?.summary ?? null;
+    return { key, label: STEP_LABELS[key], state, detail };
+  });
+
+  // A failed or interrupted run: the step it died in is failed; if no step was running, the next one is.
+  if (terminalBad && !steps.some((s) => s.state === "failed")) {
+    const next = steps.find((s) => s.state === "pending");
+    if (next) next.state = "failed";
+  }
+  // Steps that will never run now.
+  if (!open) {
+    for (const step of steps) {
+      if (step.state === "pending") {
+        step.state = "skipped";
+        step.detail = null;
+      }
+    }
+  }
+  return steps;
+}
+
+/** The step the run is on: running, or waiting for the owner. */
+export function currentStep(steps: RunStep[]): RunStep | null {
+  return steps.find((s) => s.state === "running" || s.state === "waiting_user" || s.state === "waiting_approval") ?? null;
+}
+
+/** Time spent working (waiting for the owner excluded) and the latest test result, for the one-line summary. */
+export function runSummary(view: RunView): { workedMs: number | null; tests: { passed: number; total: number } | null } {
+  const report = latestReport(view);
+  return {
+    workedMs: view.workedMs > 0 ? view.workedMs : null,
+    tests: report ? { passed: report.passed, total: report.total } : null,
+  };
+}
+
+/* ------------------------------------------------------------------ optimistic owner message */
+
+/**
+ * The message the owner just sent, shown at once. "sending": the request is in flight; "received": the
+ * server accepted it but its `owner_message` event has not arrived yet; "failed": the request itself failed
+ * (the text is kept for a resend). It is replaced by the real feed item when the matching event arrives.
+ */
+export interface PendingOwnerMessage {
+  text: string;
+  ts: string;
+  state: "sending" | "received" | "failed";
+  error: string | null;
+  /** `new`: starts a run (create or modify); `existing`: answers the run that is waiting. */
+  target: "new" | "existing";
+  /** Owner messages the attached run's feed already held when this was sent. */
+  ownerCount: number;
+}
+
+export function startPending(text: string, target: "new" | "existing", view: RunView, now: Date = new Date()): PendingOwnerMessage {
+  const ownerCount = target === "new" ? 0 : view.feed.filter((i) => i.kind === "owner").length;
+  return { text, ts: now.toISOString(), state: "sending", error: null, target, ownerCount };
+}
+
+/** True once the feed holds an owner message newer than the ones present at send time, with the same text. */
+export function isPendingConfirmed(pending: PendingOwnerMessage, view: RunView): boolean {
+  const owners = view.feed.flatMap((i) => (i.kind === "owner" ? [i.text] : []));
+  return owners.slice(pending.ownerCount).some((text) => text.trim() === pending.text.trim());
+}
+
+/** The pending message to keep showing after `view` changed, or null once its real event arrived. */
+export function reconcilePending(pending: PendingOwnerMessage | null, view: RunView): PendingOwnerMessage | null {
+  if (!pending) return null;
+  return isPendingConfirmed(pending, view) ? null : pending;
 }

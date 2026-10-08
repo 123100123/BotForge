@@ -69,6 +69,8 @@ export interface Api {
   postRunMessage(runId: string, message: string): Promise<AgentRun>;
   approveRun(runId: string): Promise<AgentRun>;
   rejectRun(runId: string): Promise<AgentRun>;
+  /** A new run from the original request of a failed or interrupted run (409 for any other status). */
+  retryRun(runId: string): Promise<AgentRun>;
   // Revisions and tests
   listRevisions(botId: string): Promise<RevisionSummary[]>;
   getRevision(revisionId: string): Promise<RevisionDetail>;
@@ -247,6 +249,7 @@ export const realApi: Api = {
   postRunMessage: (runId, message) => request("POST", `/runs/${enc(runId)}/messages`, { message }),
   approveRun: (runId) => request("POST", `/runs/${enc(runId)}/approve`),
   rejectRun: (runId) => request("POST", `/runs/${enc(runId)}/reject`),
+  retryRun: (runId) => request("POST", `/runs/${enc(runId)}/retry`),
 
   listRevisions: (botId) => request("GET", `/bots/${enc(botId)}/revisions`),
   getRevision: (revisionId) => request("GET", `/revisions/${enc(revisionId)}`),

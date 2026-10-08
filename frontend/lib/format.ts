@@ -95,3 +95,14 @@ export function relativeTime(input: string | number | Date, now: number = Date.n
   if (abs < 30 * 86400) return relFmt.format(Math.round(diffSec / 86400), "day");
   return formatDate(d);
 }
+
+/** A duration as Persian words, e.g. 100000 ms -> «۱ دقیقه و ۴۰ ثانیه»; under a second reads «کمتر از ۱ ثانیه». */
+export function formatDuration(ms: number): string {
+  const total = Math.max(0, Math.round(ms / 1000));
+  if (total < 1) return "کمتر از ۱ ثانیه";
+  const minutes = Math.floor(total / 60);
+  const seconds = total % 60;
+  if (minutes === 0) return `${fa(seconds)} ثانیه`;
+  if (seconds === 0) return `${fa(minutes)} دقیقه`;
+  return `${fa(minutes)} دقیقه و ${fa(seconds)} ثانیه`;
+}

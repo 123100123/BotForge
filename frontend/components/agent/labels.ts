@@ -1,4 +1,4 @@
-import type { CapabilityType, Phase, RequirementKind, RiskLevel, RunStatus } from "@/lib/types";
+import type { CapabilityType, ErrorCode, Phase, RequirementKind, RiskLevel, RunStatus } from "@/lib/types";
 
 export const PHASE_LABELS: Record<Phase, string> = {
   triage: "بررسی پیام شما",
@@ -28,6 +28,24 @@ export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   rejected: "رد شد",
   interrupted: "قطع شد",
 };
+
+/** Headline of a failed run by error code; the server's own Persian message goes under it. */
+export const FAILURE_TITLES: Record<ErrorCode, string> = {
+  LLM_UNAVAILABLE: "دستیار نتوانست به مدل زبانی وصل شود",
+  BUDGET_EXCEEDED: "سقف مصرف دستیار تمام شد",
+  VALIDATION_FAILED: "ربات ساخته‌شده از بررسی درستی نگذشت",
+  UNEXPECTED_ERROR: "کار دستیار با خطا روبه‌رو شد",
+  INTERRUPTED: "کار دستیار وسط راه متوقف شد",
+};
+
+/** Owner-facing reason of an LLM retry; the raw reason string never shows. */
+export function retryReasonLabel(reason: string): string {
+  const r = reason.toLowerCase();
+  if (r.includes("timeout") || r.includes("timed out")) return "پاسخ مدل دیر رسید";
+  if (r.includes("rate") || r.includes("429") || r.includes("overload")) return "مدل شلوغ بود";
+  if (r.includes("connect") || r.includes("network")) return "ارتباط با مدل ناپایدار بود";
+  return "پاسخ مدل کامل نبود";
+}
 
 /** Plain-language type tags of a requirement. */
 export const REQUIREMENT_KIND_LABELS: Record<RequirementKind, string> = {

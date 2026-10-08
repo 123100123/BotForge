@@ -35,6 +35,7 @@ export const mockApi: Api = {
   postRunMessage: (runId, message) => call(() => engine.postRunMessage(runId, message)),
   approveRun: (runId) => call(() => engine.approveRun(runId)),
   rejectRun: (runId) => call(() => engine.rejectRun(runId)),
+  retryRun: (runId) => call(() => engine.retryRun(runId)),
 
   listRevisions: (botId) => call(() => tabs.listRevisions(botId)),
   getRevision: (revisionId) => call(() => tabs.getRevision(revisionId)),

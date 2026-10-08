@@ -86,34 +86,6 @@ export function revisionState(status: RevisionSummary["status"]): ChangeState {
   }
 }
 
-/**
- * Step of the first-build indicator (BUILD_STEPS): 0 describe, 1 assistant's reading, 2 questions, 3 tests,
- * 4 activation, 5 all done. `hasRun` false means the owner has not described the business yet.
- */
-export function buildStepIndex(view: RunView, status: RunStatus | null, hasRun: boolean): number {
-  if (!hasRun) return 0;
-  const deployed = view.feed.some((i) => i.kind === "deployed");
-  if (deployed || status === "done") return 5;
-  if (status === "waiting_user") return 2;
-  if (status === "waiting_approval") return 4;
-  const last = view.phases[view.phases.length - 1]?.phase;
-  switch (last) {
-    case "clarify":
-      return 2;
-    case "build":
-    case "testgen":
-    case "run":
-    case "repair":
-    case "review":
-      return 3;
-    case "await_approval":
-    case "deploy":
-      return 4;
-    default:
-      return 1;
-  }
-}
-
 /** Short sentence for a list row: the first line of the request. */
 export function oneLine(text: string | null | undefined): string | null {
   if (!text) return null;

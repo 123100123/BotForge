@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { FileBarChartIcon, Loader2Icon, PencilLineIcon, SendHorizontalIcon } from "lucide-react";
+import { CircleCheckIcon, FileBarChartIcon, Loader2Icon, PencilLineIcon, SendHorizontalIcon } from "lucide-react";
 import { useAgentRunContext } from "@/components/agent/agent-run-provider";
 import { Segmented } from "@/components/app/segmented";
 import { useOptionalBusiness } from "@/components/app/business-context";
@@ -70,6 +70,8 @@ export function AskPanel({
   const fullScreen = useMediaQuery("(max-width: 639.98px)");
   const [mode, setMode] = useState<Mode>("ask");
   const [sending, setSending] = useState(false);
+  /** The change request was accepted: «درخواست شما رسید» shows for a moment before the Changes page opens. */
+  const [received, setReceived] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
 
   const botId = business?.bot.id ?? "";
@@ -86,8 +88,15 @@ export function AskPanel({
     const text = draft.trim();
     if (!text || changeBlocked || sending) return;
     setSending(true);
-    await run.send(text);
+    const accepted = await run.send(text);
+    if (!accepted) {
+      setSending(false); // the failure and the kept text show below; the owner can send again
+      return;
+    }
     setDraft("");
+    setReceived(true);
+    await new Promise((resolve) => setTimeout(resolve, 900));
+    setReceived(false);
     setSending(false);
     setMode("ask");
     assistant.close();
@@ -223,7 +232,18 @@ export function AskPanel({
           id={inputId}
           className="min-h-0 resize-none"
         />
-        {change && changeBlocked && (
+        {change && run.pending?.state === "failed" && run.pending.target === "new" && !sending && (
+          <ErrorNote>
+            {run.pending.error} چیزی در ربات تغییر نکرد؛ متن شما همین‌جا مانده است، دوباره بفرستید.
+          </ErrorNote>
+        )}
+        {received && (
+          <p role="status" className="flex items-center gap-2 text-small font-medium text-success-text">
+            <CircleCheckIcon className="size-4" strokeWidth={1.75} aria-hidden />
+            درخواست شما رسید
+          </p>
+        )}
+        {change && changeBlocked && !sending && (
           <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-warning-text">
             <span>یک پیشنهاد تغییر باز دارید.</span>
             <Link
