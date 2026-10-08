@@ -75,9 +75,45 @@ services:
       - key: FRONTEND_ORIGIN_REGEX   # optional, leave empty unless deploy previews must reach this API (README step 5)
         sync: false
       # --- LLM ---
+      # Keep Anthropic as the deployed default. Liara and Top Tools require their own server-only
+      # credentials; claude_cli is intended for local development.
+      - key: LLM_PROVIDER
+        value: "anthropic"
       - key: LLM_MODEL_STRONG
         sync: false
       - key: LLM_MODEL_FAST
+        sync: false
+      - key: LIARA_API_KEY             # secret project-scoped AI key, never an account API key
+        sync: false
+      - key: LIARA_BASE_URL            # https://ai.liara.ir/api/v1/<project-id>
+        sync: false
+      - key: LIARA_MODEL_STRONG
+        value: "google/gemini-3.8-flash"
+      - key: LIARA_MODEL_FAST
+        value: "deepseek/deepseek-v4-flash"
+      - key: LIARA_MAX_TOKENS
+        value: "32000"
+      - key: LIARA_TIMEOUT_SECONDS
+        value: "180"
+      - key: LIARA_MAX_RETRIES
+        value: "2"
+      - key: LIARA_TOKEN_PRICES_JSON   # optional model price map; leave blank when unpriced
+        sync: false
+      - key: TOP_TOOLS_API_KEY          # secret Top Tools API key
+        sync: false
+      - key: TOP_TOOLS_BASE_URL         # documented endpoint; https://top-tools-ai.com/v1 also supported
+        value: "https://top-tools-ai.com/api/v1"
+      - key: TOP_TOOLS_MODEL_STRONG     # required confirmed model ID; no unverified default
+        sync: false
+      - key: TOP_TOOLS_MODEL_FAST       # required confirmed model ID; no unverified default
+        sync: false
+      - key: TOP_TOOLS_MAX_TOKENS
+        value: "32000"
+      - key: TOP_TOOLS_TIMEOUT_SECONDS
+        value: "180"
+      - key: TOP_TOOLS_MAX_RETRIES
+        value: "2"
+      - key: TOP_TOOLS_TOKEN_PRICES_JSON # optional model price map; leave blank when unpriced
         sync: false
       - key: LOG_LLM_BODIES          # keep false in production: bodies contain owner chat text
         value: "false"

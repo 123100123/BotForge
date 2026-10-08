@@ -24,7 +24,7 @@ LLM_UNAVAILABLE = "دستیار هوشمند در این سرور تنظیم ن�
 
 def get_copilot_llm() -> LLMClient:
     settings = get_settings()
-    if settings.LLM_PROVIDER == "anthropic" and not settings.ANTHROPIC_API_KEY:
+    if not settings.llm_configured:
         raise HTTPException(status_code=503, detail={"code": "llm_unavailable", "message": LLM_UNAVAILABLE})
     return make_llm()
 

@@ -40,6 +40,22 @@ Last updated: 2026-10-08 (Day 6 of 7).
 - **M2 and M3 done, integrated as M4** (merge commits `31718db`, `b5b62a8`, docs `70e7085`): the auth switch (2062 backend tests) and these documents; see the Execution Board.
 
 **Base product fixes of 2026-10-07 (from `staging`, one branch and one commit each, merged with `--no-ff` so any fix can be reverted alone; behaviour changes are in the Decision Log):**
+- **Liara AI provider (2026-10-09):** `LLM_PROVIDER=liara` is implemented alongside the default
+  `anthropic` provider and `claude_cli`. Configuration and deployment templates define the project-scoped
+  key, project endpoint, model tiers, limits, retries and optional pricing. Offline verification:
+  **111 Liara tests pass**, including create/modify, spreadsheet analysis and Copilot;
+  **1726 backend tests pass**, 445 database tests skip (Windows `pgserver` fails to initialize), and
+  two existing POSIX-permission assertions are deselected on Windows. Full Ruff, lockfile and YAML
+  configuration checks pass; independent verification confirmed the integration and security review
+  found no material blocker. No funded Liara account or live model has been tested.
+- **Top Tools AI provider (2026-10-08):** `LLM_PROVIDER=top_tools` is implemented alongside Anthropic,
+  Liara and headless Claude Code. It has independent server-only credentials, a documented `/api/v1`
+  endpoint (with the supplied `/v1` endpoint also supported), and required strong and fast model IDs.
+  Offline verification: 174 focused tests and 1789 available backend tests pass; 445 database tests skip
+  and two existing POSIX permission checks are excluded on Windows. Ruff and independent verification
+  pass; security review found no material blocker. Local ignored settings select Top Tools with the
+  supplied key and inferred `claude-opus-5` / `gpt-5.6-sol` IDs. Both live adapter checks returned HTTP
+  `403`; successful operation and model availability remain unverified.
 
 - `fix/dispatch-non-numeric-actor`, `fix/load-spec-sample-data`, `fix/seed-demo-reset`, `fix/database-url-supabase`, `fix/startup-interrupt-zero-downtime`, `fix/cors-multi-origin`, `fix/cors-on-error-responses`, `fix/frontend-explicit-mock`, `fix/simulator-active-revision`, `fix/frontend-401-logout`, `chore/deploy-render-frontend`, `fix/agent-run-history`; earlier `fix/deploy-sse-booking-expiry` (`httpx` as a runtime dependency, the SSE stream closing when a run pauses, bookings on started items treated as history).
 - **Supabase project created:** `botforge` (ref `nlwekbfpxnvxlwiforpr`, eu-central-1, free plan, ES256 JWT signing keys, so only `SUPABASE_JWKS_URL` is needed, not `SUPABASE_JWT_SECRET`).
@@ -1653,6 +1669,8 @@ Appropriate for a public hackathon demo; not enterprise IAM. Security-sensitive 
 Headless runs do not prove API structured-output acceptance (`output_config.format`), prompt caching, the `fallbacks` parameter, or real cost. Evals on `claude_cli` report a notional API cost computed from token counts.
 
 ```python
+- `liara`: `LiaraLLM`, selected with a Liara project-scoped key and endpoint; see the 2026-10-09 Decision Log entry for its completed offline verification.
+- `top_tools`: Top Tools' OpenAI-compatible provider, configured with an independent key, endpoint and required strong/fast model IDs. Offline integration is verified; the requested model labels were locally mapped to editable, unverified IDs.
 class LLMClient(Protocol):
     async def structured(self, *, task: str, system: str, messages: list, schema: type[BaseModel],
                          tier: Literal["strong", "fast"] = "strong") -> tuple[BaseModel, Usage]: ...
@@ -2120,6 +2138,8 @@ Not part of the hackathon build.
 
 ## Change Log
 
+| 2026-10-09 | **Liara AI is an opt-in `LLMClient` provider** selected by `LLM_PROVIDER=liara`; `anthropic` remains the default and `claude_cli` remains available for local development. Liara uses an HTTPS project endpoint on `ai.liara.ir`, a project-scoped AI key, `google/gemini-3.8-flash` for strong work and `deepseek/deepseek-v4-flash` for fast work. The documented 32k output ceiling, 180-second request timeout, two retries and optional per-model USD pricing remain configurable. | Liara provides a hosted alternative where a local headless Claude Code session is not useful. Project scope limits credential exposure; retaining the established providers avoids changing existing deployments. | Implemented and independently verified offline (111 Liara tests); live Liara behavior remains unverified. |
+| 2026-10-08 | **Top Tools AI is an opt-in `LLMClient` provider** selected by `LLM_PROVIDER=top_tools`; Anthropic stays the deployment default and each provider keeps independent server-only credentials. Its documented endpoint is `https://top-tools-ai.com/api/v1`, with the supplied `https://top-tools-ai.com/v1` endpoint also supported. Strong and fast models have no inferred defaults: exact account-enabled IDs are required. | A hosted OpenAI-compatible option makes the same bot-building, spreadsheet-analysis and Copilot capabilities available where a local headless Claude login is unsuitable, without changing current deployments. | Offline integration verified (174 focused tests); configured live adapter checks returned HTTP 403 for both tiers, so live operation and model IDs remain unverified. |
 | Date | Change |
 |---|---|
 | 2026-10-04 | Initial roadmap written after repository inspection and three rounds of clarification with the owner. |
@@ -2146,3 +2166,5 @@ Not part of the hackathon build.
 | 2026-10-08 | Merged `origin/staging` (34 commits of 2026-10-07) into `main` with `--no-ff`; conflicts resolved as in the 2026-10-08 Decision Log row and the merge commit message. Current Status was updated by the docs unit (next row). |
 | 2026-10-08 | **Staging merged into `main`; docs unit (M3).** Merge commit `325b181` (1887 backend tests pass; frontend lint, `tsc`, mock and real builds pass). Final state recorded: product = the Business OS on `main`; primary deployment = Render (two services) + Supabase (Postgres and Auth); the Docker Compose stack in `deploy/` is the alternative; the `AUTH_PROVIDER=local\|supabase` switch is landing in the auth unit; `main` is the single integration branch and `staging` will be fast-forwarded to it. Current Status rewritten (Done, Built but not yet proven, Open work with three items); Decision Log reconciled (self-hosting rows active as the alternative, own-auth row superseded in part, branch rows superseded, guided-launch and Control Center marked open) and four rows added; Execution Board subsection "Merge of staging"; superseded notes on the fallback and hosting statements; README leads with "Deployment on Render + Supabase" and keeps self-hosting as an alternative. |
 | 2026-10-08 | Integrated the auth switch (M2) and the merged docs (M3) onto the staging merge (M1); added the auth unit's operational notes (Supabase dashboard steps, the open redirect live on the staging frontend, localStorage/CSP, identity rules). |
+| 2026-10-09 | Added Liara provider configuration to local, Compose and Render templates, plus operator documentation for selecting `anthropic`, `claude_cli` or `liara`. Implemented the adapter, validated tool calls, token accounting and safe errors; 111 focused tests and 1726 available backend tests pass. The default deployment remains Anthropic; credentials stay server-only. Live Liara verification remains pending. |
+| 2026-10-08 | Added Top Tools configuration to local, Compose and Render templates and documented `LLM_PROVIDER=top_tools`. Anthropic remains the deployment default; Top Tools API keys and model IDs remain server-only. Shared adapter, settings, provider isolation and both-provider feature tests pass; live adapter requests remain blocked by HTTP 403. |

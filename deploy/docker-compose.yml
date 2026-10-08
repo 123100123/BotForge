@@ -80,6 +80,24 @@ services:
       ANTHROPIC_BASE_URL: ${ANTHROPIC_BASE_URL:-https://api.anthropic.com}
       LLM_MODEL_STRONG: ${LLM_MODEL_STRONG:-}
       LLM_MODEL_FAST: ${LLM_MODEL_FAST:-}
+      # Liara is opt-in through LLM_PROVIDER=liara. The key and project endpoint live only in deploy/.env.
+      LIARA_API_KEY: ${LIARA_API_KEY:-}
+      LIARA_BASE_URL: ${LIARA_BASE_URL:-}
+      LIARA_MODEL_STRONG: ${LIARA_MODEL_STRONG:-google/gemini-3.8-flash}
+      LIARA_MODEL_FAST: ${LIARA_MODEL_FAST:-deepseek/deepseek-v4-flash}
+      LIARA_MAX_TOKENS: ${LIARA_MAX_TOKENS:-32000}
+      LIARA_TIMEOUT_SECONDS: ${LIARA_TIMEOUT_SECONDS:-180}
+      LIARA_MAX_RETRIES: ${LIARA_MAX_RETRIES:-2}
+      LIARA_TOKEN_PRICES_JSON: ${LIARA_TOKEN_PRICES_JSON:-}
+      # Top Tools is opt-in through LLM_PROVIDER=top_tools. The API key and model IDs live only in deploy/.env.
+      TOP_TOOLS_API_KEY: ${TOP_TOOLS_API_KEY:-}
+      TOP_TOOLS_BASE_URL: ${TOP_TOOLS_BASE_URL:-https://top-tools-ai.com/api/v1}
+      TOP_TOOLS_MODEL_STRONG: ${TOP_TOOLS_MODEL_STRONG:-}
+      TOP_TOOLS_MODEL_FAST: ${TOP_TOOLS_MODEL_FAST:-}
+      TOP_TOOLS_MAX_TOKENS: ${TOP_TOOLS_MAX_TOKENS:-32000}
+      TOP_TOOLS_TIMEOUT_SECONDS: ${TOP_TOOLS_TIMEOUT_SECONDS:-180}
+      TOP_TOOLS_MAX_RETRIES: ${TOP_TOOLS_MAX_RETRIES:-2}
+      TOP_TOOLS_TOKEN_PRICES_JSON: ${TOP_TOOLS_TOKEN_PRICES_JSON:-}
       LOG_LLM_BODIES: ${LOG_LLM_BODIES:-false}
       # The API docs and schema are public when on: keep false on the server (local development only).
       API_DOCS_ENABLED: ${API_DOCS_ENABLED:-false}

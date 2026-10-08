@@ -16,13 +16,18 @@ scenario passed; for the capacity change only ``golden_capacity_10_real`` was su
 for the deadline); at least one new acceptance scenario exists; activation succeeded.
 
 Usage (from backend/):
-    uv run python scripts/eval_golden.py --create [--runs N] [--verbose] [--provider anthropic|claude_cli]
-    uv run python scripts/eval_golden.py --modify [--runs N] [--verbose] [--provider anthropic|claude_cli]
+    uv run python scripts/eval_golden.py --create [--runs N] [--verbose] [--provider PROVIDER]
+    uv run python scripts/eval_golden.py --modify [--runs N] [--verbose] [--provider PROVIDER]
+    PROVIDER: anthropic | claude_cli | liara | top_tools
 
 --provider defaults to LLM_PROVIDER. ``anthropic`` needs ANTHROPIC_API_KEY and each run costs real
 money. ``claude_cli`` needs no API key: it runs headless Claude Code with your Claude Code login
 (``uv sync --group headless`` once, and be logged in to Claude Code); its cost line is the notional
 API cost of the same tokens.
+``liara`` requires LIARA_API_KEY and LIARA_BASE_URL and spends the project's real credit. Without
+configured per-model LIARA_TOKEN_PRICES_JSON rates, its zero cost estimate means unpriced, not free.
+``top_tools`` requires its own API key, endpoint and both model slugs. It also spends real credit;
+unconfigured TOP_TOOLS_TOKEN_PRICES_JSON rates mean unpriced, not free.
 """
 
 import argparse
@@ -306,7 +311,7 @@ async def main() -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["anthropic", "claude_cli"],
+        choices=["anthropic", "claude_cli", "liara", "top_tools"],
         default=get_settings().LLM_PROVIDER,
         help="model provider (default: LLM_PROVIDER); claude_cli uses the Claude Code login, no API key",
     )
@@ -322,6 +327,25 @@ async def main() -> int:
             file=sys.stderr,
         )
         return 2
+    settings = get_settings()
+    if args.provider == "liara" and not (settings.LIARA_API_KEY and settings.LIARA_BASE_URL):
+        print(
+            "Liara requires LIARA_API_KEY and LIARA_BASE_URL; this evaluation spends real credit.",
+            file=sys.stderr,
+        )
+        return 2
+    if args.provider == "top_tools" and not (
+        settings.TOP_TOOLS_API_KEY
+        and settings.TOP_TOOLS_BASE_URL
+        and settings.TOP_TOOLS_MODEL_STRONG
+        and settings.TOP_TOOLS_MODEL_FAST
+    ):
+        print(
+            "Top Tools requires TOP_TOOLS_API_KEY, TOP_TOOLS_BASE_URL, TOP_TOOLS_MODEL_STRONG and "
+            "TOP_TOOLS_MODEL_FAST; this evaluation spends real credit.",
+            file=sys.stderr,
+        )
+        return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     llm: LLMClient
     if args.provider == "claude_cli":
@@ -329,6 +353,16 @@ async def main() -> int:
 
         cli = ClaudeCodeLLM()
         llm, models = cli, f"model={cli.model} effort={cli.effort}"
+    elif args.provider == "liara":
+        from app.agent.llm_liara import LiaraLLM
+
+        liara = LiaraLLM()
+        llm, models = liara, f"strong={liara.strong_model} fast={liara.fast_model}"
+    elif args.provider == "top_tools":
+        from app.agent.llm_top_tools import TopToolsLLM
+
+        top_tools = TopToolsLLM()
+        llm, models = top_tools, f"strong={top_tools.strong_model} fast={top_tools.fast_model}"
     else:
         api = AnthropicLLM()
         llm, models = api, f"strong={api.strong_model} fast={api.fast_model}"
@@ -344,6 +378,8 @@ async def main() -> int:
     passed = sum(1 for r in results if r["result"] == "PASS")
     cost = sum(r["cost_usd"] for r in results)
     cost_label = "notional cost" if args.provider == "claude_cli" else "total cost"
+    if args.provider in {"liara", "top_tools"}:
+        cost_label = "configured estimate (unpriced models count as zero; not free)"
     print(
         f"\nSUMMARY: {passed}/{len(results)} PASS, {cost_label} ${cost:.4f}, "
         f"mean tool calls {sum(r['tool_calls'] for r in results) / len(results):.1f}"

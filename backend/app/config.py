@@ -1,9 +1,13 @@
 """Application settings read from the environment (names match ``.env.example``)."""
 
+import json
+import math
+import re
+from contextlib import suppress
 from functools import lru_cache
 from typing import Any, Literal
 
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
@@ -12,7 +16,7 @@ AuthProvider = Literal["local", "supabase"]
 
 
 class Settings(BaseSettings):
-    model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+    model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
     # Optional until a database call is made. Accepts postgres://, postgresql:// or
     # postgresql+asyncpg://, with sslmode= or ssl= (normalized by ``to_async_url``).
@@ -72,10 +76,32 @@ class Settings(BaseSettings):
 
     # "anthropic": the API (production). "claude_cli": headless Claude Code with the developer's login
     # (local development and live evals; needs `uv sync --group headless`).
-    LLM_PROVIDER: Literal["anthropic", "claude_cli"] = "anthropic"
+    LLM_PROVIDER: Literal["anthropic", "claude_cli", "liara", "top_tools"] = "anthropic"
     CLAUDE_CLI_MODEL: str = "claude-opus-5-5"
     CLAUDE_CLI_EFFORT: str = "medium"
     CLAUDE_CLI_PATH: str | None = None  # default: the CLI bundled with claude-agent-sdk, else `claude`
+
+    # Project-scoped AI credentials; never the Liara account/management token. Empty settings let
+    # the app boot, but AI endpoints remain unavailable until both values are configured.
+    LIARA_API_KEY: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    LIARA_BASE_URL: str | None = Field(default=None, repr=False)
+    LIARA_MODEL_STRONG: str = "google/gemini-3.8-flash"
+    LIARA_MODEL_FAST: str = "deepseek/deepseek-v4-flash"
+    LIARA_MAX_TOKENS: int = Field(default=32000, gt=0)
+    LIARA_TIMEOUT_SECONDS: float = Field(default=180, gt=0, allow_inf_nan=False)
+    LIARA_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
+    LIARA_TOKEN_PRICES_JSON: str = Field(default="", repr=False)
+
+    # Top Tools is independently configured. Model slugs must be confirmed for the operator's
+    # account; empty model defaults prevent accidental requests or a fallback to another provider.
+    TOP_TOOLS_API_KEY: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    TOP_TOOLS_BASE_URL: str | None = Field(default="https://top-tools-ai.com/api/v1", repr=False)
+    TOP_TOOLS_MODEL_STRONG: str = ""
+    TOP_TOOLS_MODEL_FAST: str = ""
+    TOP_TOOLS_MAX_TOKENS: int = Field(default=32000, gt=0)
+    TOP_TOOLS_TIMEOUT_SECONDS: float = Field(default=180, gt=0, allow_inf_nan=False)
+    TOP_TOOLS_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
+    TOP_TOOLS_TOKEN_PRICES_JSON: str = Field(default="", repr=False)
 
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False
@@ -97,6 +123,60 @@ class Settings(BaseSettings):
     # Manager Copilot (app/copilot/): questions per owner account per rolling 24 hours (cost control,
     # counted like AGENT_DAILY_RUN_CAP).
     COPILOT_DAILY_CAP: int = Field(default=50, ge=0)
+
+    @field_validator("LIARA_API_KEY", "TOP_TOOLS_API_KEY", mode="after")
+    @classmethod
+    def _ai_key(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None or not value.get_secret_value().strip():
+            return None
+        if not re.fullmatch(r"[!-~]+", value.get_secret_value()):
+            raise ValueError("AI API keys must be opaque ASCII tokens without whitespace")
+        return value
+
+    @field_validator("LIARA_BASE_URL")
+    @classmethod
+    def _liara_url(cls, value: str | None) -> str | None:
+        return validate_liara_url(value)
+
+    @field_validator("TOP_TOOLS_BASE_URL")
+    @classmethod
+    def _top_tools_url(cls, value: str | None) -> str | None:
+        return validate_top_tools_url(value)
+
+    @field_validator("TOP_TOOLS_MODEL_STRONG", "TOP_TOOLS_MODEL_FAST")
+    @classmethod
+    def _top_tools_model(cls, value: str) -> str:
+        if not value.strip():
+            return ""
+        if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
+            raise ValueError("Top Tools models must be model identifiers")
+        return value
+
+    @field_validator("LIARA_MODEL_STRONG", "LIARA_MODEL_FAST")
+    @classmethod
+    def _liara_model(cls, value: str) -> str:
+        if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
+            raise ValueError("Liara model must be a nonempty model identifier")
+        return value
+
+    @field_validator("LIARA_TOKEN_PRICES_JSON", "TOP_TOOLS_TOKEN_PRICES_JSON")
+    @classmethod
+    def _ai_prices(cls, value: str) -> str:
+        parse_token_prices(value)
+        return value
+
+    @property
+    def llm_configured(self) -> bool:
+        if self.LLM_PROVIDER == "top_tools":
+            return bool(
+                self.TOP_TOOLS_API_KEY
+                and self.TOP_TOOLS_BASE_URL
+                and self.TOP_TOOLS_MODEL_STRONG
+                and self.TOP_TOOLS_MODEL_FAST
+            )
+        if self.LLM_PROVIDER == "liara":
+            return bool(self.LIARA_API_KEY and self.LIARA_BASE_URL)
+        return self.LLM_PROVIDER == "claude_cli" or bool(self.ANTHROPIC_API_KEY)
 
     @field_validator("AUTH_PROVIDER", mode="before")
     @classmethod
@@ -121,6 +201,63 @@ class Settings(BaseSettings):
 
 ASYNC_DRIVER = "postgresql+asyncpg"
 _PLAIN_DRIVERS = ("postgres", "postgresql", ASYNC_DRIVER)
+
+
+def validate_liara_url(value: str | None) -> str | None:
+    """Pin credentials to Liara's documented project endpoint, before constructing an HTTP client."""
+    if value is None or not value.strip():
+        return None
+    if not re.fullmatch(r"https://ai\.liara\.ir/api/v1/[A-Za-z0-9_-]+/?", value):
+        raise ValueError("LIARA_BASE_URL must be https://ai.liara.ir/api/v1/<project-id>")
+    return value.rstrip("/")
+
+
+def validate_top_tools_url(value: str | None) -> str | None:
+    """Allow only the explicit Top Tools API roots; credentials never follow a redirect."""
+    if value is None or not value.strip():
+        return None
+    if not re.fullmatch(r"https://top-tools-ai\.com/(?:api/)?v1/?", value):
+        raise ValueError("TOP_TOOLS_BASE_URL must be https://top-tools-ai.com/api/v1 or /v1")
+    return value.rstrip("/")
+
+
+def parse_token_prices(value: str) -> dict[str, dict[str, float]]:
+    """Optional USD/million rates. Missing models are unpriced, represented by the existing zero."""
+    if not value.strip():
+        return {}
+    parsed = None
+    with suppress(ValueError, RecursionError):
+        parsed = json.loads(value)
+    valid = isinstance(parsed, dict)
+    result: dict[str, dict[str, float]] = {}
+    if valid:
+        for model, rates in parsed.items():
+            if (
+                not model
+                or not isinstance(rates, dict)
+                or not {"input", "output"} <= rates.keys() <= {"input", "output", "cache_read"}
+            ):
+                valid = False
+                break
+            normalized = {}
+            for key, rate in rates.items():
+                if type(rate) in (int, float):
+                    with suppress(OverflowError):
+                        numeric = float(rate)
+                        if math.isfinite(numeric) and numeric >= 0:
+                            normalized[key] = numeric
+            if len(normalized) != len(rates):
+                valid = False
+                break
+            result[model] = normalized
+            result[model].setdefault("cache_read", result[model]["input"])
+    if not valid:
+        raise ValueError("Token price settings require finite nonnegative input/output/cache_read rates")
+    return result
+
+
+# Compatibility for code that used the original Liara-only helper.
+parse_liara_prices = parse_token_prices
 
 
 def to_async_url(url: str | None) -> str | None:
