@@ -1,10 +1,11 @@
 import { workshopRequirements } from "./common";
 import { reportOf, scenarioOf, type Act, type ScenarioDef } from "./scenarios";
+import { eventsSpec } from "./events-spec";
 import { repairSpec, workshopSpec } from "./specs";
 import type { BotSpec, Requirements, RevisionDetail, RevisionStatus, SpecChange, TestCounts } from "@/lib/types";
 
 /** Which fixture content a mock revision carries. */
-export type RevisionVariant = "initial" | "cap12" | "deadline2" | "repair" | "repair_failing" | "legacy";
+export type RevisionVariant = "initial" | "cap12" | "deadline2" | "repair" | "repair_failing" | "legacy" | "events";
 
 export interface StoredRevision {
   id: string;
@@ -152,6 +153,17 @@ function repairDefs(failing: boolean): ScenarioDef[] {
 /* ------------------------------------------------------------------ requirements, diffs */
 
 function requirementsOf(v: RevisionVariant): Requirements {
+  if (v === "events") {
+    return {
+      business_summary: "مرکز رویدادهایی که مشتری‌ها در ربات ثبت‌نام می‌کنند و مدیر درخواست‌های پشتیبانی و تأییدیه‌ها را بررسی می‌کند.",
+      items: [
+        { id: "R1", kind: "rule", statement: "ثبت‌نام در رویداد تا پر شدن ظرفیت تأیید می‌شود و بعد از آن در لیست انتظار قرار می‌گیرد.", status: "confirmed" },
+        { id: "R2", kind: "notification", statement: "۲۴ ساعت قبل از شروع، به ثبت‌نام‌شدگان یادآوری فرستاده می‌شود.", status: "confirmed" },
+      ],
+      unsupported: [],
+      open_questions: [],
+    };
+  }
   if (v === "repair" || v === "repair_failing") {
     return {
       business_summary: "خدمات تعمیر لوازم خانگی که درخواست‌ها را از طریق ربات می‌گیرد و مدیر هر درخواست را تأیید یا رد می‌کند.",
@@ -196,6 +208,7 @@ function diffOf(v: RevisionVariant): SpecChange[] {
 /* ------------------------------------------------------------------ public */
 
 function defsOf(v: RevisionVariant): ScenarioDef[] {
+  if (v === "events") return [];
   return v === "repair" ? repairDefs(false) : v === "repair_failing" ? repairDefs(true) : workshopDefs(v === "legacy" ? "initial" : v);
 }
 
@@ -207,6 +220,7 @@ export function countsOf(v: RevisionVariant): TestCounts {
 
 /** The BotSpec of a stored mock revision. */
 export function specOf(rev: StoredRevision): BotSpec {
+  if (rev.variant === "events") return eventsSpec();
   const repair = rev.variant === "repair" || rev.variant === "repair_failing";
   return repair
     ? repairSpec(rev.variant === "repair_failing")
@@ -240,6 +254,7 @@ export function nextVariant(parent: RevisionVariant | null): RevisionVariant {
   if (parent === null) return "initial";
   if (parent === "repair" || parent === "repair_failing") return "repair";
   if (parent === "legacy") return "initial";
+  if (parent === "events") return "events";
   if (parent === "initial") return "cap12";
   return "deadline2";
 }

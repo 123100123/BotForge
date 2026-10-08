@@ -2,7 +2,6 @@
 
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
@@ -12,7 +11,6 @@ import { api } from "@/lib/api";
 import { ApiError, ERROR_CODES, errorMessage } from "@/lib/errors";
 import { toFaDigits } from "@/lib/format";
 import type { DataCollection, DataRecord, FieldDef } from "@/lib/types";
-import { ErrorNote } from "@/components/app/state-blocks";
 import { initialValues, splitFieldErrors, toPayload, type FormValue, type FormValues } from "./field-utils";
 import { JalaliDateTimeInput } from "./jalali-datetime-input";
 
@@ -21,35 +19,15 @@ interface RecordFormProps {
   collection: DataCollection;
   /** The record being edited, or null to create one. */
   record: DataRecord | null;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
+  onCancel: () => void;
   onSaved: () => void;
 }
 
-export function RecordForm({ botId, collection, record, open, onOpenChange, onSaved }: RecordFormProps) {
-  // The dialog content is unmounted when closed, so state starts fresh for every open.
-  return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[90dvh] overflow-y-auto sm:max-w-lg">
-        <RecordFormBody botId={botId} collection={collection} record={record} onClose={() => onOpenChange(false)} onSaved={onSaved} />
-      </DialogContent>
-    </Dialog>
-  );
-}
-
-function RecordFormBody({
-  botId,
-  collection,
-  record,
-  onClose,
-  onSaved,
-}: {
-  botId: string;
-  collection: DataCollection;
-  record: DataRecord | null;
-  onClose: () => void;
-  onSaved: () => void;
-}) {
+/**
+ * Create or edit form of a resource collection. It renders inside a RecordDrawer (the drawer owns the title);
+ * mount it fresh for every open so the state starts clean.
+ */
+export function RecordForm({ botId, collection, record, onCancel: onClose, onSaved }: RecordFormProps) {
   const fields = collection.fields;
   const [values, setValues] = useState<FormValues>(() => initialValues(fields, record?.data));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
@@ -90,16 +68,11 @@ function RecordFormBody({
     }
   }
 
-  const title = record ? `ویرایش ${collection.label}` : `افزودن ${collection.label}`;
-
   return (
     <form onSubmit={submit} noValidate className="grid gap-4">
-      <DialogHeader>
-        <DialogTitle>{title}</DialogTitle>
-        <DialogDescription>
-          {record ? "تغییرات بلافاصله در ربات اعمال می‌شود." : "پس از ذخیره، این مورد بلافاصله در ربات نمایش داده می‌شود."}
-        </DialogDescription>
-      </DialogHeader>
+      <p className="text-small text-fg-muted">
+        {record ? "تغییرات بلافاصله در ربات اعمال می‌شود." : "پس از ذخیره، این مورد بلافاصله در ربات نمایش داده می‌شود."}
+      </p>
 
       {fields.map((f) => (
         <FieldInput
@@ -115,19 +88,21 @@ function RecordFormBody({
       {generalErrors.length > 0 && (
         <div className="flex flex-col gap-2">
           {generalErrors.map((m, i) => (
-            <ErrorNote key={i}>{m}</ErrorNote>
+            <p key={i} role="alert" className="rounded-sm bg-danger-soft p-3 text-small text-danger-text">
+              {m}
+            </p>
           ))}
         </div>
       )}
 
-      <DialogFooter>
-        <Button type="submit" disabled={saving}>
+      <div className="flex flex-row-reverse justify-start gap-2">
+        <Button type="submit" loading={saving}>
           {saving ? "در حال ذخیره…" : "ذخیره"}
         </Button>
-        <Button type="button" variant="outline" onClick={onClose} disabled={saving}>
+        <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
           انصراف
         </Button>
-      </DialogFooter>
+      </div>
     </form>
   );
 }
@@ -185,7 +160,7 @@ function FieldInput({
       control = (
         <div className="flex items-center gap-2">
           <Switch id={id} checked={value === true} onCheckedChange={onChange} aria-describedby={invalid ? errId : undefined} />
-          <span className="text-sm text-muted-foreground">{value === true ? "بله" : "خیر"}</span>
+          <span className="text-small text-fg-muted">{value === true ? "بله" : "خیر"}</span>
         </div>
       );
       break;
@@ -221,11 +196,11 @@ function FieldInput({
     <div className="grid gap-1.5">
       <Label htmlFor={id}>
         {field.label}
-        {!field.required && <span className="font-normal text-muted-foreground"> (اختیاری)</span>}
+        {!field.required && <span className="font-normal text-fg-muted"> (اختیاری)</span>}
       </Label>
       {control}
       {error && (
-        <p id={errId} role="alert" className="text-sm text-danger-text">
+        <p id={errId} role="alert" className="text-small text-danger-text">
           {error}
         </p>
       )}

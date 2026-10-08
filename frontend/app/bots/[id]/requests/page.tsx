@@ -1,7 +1,7 @@
 "use client";
 
-import { OperationsView } from "@/components/data/operations-view";
+import { RequestsInbox } from "@/components/operations/requests-inbox";
 
 export default function RequestsPage() {
-  return <OperationsView route="requests" />;
+  return <RequestsInbox />;
 }

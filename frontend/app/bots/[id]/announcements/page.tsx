@@ -8,10 +8,8 @@ export default function AnnouncementsPage() {
   const { bot } = useBusiness();
   return (
     <>
-      <PageHeader title="اطلاع‌رسانی" description="پیام همگانی به مشتری‌ها یا گروه‌های تلگرام." />
-      <div className="max-w-3xl">
-        <AnnouncementsSection botId={bot.id} />
-      </div>
+      <PageHeader title="اطلاع‌رسانی" description="پیام همگانی به مشتری‌ها، کارکنان یا گروه‌های تلگرام؛ سابقهٔ ارسال‌ها هم اینجاست." />
+      <AnnouncementsSection botId={bot.id} />
     </>
   );
 }
