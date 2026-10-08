@@ -94,8 +94,7 @@ sign in with the backend's own accounts (email and password, a `bf_session` cook
 
 Authentication has a switch: `AUTH_PROVIDER=local|supabase` on the backend and `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase`
 in the frontend build, both defaulting to `local`. Local development uses `local` (the own login above); `supabase`
-is for the Render deployment (see "Deployment on Render + Supabase", step 6). The switch is landing in the auth
-unit (2026-10-08).
+is for the Render deployment (see "Deployment on Render + Supabase", step 6). The switch is built and merged (2026-10-08).
 
 ### Business OS settings and operator notes
 
@@ -301,7 +300,7 @@ posts webhooks to the API's public address. The API must run as a single instanc
      requests from forks.
 6. **The auth switch.** Authentication is chosen by `AUTH_PROVIDER=local|supabase` on the API (default
    `local`) and, at build time, `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase` on the web app (default
-   `local`). *This switch is landing in the auth unit (2026-10-08).*
+   `local`).
 
    | Where | Render (this section) | Docker stack and local development |
    |---|---|---|
