@@ -1,7 +1,8 @@
 """``info`` engine: static pages (WP1).
 
 open: one page -> shown directly; several -> list of page buttons (``show``, arg = page key).
-show: the page title and body, with "back" (re-opens the list via the menu item) and "home".
+show: the page title and body, with "back" (re-opens the list via the info route) and "home".
+Every screen starts with the breadcrumb heading («ℹ️ {title}», then «› {page title}» on a page).
 """
 
 from typing import ClassVar
@@ -10,6 +11,7 @@ from app.botspec.models import InfoCapability, InfoPage
 from app.runtime.callbacks import ACT_SHOW
 from app.runtime.contracts import Button
 from app.runtime.ctx import Ctx
+from app.runtime.engines import chrome
 from app.runtime.engines.base import EngineBase
 
 
@@ -22,7 +24,7 @@ class InfoEngine(EngineBase):
             return
         rows = [[ctx.button(p.title, cap, ACT_SHOW, p.key)] for p in cap.pages]
         rows.append(ctx.home_row())
-        ctx.reply(ctx.t(cap, "list_header", title=cap.title), rows)
+        ctx.reply(f"{chrome.heading(ctx, cap)}\n{ctx.t(cap, 'list_header', title=cap.title)}", rows)
 
     async def on_callback(self, ctx: Ctx, cap: InfoCapability, action: str, arg: str) -> None:
         page = next((p for p in cap.pages if p.key == arg), None) if action == ACT_SHOW else None
@@ -37,7 +39,8 @@ class InfoEngine(EngineBase):
         if back is not None:
             row.append(back)
         row.append(ctx.home_button())
-        ctx.reply(f"{page.title}\n\n{page.body}", [row])
+        crumbs = [] if page.title == cap.title else [page.title]
+        ctx.reply(f"{chrome.heading(ctx, cap, 'main', *crumbs)}\n\n{page.body}", [row])
 
 
 ENGINE = InfoEngine()

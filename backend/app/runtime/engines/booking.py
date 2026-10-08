@@ -9,7 +9,8 @@ Navigation (drivers locate buttons by parsed callback action/arg, never by label
   open main / ``list:<page>``  items (start not passed when ``start_field`` is set), one
                                ``item:<id>`` button each; nav row; ``mine``; home
   ``item:<id>``                detail; ALWAYS ``book:<id>``; plus ``cancel:<booking id>`` for each
-                               of the actor's active bookings on the item; back (list); home
+                               of the actor's active bookings on the item; back (the list's
+                               ``nav`` route); home
   ``book:<id>``                checks -> rejected Outcome, or form (``data={"item_id": id}``) whose
                                completion re-runs every check, or immediate booking
   open mine / ``mine``         the actor's active bookings, one ``cancel:<booking id>`` each
@@ -60,6 +61,7 @@ from app.runtime.callbacks import (
 )
 from app.runtime.contracts import Button, ReasonCode
 from app.runtime.ctx import Ctx, parse_int
+from app.runtime.engines import chrome
 from app.runtime.engines.base import EngineBase
 from app.runtime.store import Record
 from app.runtime.texts import booking as tx
@@ -305,8 +307,11 @@ class BookingEngine(EngineBase):
             ctx.stale()
             return
         items = await self._visible_items(ctx, cap, resource)
+        head = chrome.heading(ctx, cap)
         if not items:
-            ctx.reply(_t(ctx, cap, "empty", title=cap.title), [self._mine_row(cap), ctx.home_row()])
+            ctx.reply(
+                f"{head}\n{_t(ctx, cap, 'empty', title=cap.title)}", [self._mine_row(cap), ctx.home_row()]
+            )
             return
         shown, page, pages = listing.paginate(items, page)
         rows: Rows = [
@@ -318,7 +323,7 @@ class BookingEngine(EngineBase):
             rows.append(nav)
         rows.append(self._mine_row(cap))
         rows.append(ctx.home_row())
-        lines = [_t(ctx, cap, "list_header", title=cap.title)]
+        lines = [head, _t(ctx, cap, "list_header", title=cap.title)]
         for r in shown:  # titles also in the text, so the reply reads without the buttons
             start = self._start(cap, r)
             when = _fill(tx.MINE_WHEN, when=ctx.fmt_datetime(start)) if start is not None else ""
@@ -335,14 +340,16 @@ class BookingEngine(EngineBase):
             return
         confirmed = await self._confirmed_count(ctx, cap, item.id)
         remaining = max(self._capacity(cap, item) - confirmed, 0)
+        title = listing.record_title(ctx, resource, item)
         text = _t(
             ctx,
             cap,
             "item_detail",
-            title=listing.record_title(ctx, resource, item),
+            title=title,
             details=listing.detail_lines(ctx, resource, item, self._detail_keys(cap)),
             remaining=formatting.format_int(remaining),
         )
+        text = f"{chrome.heading(ctx, cap, 'main', title)}\n{text}".rstrip()
         w = words(cap.preset)
         extra: list[str] = []
         waitlist = await self._waitlist(ctx, cap, item.id)
@@ -358,8 +365,7 @@ class BookingEngine(EngineBase):
 
         rows: Rows = [[ctx.button(w.book_button, cap, ACT_BOOK, item.id)]]
         rows += [[ctx.button(w.cancel_button, cap, ACT_CANCEL, b.id)] for b in mine]
-        page = listing.page_of(await self._visible_items(ctx, cap, resource), item.id)
-        rows.append(ctx.back_home_row(cap, ACT_LIST, page))
+        rows.append([chrome.to_route(chrome.route_of(ctx, cap)), ctx.home_button()])
         ctx.reply(text, rows)
 
     @staticmethod
@@ -380,13 +386,14 @@ class BookingEngine(EngineBase):
 
     async def _mine(self, ctx: Ctx, cap: BookingCapability) -> None:
         bookings = await ctx.store.list_records(cap.key, status_in=ACTIVE, actor_id=ctx.actor.id)
+        head = chrome.heading(ctx, cap, "mine")
         if not bookings:
             ctx.reply(
-                _t(ctx, cap, "mine_empty"),
+                f"{head}\n{_t(ctx, cap, 'mine_empty')}",
                 [[ctx.button(words(cap.preset).list_button, cap, ACT_LIST, 0)], ctx.home_row()],
             )
             return
-        lines = [_t(ctx, cap, "mine_header")]
+        lines = [head, _t(ctx, cap, "mine_header")]
         rows: Rows = []
         waitlists: dict[int, list[Record]] = {}
         for b in bookings:
@@ -554,10 +561,11 @@ class BookingEngine(EngineBase):
             rows.append([ctx.button(tx.EVENTS_SUBS_BUTTON, cap, ACT_LIST, "sub")])
         rows.append(self._mine_row(cap))
         rows.append(ctx.home_row())
+        head = chrome.heading(ctx, cap)
         if not items:
-            ctx.reply(_t(ctx, cap, "empty", title=cap.title), rows)
+            ctx.reply(f"{head}\n{_t(ctx, cap, 'empty', title=cap.title)}", rows)
             return
-        lines = [_t(ctx, cap, "list_header", title=cap.title)]
+        lines = [head, _t(ctx, cap, "list_header", title=cap.title)]
         if cat_idx is not None:
             lines.append(_fill(tx.EVENTS_CATEGORY_LINE, category=categories[cat_idx]))
         for r in shown:
@@ -620,7 +628,8 @@ class BookingEngine(EngineBase):
         ]
         rows.append(self._item_row(cap, None))
         rows.append(ctx.home_row())
-        ctx.reply(_t(ctx, cap, "subs_header"), rows)
+        head = chrome.heading(ctx, cap, "main", tx.EVENTS_SUBS_BUTTON)
+        ctx.reply(f"{head}\n{_t(ctx, cap, 'subs_header')}", rows)
 
     async def _toggle_sub(self, ctx: Ctx, cap: BookingCapability, idx: int | None) -> None:
         """Create or delete the actor's ``<cap.key>.subs`` record of category ``idx``, then show

@@ -168,9 +168,13 @@ async def test_orders_stub_and_events_preset_run() -> None:
     assert "nav:go:shop" in menu_data(start) and "nav:go:ord" in menu_data(start)
     # The real orders engine (W1-ORD) answers every entry point; nothing exists yet, so it writes nothing.
     shop = await h.tap("ali", "menu:open:shop_menu")
-    assert shop.messages[0].text == orders_texts.TEXTS["empty"].replace("{title}", "فروشگاه")
-    assert (await h.tap("ali", "menu:open:my_orders")).messages[0].text == orders_texts.TEXTS["mine_empty"]
-    assert (await h.tap("ali", "nav:go:ord")).messages[0].text == orders_texts.TEXTS["mine_empty"]
+    assert shop.messages[0].text == "🛍 فروشگاه\n" + orders_texts.TEXTS["empty"].replace("{title}", "فروشگاه")
+    assert (await h.tap("ali", "menu:open:my_orders")).messages[0].text == (
+        "📦 سفارش‌های من\n" + orders_texts.TEXTS["mine_empty"]
+    )
+    assert (await h.tap("ali", "nav:go:ord")).messages[0].text == "📦 سفارش‌های من\n" + orders_texts.TEXTS[
+        "mine_empty"
+    ]
     for resp in (
         await h.tap("ali", "shop:add:1"),
         await h.tap("ali", "shop:chk:"),

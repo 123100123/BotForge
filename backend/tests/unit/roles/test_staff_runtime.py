@@ -87,7 +87,7 @@ async def test_admin_events_follow_the_same_rule() -> None:
 async def test_on_internal_workflows_staff_submit_and_only_managers_decide() -> None:
     h = Harness(repair_spec(audience="staff"))  # e.g. leave requests: staff are the submitters
     r = await h.tap(STAFF, MENU_MAIN)
-    assert text(r) == engine._fill(tx.MAIN_INTRO, title=TITLE)  # no queue: staff cannot decide here
+    assert text(r) == f"📝 {TITLE}\n{tx.MAIN_INTRO}"  # no queue: staff cannot decide here
     await h.tap(STAFF, f"{CAP}:new:")
     for answer in ANSWERS:
         r = await h.send(STAFF, answer)
@@ -145,7 +145,7 @@ async def test_the_queue_lists_pending_requests_newest_first_with_their_actions(
     # the owner is a manager and sees the queue too; customers keep the plain entry view
     assert button_data(await h.tap("owner", MENU_MAIN))[0] == f"{CAP}:own:{r5}.approve"
     customer = await h.tap(ALI, MENU_MAIN)
-    assert text(customer) == engine._fill(tx.MAIN_INTRO, title=TITLE)
+    assert text(customer) == f"📝 {TITLE}\n{tx.MAIN_INTRO}"
     assert button_data(customer) == [f"{CAP}:new:", f"{CAP}:mine:", "nav:go:home"]
 
 

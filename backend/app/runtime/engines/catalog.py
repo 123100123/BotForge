@@ -5,7 +5,9 @@ labelled with its ``title_field`` (callback ``item:<record id>``), honoring
 ``upcoming_only_field`` (records whose datetime is before ``event.now`` are hidden),
 ``sort_field`` and ``sort_desc``.
 ``item:<id>``: the record's ``detail_fields`` as "label: value" lines (text key ``item_detail``),
-with "back" (to the page the item is on) and "home". A missing or hidden record is stale.
+with "back" (the shop route, ``nav:go:shop``) and "home". A missing or hidden record is stale.
+Both screens start with the breadcrumb heading («🗂 {label_plural}», then «› {title}» on an item);
+a catalog never offers prices, a cart or a purchase (that is the ``orders`` engine's shop).
 """
 
 from typing import ClassVar
@@ -15,6 +17,7 @@ from app.runtime import listing
 from app.runtime.callbacks import ACT_ITEM, ACT_LIST
 from app.runtime.contracts import Button
 from app.runtime.ctx import Ctx, parse_int
+from app.runtime.engines import chrome
 from app.runtime.engines.base import EngineBase
 from app.runtime.store import Record
 
@@ -52,19 +55,20 @@ class CatalogEngine(EngineBase):
             ctx.stale()
             return
         resource, items = loaded
+        head = chrome.heading(ctx, cap)
         if not items:
-            ctx.reply(ctx.t(cap, "empty", title=cap.title), [ctx.home_row()])
+            ctx.reply(f"{head}\n{ctx.t(cap, 'empty', title=cap.title)}", [ctx.home_row()])
             return
         shown, page, pages = listing.paginate(items, page)
         rows: list[list[Button]] = [
             [ctx.button(listing.truncate(listing.record_title(ctx, resource, r)), cap, ACT_ITEM, r.id)]
             for r in shown
         ]
-        nav = listing.nav_row(cap, page, pages)
-        if nav:
-            rows.append(nav)
+        nav_row = listing.nav_row(cap, page, pages)
+        if nav_row:
+            rows.append(nav_row)
         rows.append(ctx.home_row())
-        text = ctx.t(cap, "list_header", title=cap.title)
+        text = f"{head}\n{ctx.t(cap, 'list_header', title=cap.title)}"
         if pages > 1:
             text += "\n" + listing.page_indicator(page, pages)
         ctx.reply(text, rows)
@@ -79,13 +83,18 @@ class CatalogEngine(EngineBase):
         if record is None:
             ctx.stale()
             return
-        text = ctx.t(
+        title = listing.record_title(ctx, resource, record)
+        body = ctx.t(
             cap,
             "item_detail",
-            title=listing.record_title(ctx, resource, record),
+            title=title,
             details=listing.detail_lines(ctx, resource, record, cap.detail_fields),
         )
-        ctx.reply(text, [ctx.back_home_row(cap, ACT_LIST, listing.page_of(items, record.id))])
+        route = chrome.sub_route(chrome.route_of(ctx, cap), "shop.i")
+        ctx.reply(
+            f"{chrome.heading(ctx, cap, 'main', title)}\n{body}".rstrip(),
+            [[chrome.back_to(ctx, route), ctx.home_button()]],
+        )
 
 
 ENGINE = CatalogEngine()

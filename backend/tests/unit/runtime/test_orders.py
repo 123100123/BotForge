@@ -8,7 +8,7 @@ from app.runtime.callbacks import parse_callback
 from app.runtime.contracts import Actor, Button, OutMessage, RuntimeEvent, RuntimeResponse
 from app.runtime.texts import nav as nav_texts
 from app.runtime.texts import orders as tx
-from tests.unit.runtime.harness import T0, Harness, button_data, text
+from tests.unit.runtime.harness import T0, Harness, button_data, buttons, text
 
 CAP = "shop"
 
@@ -103,13 +103,13 @@ async def stock(h: Harness, item: int) -> Any:
 async def test_happy_path_browse_cart_checkout() -> None:
     h, a, b = await setup()
     listing = await h.tap("ali", "menu:open:shop_menu")
-    assert "قهوه — ۱۲۰٬۰۰۰ تومان" in text(listing)
+    assert "قهوه · ۱۲۰٬۰۰۰ تومان" in [b.label for b in buttons(listing)]
     item = await h.tap("ali", find(listing, "item", a).data)
     assert "موجودی: ۳" in text(item)
     await h.tap("ali", find(item, "add", a).data)
     await h.tap("ali", f"{CAP}:add:{a}")
     added = await h.tap("ali", f"{CAP}:add:{b}")
-    assert "تعداد: ۱" in text(added) and added.outcomes == []
+    assert text(added) == "۱ عدد کیک به سبد اضافه شد." and added.outcomes == []
     cart = await h.tap("ali", find(added, "cart").data)
     assert "جمع کل: ۲۹۰٬۰۰۰ تومان" in text(cart)
     cart = await h.tap("ali", find(cart, "dec", b).data)
@@ -138,7 +138,10 @@ async def test_happy_path_browse_cart_checkout() -> None:
     assert await stock(h, a) == 1 and await stock(h, b) is None
     assert await h.store.list_records(f"{CAP}.cart") == []
     to_ali = [m for m in placed.messages if m.to_actor_id == "ali"]
-    assert f"شمارهٔ سفارش: {order.id}".translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")) in to_ali[-1].text
+    assert (
+        f"سفارش شما با کد {order.id} ثبت شد.".translate(str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹"))
+        in to_ali[-1].text
+    )
     (owner,) = notices(placed, "owner")
     assert owner.notice == "ordered" and "۲۹۰٬۰۰۰ تومان" in owner.text
     assert [b.data for row in owner.buttons for b in row] == [
@@ -156,7 +159,8 @@ async def test_out_of_stock_refused_and_marked() -> None:
     assert (out.result, out.reason) == ("rejected", "out_of_stock")
     # Stock drops to zero before checkout: the checkout re-check refuses and writes nothing.
     await h.store.update_record("product", a, data={"stock": 0}, now=T0)
-    assert tx.OUT_OF_STOCK_MARK in text(await h.tap("ali", "menu:open:shop_menu"))
+    listing = await h.tap("ali", "menu:open:shop_menu")
+    assert any(tx.OUT_OF_STOCK_MARK in b.label for b in buttons(listing))
     refused = await h.tap("ali", f"{CAP}:chk:")
     assert [(o.result, o.reason) for o in refused.outcomes] == [("rejected", "out_of_stock")]
     assert await h.store.get_session("ali") is None
