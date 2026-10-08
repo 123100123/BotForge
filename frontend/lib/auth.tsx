@@ -65,6 +65,7 @@ export function authErrorMessage(err: unknown): string {
     case "signup_disabled":
       return "ثبت‌نام در حال حاضر غیرفعال است.";
     case "network_error":
+    case "local_auth_disabled": // the API signs in with Supabase but this build uses the own login
       return err.message;
     default:
       return GENERIC_AUTH_ERROR;
@@ -280,12 +281,15 @@ export function useUser(): AppUser | null {
   return useAuth().user;
 }
 
-/** Redirects to /login (with `?next=` back to this page) once there is no session. Returns the auth state for the caller to render. */
+/**
+ * Redirects to /login once there is no session, with `?next=` back to this page (mock mode keeps its
+ * plain /login). Returns the auth state for the caller to render.
+ */
 export function useRequireUser(): AuthContextValue {
   const auth = useAuth();
   const router = useRouter();
   useEffect(() => {
-    if (auth.status === "anonymous") router.replace(loginRedirectPath());
+    if (auth.status === "anonymous") router.replace(IS_MOCK ? "/login" : loginRedirectPath());
   }, [auth.status, router]);
   return auth;
 }

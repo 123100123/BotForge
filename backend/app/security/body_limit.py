@@ -10,7 +10,8 @@ without the body being read, and a streamed body is cut off as soon as it passes
 webhook is exempt because it checks its secret header first and only then reads the body under its
 own limit (``app.api.webhook``), so an unauthenticated caller learns nothing from the size of what it
 sent. The upload (``app.api.uploads``) is exempt because files may exceed 1 MiB: it authenticates the
-owner and checks CSRF first, then reads the raw body under its own cap (``UPLOAD_MAX_BYTES``).
+owner (and, with the own login, checks CSRF) first, then reads the raw body under its own cap
+(``UPLOAD_MAX_BYTES``).
 
 Only routes that read ``request.stream()`` under their own cap, after authentication, may live under
 an exempt prefix: a JSON route there would be parsed before authentication with no limit at all.
