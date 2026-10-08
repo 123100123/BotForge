@@ -1,141 +1,116 @@
 "use client";
 
 import { useState } from "react";
-import { InfoNote } from "@/components/app/state-blocks";
-import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { TriangleAlertIcon } from "lucide-react";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { fa, formatNumber } from "@/lib/format";
+import { fa } from "@/lib/format";
 import type { ColumnProfile, SheetProfile, UploadOut } from "@/lib/types";
-import { fileSizeText, TYPE_LABELS } from "./labels";
+import { fileSizeText, TYPE_ICONS, TYPE_LABELS } from "./labels";
 
-function cell(value: unknown) {
-  return value === null || value === undefined || value === "" ? <span className="text-muted-foreground">-</span> : <bdi>{String(value)}</bdi>;
+const SAMPLES = 3;
+
+function FillRate({ column, rows }: { column: ColumnProfile; rows: number }) {
+  const pct = rows > 0 ? Math.round((column.non_null / rows) * 100) : 0;
+  return (
+    <span className="flex items-center gap-2 tabular-nums">
+      <span aria-hidden className="h-1.5 w-12 shrink-0 rounded-xs bg-border">
+        <span className="block h-full rounded-xs bg-chart-1" style={{ width: `${pct}%` }} />
+      </span>
+      <span>
+        {fa(pct)}٪ <span className="text-fg-muted">پر</span>
+      </span>
+    </span>
+  );
 }
 
-function ColumnTable({ columns }: { columns: ColumnProfile[] }) {
-  if (columns.length === 0) return <p className="text-sm text-muted-foreground">این برگه ستونی ندارد.</p>;
+function ColumnRow({ column, rows }: { column: ColumnProfile; rows: number }) {
+  const Icon = TYPE_ICONS[column.inferred_type] ?? TYPE_ICONS.text;
+  const samples = (column.sample ?? []).slice(0, SAMPLES);
   return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-[40rem] text-start text-sm">
-        <thead className="bg-muted/50 text-caption text-muted-foreground">
-          <tr>
-            {["ستون", "نوع", "غیرخالی", "یکتا", "کمترین", "بیشترین", "میانگین", "نمونه"].map((h) => (
-              <th key={h} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
-                {h}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {columns.map((c) => (
-            <tr key={c.name} className="border-t align-top">
-              <th scope="row" className="px-3 py-2 text-start font-medium whitespace-nowrap">
-                <bdi>{c.name}</bdi>
-              </th>
-              <td className="px-3 py-2">
-                <Badge variant="accent">{TYPE_LABELS[c.inferred_type] ?? c.inferred_type}</Badge>
-              </td>
-              <td className="px-3 py-2">{fa(c.non_null)}</td>
-              <td className="px-3 py-2">{fa(c.distinct)}</td>
-              <td className="px-3 py-2">{cell(c.min)}</td>
-              <td className="px-3 py-2">{cell(c.max)}</td>
-              <td className="px-3 py-2">{c.mean === null || c.mean === undefined ? cell(null) : formatNumber(c.mean)}</td>
-              <td className="max-w-56 px-3 py-2 text-muted-foreground">
-                {c.sample && c.sample.length > 0 ? c.sample.slice(0, 3).map((s, i) => (
-                  <span key={i}>
-                    {i > 0 && "، "}
-                    <bdi>{s}</bdi>
-                  </span>
-                )) : cell(null)}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <li className="grid gap-x-4 gap-y-1 border-t border-border px-4 py-3 text-small sm:grid-cols-[minmax(0,1.2fr)_9rem_9rem_minmax(0,1.6fr)] sm:items-center">
+      <span className="font-medium text-fg">
+        <bdi>{column.name}</bdi>
+      </span>
+      <span className="inline-flex items-center gap-1.5 text-fg-secondary">
+        <Icon aria-hidden className="size-4 shrink-0 text-fg-muted" strokeWidth={1.75} />
+        {TYPE_LABELS[column.inferred_type] ?? column.inferred_type}
+      </span>
+      <FillRate column={column} rows={rows} />
+      <span className="text-fg-secondary">
+        {samples.length === 0 ? (
+          <span className="text-fg-muted">بدون نمونه</span>
+        ) : (
+          samples.map((s, i) => (
+            <span key={i}>
+              {i > 0 && "، "}
+              <bdi>{s}</bdi>
+            </span>
+          ))
+        )}
+      </span>
+    </li>
+  );
+}
+
+function ColumnList({ sheet }: { sheet: SheetProfile }) {
+  const columns = sheet.columns ?? [];
+  if (columns.length === 0) return <p className="p-4 text-small text-fg-muted">این برگه ستونی ندارد.</p>;
+  return (
+    <div className="overflow-hidden rounded-sm border border-border">
+      <div aria-hidden className="hidden grid-cols-[minmax(0,1.2fr)_9rem_9rem_minmax(0,1.6fr)] gap-x-4 bg-surface-sunken px-4 py-2 text-caption text-fg-muted sm:grid">
+        <span>ستون</span>
+        <span>نوع داده</span>
+        <span>پر بودن</span>
+        <span>نمونه</span>
+      </div>
+      <ul aria-label={`ستون‌های برگهٔ ${sheet.name}`} className="-mt-px">
+        {columns.map((c) => (
+          <ColumnRow key={c.name} column={c} rows={sheet.rows} />
+        ))}
+      </ul>
     </div>
   );
 }
 
-function SampleRows({ sheet }: { sheet: SheetProfile }) {
-  const rows = sheet.sample_rows ?? [];
-  if (rows.length === 0) return <p className="text-sm text-muted-foreground">ردیف نمونه‌ای وجود ندارد.</p>;
-  return (
-    <div className="overflow-x-auto rounded-md border">
-      <table className="w-full min-w-max text-start text-sm">
-        <thead className="bg-muted/50 text-caption text-muted-foreground">
-          <tr>
-            {sheet.columns.map((c) => (
-              <th key={c.name} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
-                <bdi>{c.name}</bdi>
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, r) => (
-            <tr key={r} className="border-t">
-              {sheet.columns.map((c) => (
-                <td key={c.name} className="px-3 py-2 whitespace-nowrap">
-                  {cell(row[c.name])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-/** The deterministic inspection of an upload: one tab per sheet with its column table and sample rows. */
-export function InspectionView({ upload, children }: { upload: UploadOut; children?: React.ReactNode }) {
+/**
+ * Step 2, the structure of an upload: one tab per sheet, and per column its name, detected type, how full it
+ * is and a few sample values. The inspection detects types only, so nothing here says what a column means.
+ */
+export function InspectionView({ upload }: { upload: UploadOut }) {
   const sheets = upload.inspection?.sheets ?? [];
   const [chosen, setChosen] = useState<string | null>(null);
   const active = sheets.find((s) => s.name === chosen)?.name ?? sheets[0]?.name;
 
   return (
-    <Card className="gap-4 py-5">
-      <CardHeader className="gap-1">
-        <CardTitle className="text-base">
-          بررسی فایل <bdi>{upload.filename}</bdi>
-        </CardTitle>
-        <p className="text-caption text-muted-foreground">
-          {fileSizeText(upload.size)} · {fa(sheets.length)} برگه
+    <div className="flex flex-col gap-4">
+      <p className="text-small text-fg-muted">
+        <bdi dir="ltr">{upload.filename}</bdi> · {fileSizeText(upload.size)} · {fa(sheets.length)} برگه
+      </p>
+      {upload.inspection?.row_limit_hit && (
+        <p role="status" className="flex items-start gap-2 rounded-sm bg-warning-soft p-3 text-small text-warning-text">
+          <TriangleAlertIcon aria-hidden className="mt-1 size-4 shrink-0" strokeWidth={1.75} />
+          این فایل بیش از حد مجاز ردیف دارد؛ فقط بخش اول آن خوانده شد.
         </p>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {upload.inspection?.row_limit_hit && (
-          <InfoNote tone="warning">این فایل بیش از حد مجاز ردیف دارد؛ فقط بخش اول آن بررسی شد.</InfoNote>
-        )}
-        {sheets.length === 0 ? (
-          <p className="text-sm text-muted-foreground">برگه‌ای در این فایل پیدا نشد.</p>
-        ) : (
-          <Tabs value={active} onValueChange={setChosen}>
-            <TabsList aria-label="برگه‌های فایل">
-              {sheets.map((s) => (
-                <TabsTrigger key={s.name} value={s.name}>
-                  <bdi>{s.name}</bdi>
-                  <span className="text-caption text-muted-foreground">{fa(s.rows)} ردیف</span>
-                </TabsTrigger>
-              ))}
-            </TabsList>
+      )}
+      {sheets.length === 0 ? (
+        <p className="text-small text-fg-muted">برگه‌ای در این فایل پیدا نشد.</p>
+      ) : (
+        <Tabs value={active} onValueChange={setChosen}>
+          <TabsList aria-label="برگه‌های فایل">
             {sheets.map((s) => (
-              <TabsContent key={s.name} value={s.name} className="flex flex-col gap-4">
-                <section className="flex flex-col gap-2">
-                  <h4 className="text-sm font-semibold">ستون‌ها</h4>
-                  <ColumnTable columns={s.columns ?? []} />
-                </section>
-                <section className="flex flex-col gap-2">
-                  <h4 className="text-sm font-semibold">نمونهٔ ردیف‌ها</h4>
-                  <SampleRows sheet={s} />
-                </section>
-              </TabsContent>
+              <TabsTrigger key={s.name} value={s.name} className="min-h-11">
+                <bdi>{s.name}</bdi>
+                <span className="text-caption text-fg-muted">{fa(s.rows)} ردیف</span>
+              </TabsTrigger>
             ))}
-          </Tabs>
-        )}
-        {children}
-      </CardContent>
-    </Card>
+          </TabsList>
+          {sheets.map((s) => (
+            <TabsContent key={s.name} value={s.name}>
+              <ColumnList sheet={s} />
+            </TabsContent>
+          ))}
+        </Tabs>
+      )}
+    </div>
   );
 }

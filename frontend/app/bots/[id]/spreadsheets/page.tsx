@@ -8,7 +8,7 @@ export default function SpreadsheetsPage() {
   const { bot } = useBusiness();
   return (
     <>
-      <PageHeader title="تحلیل فایل اکسل" description="فایل اکسل روزانه را بارگذاری کنید تا خلاصه و هشدارهایش را ببینید." />
+      <PageHeader title="تحلیل فایل اکسل" description="فایل اکسل یا CSV را بارگذاری کنید؛ دستیار شاخص‌ها و هشدارها را پیشنهاد می‌دهد و هر فایل تازه با همان پروفایل تحلیل می‌شود." />
       <AnalystTab bot={bot} />
     </>
   );
