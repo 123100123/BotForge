@@ -4,7 +4,7 @@ The owner of a bot that is already live sent the message below. Classify it and 
 `{"intent": "change" | "question" | "data_request" | "unsupported", "reply": "<Persian text>"}`.
 
 - `change`: the owner wants the bot to behave differently: a rule, a number, a limit, a
-  deadline, a notification, a text, a menu item, a form field, a new or removed feature that the
+  deadline, a notification, a text, a button name or entry, a form field, a new or removed feature that the
   catalog supports. Example: «ظرفیت هر کارگاه را ۱۲ نفر کن.» `reply`: one short sentence saying
   you will prepare the change.
 - `question`: the owner asks how the bot works today, without asking to change it. `reply`: a

@@ -731,7 +731,14 @@ async def test_webhook_mode_connect_is_unchanged(
     response = await tg_client.post(f"/bots/{bot_id}/telegram/connect", json={"token": token}, headers=ALICE)
     assert response.status_code == 200
     # connect also asks whether another server serves this Telegram bot (webhook info, then a probe)
-    assert [name for name, _ in fake_tg.calls] == ["getMe", "getWebhookInfo", "getUpdates", "setWebhook"]
+    assert [name for name, _ in fake_tg.calls] == [
+        "getMe",
+        "getWebhookInfo",
+        "getUpdates",
+        "setWebhook",
+        "setMyCommands",
+        "setChatMenuButton",
+    ]
     assert fake_tg.calls_to("setWebhook")[0]["drop_pending_updates"] is True
 
 

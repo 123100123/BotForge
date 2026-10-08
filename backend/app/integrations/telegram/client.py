@@ -132,6 +132,14 @@ class TelegramApi(Protocol):
         self, callback_query_id: str, text: str | None = None, show_alert: bool = False
     ) -> None: ...
 
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None: ...
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
+    ) -> None: ...
+
     async def get_file(self, file_id: str) -> str: ...
 
     async def download_file(self, file_path: str, max_bytes: int) -> bytes: ...
@@ -277,6 +285,28 @@ class TelegramClient:
             if show_alert:
                 payload["show_alert"] = True
         await self._call("answerCallbackQuery", payload)
+
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None:
+        """``setMyCommands``: the command list Telegram shows in the chat's command menu. ``commands``
+        are ``{"command", "description"}`` dicts; ``scope`` is a ``BotCommandScope`` object (for
+        example ``{"type": "chat", "chat_id": 1}``), ``None`` meaning the default scope."""
+        payload: dict[str, Any] = {"commands": commands}
+        if scope is not None:
+            payload["scope"] = scope
+        await self._call("setMyCommands", payload)
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
+    ) -> None:
+        """``setChatMenuButton``: the button next to the message box. Without ``chat_id`` it is the
+        default for every private chat; ``menu_button`` defaults to ``{"type": "commands"}`` (opens the
+        command list)."""
+        payload: dict[str, Any] = {"menu_button": menu_button or {"type": "commands"}}
+        if chat_id is not None:
+            payload["chat_id"] = chat_id
+        await self._call("setChatMenuButton", payload)
 
     async def get_file(self, file_id: str) -> str:
         """The ``file_path`` to download ``file_id`` with. ``TelegramError`` when Telegram has none
@@ -484,6 +514,16 @@ class FakeTelegramClient:
             text=toast_text(text),
             show_alert=show_alert,
         )
+
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None:
+        self._record("setMyCommands", commands=commands, scope=scope)
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
+    ) -> None:
+        self._record("setChatMenuButton", chat_id=chat_id, menu_button=menu_button or {"type": "commands"})
 
     async def get_file(self, file_id: str) -> str:
         self._record("getFile", file_id=file_id)

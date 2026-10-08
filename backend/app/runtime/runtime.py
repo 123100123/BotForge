@@ -5,6 +5,10 @@ Inputs are only the event (including ``event.now``), the spec and the store. Rou
   start                      clear session; managers: the manager home; everyone else: the welcome
                              text over the user home (``runtime/nav.py`` compiles both)
   text, no session           the same as start (without clearing anything)
+  text /menu /panel /help    bot commands (``/cmd@botname`` too; any session is cleared first):
+                             /menu the role home, /panel the manager home for managers (everyone
+                             else: their role home), /help a short help text derived from the role
+                             home entries + [🏠 خانه]
   text, session              engine.on_text of the session's capability (gone -> drop session, home)
   callback nav:go:<route>    ``nav.go``: role homes, engine entry points, manager screens; unknown or
                              disabled routes -> the role home as a NEW message under the stale notice
@@ -64,12 +68,24 @@ from app.runtime.callbacks import (
     CallbackError,
     parse_callback,
 )
-from app.runtime.contracts import RuntimeEvent, RuntimeResponse
+from app.runtime.contracts import Button, RuntimeEvent, RuntimeResponse
 from app.runtime.ctx import Ctx, parse_int
 from app.runtime.engines import EngineUnavailable, get_engine
 from app.runtime.engines.base import Engine
 from app.runtime.store import Store
+from app.runtime.texts import commands as cmd_tx
 from app.runtime.texts import common
+
+COMMANDS = frozenset({"/menu", "/panel", "/help"})
+
+
+def bot_command(text: str) -> str | None:
+    """``/menu``, ``/panel`` or ``/help`` when ``text`` is that bot command (``/menu@botname`` and
+    trailing arguments allowed, case-insensitive), else ``None``. ``/start`` is handled before the
+    runtime (the adapter turns it into a ``start`` event)."""
+    words = text.split(maxsplit=1)
+    command = words[0].split("@", 1)[0].lower() if words else ""
+    return command if command in COMMANDS else None
 
 
 def _group_noop(event: RuntimeEvent) -> bool:
@@ -121,7 +137,41 @@ class BotRuntime:
             ctx.reply(common.NOT_AVAILABLE, ctx.menu_buttons())
             return None
 
+    @staticmethod
+    async def _on_command(ctx: Ctx, command: str) -> None:
+        """Commands abandon any form in progress, like every navigation."""
+        await ctx.clear_session()
+        if command == "/panel" and ctx.actor.effective_role == "manager":
+            await nav.go(ctx, nav.MGR)
+        elif command == "/help":
+            text, rows = BotRuntime._help(ctx)
+            ctx.reply(text, rows, edit=False)
+        else:  # /menu, and /panel for everyone who has no manager panel: their own role home
+            await nav.show_home(ctx, edit=False)
+
+    @staticmethod
+    def _help(ctx: Ctx) -> tuple[str, list[list[Button]]]:
+        """A short help text from the role home's entries, the commands, and a Home button."""
+        role = ctx.actor.effective_role
+        is_manager = role == "manager"
+        entries = [e for e in nav.compile_home(ctx.spec, role) if e.key != nav.CUST]
+        lines = [cmd_tx.HELP_HEADING.format(business=ctx.spec.bot.name)]
+        if entries:
+            lines.append(cmd_tx.HELP_ENTRIES_MANAGER if is_manager else cmd_tx.HELP_ENTRIES)
+            lines += [f"• {e.label}" for e in entries]
+        else:
+            lines.append(cmd_tx.HELP_EMPTY)
+        lines += ["", cmd_tx.HELP_COMMANDS, cmd_tx.HELP_MENU]
+        if is_manager:
+            lines.append(cmd_tx.HELP_PANEL)
+        lines += [cmd_tx.HELP_START, cmd_tx.HELP_HELP]
+        return "\n".join(lines), [[nav.home_button()]]
+
     async def _on_text(self, ctx: Ctx, text: str) -> None:
+        command = bot_command(text)
+        if command is not None:
+            await self._on_command(ctx, command)
+            return
         session = await ctx.get_session()
         if session is None:
             await self._welcome(ctx)

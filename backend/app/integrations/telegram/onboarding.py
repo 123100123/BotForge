@@ -42,6 +42,7 @@ from app.integrations.telegram.client import (
     TelegramError,
     TelegramProvider,
 )
+from app.integrations.telegram.commands import register_default_commands
 from app.security.crypto import (
     TokenCryptoError,
     decrypt_token,
@@ -291,6 +292,7 @@ async def connect(
         raise _telegram_failure(exc) from None
     await session.commit()
 
+    await register_default_commands(client)  # best effort: never fails the connect
     if previous_token_enc and previous_tg_bot_id != tg_bot_id:
         await drop_webhook(previous_token_enc, provider)  # the owner switched to another Telegram bot
 

@@ -175,3 +175,25 @@ async def test_a_runtime_failure_is_answered_and_explained(
         {"text": nav_texts.HOME, "callback_data": "nav:go:home"},
     ]
     assert edits(fake_tg, 601) == []
+
+
+async def test_bot_commands_through_the_webhook(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient
+) -> None:
+    ali = Chat(tg_client, bot, fake_tg, 601)
+    await ali.say("/start")
+    home = [b["callback_data"] for b in ali.buttons()]
+    for command in ("/menu", "/menu@workshop_test_bot", "/panel"):  # a customer has no panel: their home
+        await ali.say(command)
+        assert [b["callback_data"] for b in ali.buttons()] == home, command
+    assert edits(fake_tg, 601) == []  # commands send new messages
+
+    await ali.say("/help@workshop_test_bot")
+    assert ali.last_text().startswith("❓")
+    assert [b["callback_data"] for b in ali.buttons()] == ["nav:go:home"]
+
+    owner = Chat(tg_client, bot, fake_tg, 900)
+    await owner.say("/panel")
+    assert owner.last_text().startswith("🧭 مدیریت ")
+    await owner.say("/menu")
+    assert owner.last_text().startswith("🧭 مدیریت ")

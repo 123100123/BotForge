@@ -345,7 +345,14 @@ async def test_a_clean_token_connects_after_a_probe_that_finds_nobody(
     fake_tg.push_updates({"update_id": 5})  # pending updates are seen by the probe and left alone
     assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
     names = [name for name, _ in fake_tg.calls]
-    assert names == ["getMe", "getWebhookInfo", "getUpdates", "setWebhook"]
+    assert names == [
+        "getMe",
+        "getWebhookInfo",
+        "getUpdates",
+        "setWebhook",
+        "setMyCommands",
+        "setChatMenuButton",
+    ]
     assert fake_tg.pending_updates == [{"update_id": 5}]
 
 
@@ -412,3 +419,32 @@ async def test_polling_mode_refuses_a_foreign_webhook_without_a_public_url(
     await assert_nothing_stored(session_factory, bot_id, fake_tg)
     fake_tg.webhook_url = ""  # no webhook and no poller: polling-mode connect works
     assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+
+
+async def test_connect_sets_the_default_commands_and_the_commands_menu_button(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient
+) -> None:
+    bot_id, _ = await make_bot("alice")
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+    [commands] = fake_tg.calls_to("setMyCommands")
+    assert commands["scope"] is None  # default scope
+    assert [c["command"] for c in commands["commands"]] == ["start", "menu", "help"]
+    assert [c["description"] for c in commands["commands"]] == ["شروع", "منوی اصلی", "راهنما"]
+    [button] = fake_tg.calls_to("setChatMenuButton")
+    assert button["chat_id"] is None and button["menu_button"] == {"type": "commands"}
+
+
+@pytest.mark.parametrize("method", ["setMyCommands", "setChatMenuButton"])
+async def test_a_failing_command_registration_does_not_fail_connect(
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+    method: str,
+) -> None:
+    bot_id, _ = await make_bot("alice")
+    fake_tg.fail_methods[method] = "Bad Request: not allowed"
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 200 and response.json()["connected"] is True
+    assert (await stored(session_factory, bot_id)).tg_token_enc is not None
+    assert fake_tg.calls_to(method)  # it was tried
