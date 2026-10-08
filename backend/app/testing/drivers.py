@@ -1,7 +1,8 @@
 """Scenario drivers: perform semantic steps by sending the RuntimeEvents a user would send (WP3).
 
-A driver never calls engine internals. It sends ``start``, the menu callback, the item callback,
-the action callback and form texts through ``BotRuntime.handle``; at each hop it locates the next
+A driver never calls engine internals. It sends ``start``, the home button's callback
+(``nav:go:<route>`` from ``runtime.nav.virtual_menu``; the owner goes through «نمای مشتری»), the item
+callback, the action callback and form texts through ``BotRuntime.handle``; at each hop it locates the next
 button in the previous response by *parsed callback action and arg* (never by label) and fails the
 step, naming the missing button, if it is not there. State expectations read the ``Store``.
 
@@ -24,17 +25,18 @@ from app.runtime.callbacks import (
     ACT_ANS,
     ACT_BOOK,
     ACT_CANCEL,
+    ACT_GO,
     ACT_ITEM,
     ACT_LIST,
     ACT_MINE,
-    ACT_OPEN,
     ACT_SKIP,
-    MENU,
+    NAV,
     CallbackError,
     make_callback,
     parse_callback,
 )
 from app.runtime.contracts import Actor, Button, Outcome, OutMessage, RuntimeEvent, RuntimeResponse
+from app.runtime.nav import CUST, Entry, virtual_menu
 from app.runtime.runtime import BotRuntime
 from app.runtime.store import Record, Store
 from app.testing.scenario import OWNER, Step, TranscriptEntry
@@ -304,22 +306,39 @@ def _check_outcome(
 # --- navigation ----------------------------------------------------------------------------------
 
 
-def _menu_item_key(ctx: RunContext, cap: AnyCapability, view: str) -> str:
-    item = next((m for m in ctx.spec.menu if m.capability == cap.key and m.view == view), None)
-    if item is None:
+def has_entry(ctx: RunContext, cap: AnyCapability, view: str) -> bool:
+    """Whether a home offers ``cap``'s ``view`` (``nav.virtual_menu``)."""
+    return any(e.capability == cap.key and e.view == view for e in virtual_menu(ctx.spec))
+
+
+def _menu_entry(ctx: RunContext, cap: AnyCapability, view: str) -> Entry:
+    """The home entry (``nav.virtual_menu``) that opens ``cap``'s ``view``."""
+    entry = next((e for e in virtual_menu(ctx.spec) if e.capability == cap.key and e.view == view), None)
+    if entry is None:
         raise StepFailure(
             f"منوی ربات گزینه‌ای برای «{cap.title}» (نمای {view}) ندارد؛ کاربر نمی‌تواند به آن برسد."
         )
-    return item.key
+    return entry
 
 
 async def open_menu(ctx: RunContext, actor_id: str, cap: AnyCapability, view: str) -> RuntimeResponse:
-    """``start``, then press the menu button that opens ``cap``'s ``view``."""
-    key = _menu_item_key(ctx, cap, view)
+    """``start``, then press the home button (``nav:go:<route>``) that opens ``cap``'s ``view``.
+
+    The owner lands on the manager home: when the entry is not there, the driver presses
+    «نمای مشتری» (``nav:go:cust``) first, as a manager would. An entry reached inside another
+    screen (``on_home=False``, e.g. «درخواست‌های من») is opened by its route directly."""
+    entry = _menu_entry(ctx, cap, view)
     resp = await ctx.send(actor_id, "start")
-    button = find_button(resp, actor_id, MENU, ACT_OPEN, key)
+    button = find_button(resp, actor_id, NAV, ACT_GO, entry.key)
     if button is None:
-        raise _missing_button(f"منوی «{key}» ({make_callback(MENU, ACT_OPEN, key)})", resp, actor_id)
+        customer_view = find_button(resp, actor_id, NAV, ACT_GO, CUST)
+        if customer_view is not None:
+            resp = await ctx.press(actor_id, customer_view)
+            button = find_button(resp, actor_id, NAV, ACT_GO, entry.key)
+    if button is None and not entry.on_home:
+        return await ctx.send(actor_id, "callback", data=entry.data)
+    if button is None:
+        raise _missing_button(f"منوی «{entry.label}» ({entry.data})", resp, actor_id)
     return await ctx.press(actor_id, button)
 
 
@@ -477,8 +496,8 @@ class BookingDriver:
 
     @staticmethod
     async def _open_mine(ctx: RunContext, actor: str, cap: BookingCapability) -> RuntimeResponse:
-        """The "my bookings" view: through the menu if the spec has one, else by its callback."""
-        if any(m.capability == cap.key and m.view == "mine" for m in ctx.spec.menu):
+        """The "my bookings" view: through the home if it offers one, else by its callback."""
+        if has_entry(ctx, cap, "mine"):
             return await open_menu(ctx, actor, cap, "mine")
         await ctx.send(actor, "start")
         return await ctx.send(actor, "callback", data=make_callback(cap.key, ACT_MINE))
@@ -651,8 +670,8 @@ async def execute_step(ctx: RunContext, step: Step) -> str:
 
 
 def _menu_label(ctx: RunContext, cap_key: str | None, view: str) -> str:
-    item = next((m for m in ctx.spec.menu if m.capability == cap_key and m.view == view), None)
-    return item.label if item is not None else ctx.cap_title(cap_key)
+    entry = next((e for e in virtual_menu(ctx.spec) if e.capability == cap_key and e.view == view), None)
+    return entry.label if entry is not None else ctx.cap_title(cap_key)
 
 
 def describe_step(ctx: RunContext, step: Step) -> str:

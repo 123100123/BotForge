@@ -89,6 +89,7 @@ async def test_event_sequence_and_payload_shapes_for_a_normal_run() -> None:
 
     shapes = {
         "run_status": {"status", "phase"},
+        "activity": {"phase", "label"},
         "owner_message": {"text"},
         "agent_message": {"text"},
         "phase_started": {"phase"},

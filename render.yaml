@@ -13,9 +13,10 @@
 # and scheduled reports go out late (when the next request wakes it). Use "starter" for the demo.
 #
 # Migrations: backend/Dockerfile runs `alembic upgrade head` before serving, so the next deploy of this
-# branch applies 0003-0005 to the hosted Supabase database. 0003 adopts every existing Supabase owner
+# branch applies 0003-0006 to the hosted Supabase database. 0003 adopts every existing Supabase owner
 # id as a placeholder user (same UUID, no password) so existing bots keep their owner; 0004 adds the
-# polling offset; 0005 the Business OS tables. Take a Supabase backup before that first deploy.
+# polling offset; 0005 the Business OS tables; 0006 tg_updates.received_at (old Telegram dedupe rows
+# are pruned hourly). Take a Supabase backup before that first deploy.
 # With AUTH_PROVIDER=supabase (below) an owner's next sign-in carries that same Supabase user id, so
 # they see their bots again, and the placeholder account takes the email from their token.
 #

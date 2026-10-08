@@ -190,6 +190,8 @@ curl.exe -c jar.txt -H "X-BotForge-CSRF: 1" -H "Content-Type: application/json" 
 curl.exe -b jar.txt http://localhost:8000/me          # your user id
 ```
 
+Locally, set `NOTIFICATIONS_TICKER=true` before starting the API: group event cards, announcements, reminders and scheduled reports are only queued in the outbox, and nothing is sent to Telegram until the ticker runs.
+
 `uv run python scripts/create_user.py --email me@example.com` creates an account (password prompt) or,
 with `--reset-password`, sets a new password and signs the account out everywhere.
 
@@ -338,11 +340,12 @@ posts webhooks to the API's public address. The API must run as a single instanc
 8. **First deploy and migrations.** Deploy the API from the Render dashboard (auto-deploy is off) and
    confirm `https://<api service>.onrender.com/healthz` returns `{"status":"ok"}`. The container runs
    `alembic upgrade head` on every start. The hosted database
-   is at migration 0002; the first deploy of `main` applies 0003 to 0005:
+   is at migration 0002; the first deploy of `main` applies 0003 to 0006:
    - 0003 creates `users` and `auth_sessions` and adopts every existing Supabase owner id as a placeholder
      user with the same UUID (no password), so existing owners keep their bots and sign in through
      Supabase as before;
-   - 0004 adds the Telegram polling offset; 0005 adds the Business OS tables.
+   - 0004 adds the Telegram polling offset; 0005 adds the Business OS tables; 0006 adds
+     `tg_updates.received_at` (old Telegram dedupe rows are pruned hourly).
 
    **Take a Supabase backup before that first deploy** (and rehearse the migrations on a copy of the
    database if you can). Then deploy the web app.
@@ -588,5 +591,5 @@ revisions. Do not use scripts or the database during this run.
 
 - `render.yaml` and `backend/Dockerfile` have not been deployed from this repository's development machine;
   the first Render deploy is the real test. Supabase Auth with the switch is tested only with locally signed
-  tokens, and migrations 0003 to 0005 have not yet run on the hosted database.
+  tokens, and migrations 0003 to 0006 have not yet run on the hosted database.
 - Secrets live only in environment variables; `.env` is git-ignored.

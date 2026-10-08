@@ -174,6 +174,7 @@ function okRun(
     anomalies: [
       { check_id: "high", label: "فروش غیرعادی بالا", field: "مبلغ", group: "قهوه", value: 950_000, expected: 310_000, severity: "warning" },
       { check_id: "min_qty", label: "تعداد کمتر از حد انتظار", field: "تعداد", group: "شیرینی", value: 1, expected: 2, severity: "info" },
+      { check_id: "missing_amount", label: "خانهٔ خالی در ستون مبلغ", field: "مبلغ", group: null, value: 2, expected: 0, severity: "critical" },
     ],
     narrative: narrative
       ? "فروش کل در این فایل ۳۷٫۲ میلیون تومان است، حدود ۱۲٪ بیشتر از فایل قبلی. قهوه با نزدیک به ۴۱٪ سهم، پرفروش‌ترین محصول است و یک فروش غیرعادی در همین محصول دیده شد."
@@ -206,14 +207,45 @@ function schemaChangedRun(
   };
 }
 
+function failedRun(id: string, profileId: string, upload: Pick<UploadOut, "id" | "filename">, createdAt: string): AnalysisRunOut {
+  return {
+    id,
+    profile_id: profileId,
+    upload_id: upload.id,
+    filename: upload.filename,
+    status: "failed",
+    submitted_by: "tg:1001",
+    created_at: createdAt,
+    metrics: [],
+    anomalies: [],
+    narrative: null,
+    schema_diff: null,
+    error: "خواندن فایل ممکن نشد: فایل آسیب‌دیده است یا برگهٔ «فروش» در آن نیست.",
+  };
+}
+
+/**
+ * Demo switches, comma separated in localStorage "botforge.mock.analyst": `empty` starts with no profile and
+ * no run (the setup stepper), `limit` makes the assistant answer with the daily limit, `fail` makes every
+ * run fail.
+ */
+function demoFlag(name: string): boolean {
+  try {
+    return (globalThis.localStorage?.getItem("botforge.mock.analyst") ?? "").split(",").includes(name);
+  } catch {
+    return false;
+  }
+}
+
 let uploads: UploadOut[] = seedUploads();
-let profiles: AnalysisProfileOut[] = seedProfiles();
-let runs: AnalysisRunOut[] = [
+let profiles: AnalysisProfileOut[] = demoFlag("empty") ? [] : seedProfiles();
+let runs: AnalysisRunOut[] = demoFlag("empty") ? [] : [
   schemaChangedRun("mock-run-2", "mock-profile-1", { id: "mock-upload-2", filename: "sales-new-format.xlsx" }, daysAgo(0.1), {
     missing: ["مبلغ"],
     new: ["قیمت", "تخفیف"],
   }),
   okRun("mock-run-1", "mock-profile-1", { id: "mock-upload-1", filename: "sales.xlsx" }, daysAgo(1), true),
+  failedRun("mock-run-3", "mock-profile-1", { id: "mock-upload-0", filename: "sales-broken.xlsx" }, daysAgo(2)),
 ];
 
 export function uploadWorkbook(file: File): UploadOut {
@@ -251,6 +283,7 @@ function findUpload(uploadId: string): UploadOut {
 }
 
 export function createAnalysisProfile(body: AnalysisProfileCreateIn): AnalysisProfileOut {
+  if (demoFlag("limit")) throw new ApiError("analysis_daily_cap", "به سقف تحلیل هوشمند امروز رسیده‌اید. لطفاً فردا دوباره تلاش کنید.", 429);
   const upload = findUpload(body.upload_id);
   const sheet = upload.inspection.sheets[0];
   const columns = sheet?.columns ?? [];
@@ -284,10 +317,13 @@ export function updateAnalysisProfile(profileId: string, body: AnalysisProfileUp
 export function runAnalysis(profileId: string, body: AnalysisRunIn): AnalysisRunOut {
   const p = findProfile(profileId);
   const upload = findUpload(body.upload_id);
-  const id = `mock-run-${runs.length + 1}`;
+  const id = `mock-run-${runs.length + 1}-${Date.now() % 100000}`;
   const now = new Date().toISOString();
   let run: AnalysisRunOut;
-  if (upload.inspection.signature !== p.signature) {
+  if (demoFlag("fail")) {
+    run = failedRun(id, p.id, upload, now);
+    run.submitted_by = null;
+  } else if (upload.inspection.signature !== p.signature) {
     const cols = upload.inspection.sheets.find((s) => s.name === p.sheet)?.columns.map((c) => c.name) ?? [];
     run = schemaChangedRun(id, p.id, upload, now, {
       missing: p.expected_columns.filter((c) => !cols.includes(c)),

@@ -1,8 +1,11 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import localFont from "next/font/local";
 import { ConfigError } from "@/components/app/config-error";
+import { Providers } from "@/components/app/providers";
+import { Toaster } from "@/components/ui/toast";
 import { AuthProvider } from "@/lib/auth";
 import { MISSING_CONFIG } from "@/lib/config";
+import { THEME_INIT_SCRIPT } from "@/lib/theme";
 import "./globals.css";
 
 // Vazirmatn (SIL OFL) is bundled in app/fonts so builds do not depend on the network.
@@ -14,17 +17,32 @@ const vazirmatn = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "BotForge — سیستم‌عامل کسب‌وکار در تلگرام",
+  title: "BotForge | سیستم‌عامل کسب‌وکار در تلگرام",
   description:
-    "به BotForge بگویید کسب‌وکارتان چگونه کار می‌کند. ایجنت هوش مصنوعی آن یک سیستم‌عامل کسب‌وکار اختصاصی در تلگرام می‌سازد و نگهداری می‌کند: برای مشتریان، کارکنان، عملیات، فروش و گزارش‌گیری.",
+    "به بات‌فورج بگویید کسب‌وکارتان چطور کار می‌کند. دستیار آن یک ربات تلگرامی اختصاصی می‌سازد و نگهداری می‌کند: برای مشتریان، کارکنان، عملیات، فروش و گزارش‌گیری.",
+};
+
+// Browser chrome color: the page background of each theme (follows the OS; the in-app choice only changes the page).
+export const viewport: Viewport = {
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#f4f8f8" },
+    { media: "(prefers-color-scheme: dark)", color: "#0c1012" },
+  ],
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="fa" dir="rtl" className={vazirmatn.variable}>
+    // suppressHydrationWarning: the inline script sets data-theme before React hydrates.
+    <html lang="fa" dir="rtl" className={vazirmatn.variable} suppressHydrationWarning>
+      <head>
+        <script dangerouslySetInnerHTML={{ __html: THEME_INIT_SCRIPT }} />
+      </head>
       <body className="min-h-dvh antialiased">
-        {/* Real mode without its required variables (lib/config.ts): tell the operator instead of failing later. */}
-        {MISSING_CONFIG.length > 0 ? <ConfigError missing={MISSING_CONFIG} /> : <AuthProvider>{children}</AuthProvider>}
+        <Providers>
+          {/* Real mode without its required variables (lib/config.ts): tell the operator instead of failing later. */}
+          {MISSING_CONFIG.length > 0 ? <ConfigError missing={MISSING_CONFIG} /> : <AuthProvider>{children}</AuthProvider>}
+          <Toaster />
+        </Providers>
       </body>
     </html>
   );

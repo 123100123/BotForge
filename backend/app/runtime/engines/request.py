@@ -46,6 +46,7 @@ from app.runtime.callbacks import (
 )
 from app.runtime.contracts import Button
 from app.runtime.ctx import Ctx, parse_int
+from app.runtime.engines import chrome
 from app.runtime.engines.base import EngineBase
 from app.runtime.store import Record
 from app.runtime.texts import request as tx
@@ -206,8 +207,21 @@ class RequestEngine(EngineBase):
     def _new_row(cap: RequestCapability) -> list[Button]:
         return [Ctx.button(tx.NEW_BUTTON, cap, ACT_NEW)]
 
+    def _entry_rows(self, ctx: Ctx, cap: RequestCapability) -> Rows:
+        """«درخواست جدید» and «درخواست‌های من» side by side, then Home."""
+        return [[*self._new_row(cap), *self._mine_row(cap)], ctx.home_row()]
+
     def _back_rows(self, ctx: Ctx, cap: RequestCapability) -> Rows:
-        return [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
+        return self._entry_rows(ctx, cap)
+
+    @staticmethod
+    def _head(ctx: Ctx, cap: RequestCapability, view: str = "main", *extra: str) -> str:
+        return chrome.heading(ctx, cap, view, *extra)
+
+    @staticmethod
+    def _back_main_row(ctx: Ctx, cap: RequestCapability) -> list[Button]:
+        """«‹ بازگشت» to the capability's main screen, then Home."""
+        return [chrome.to_route(chrome.route_of(ctx, cap)), ctx.home_button()]
 
     @staticmethod
     def _owner_rows(cap: RequestCapability, request: Record, numbered: bool = False) -> Rows:
@@ -232,15 +246,13 @@ class RequestEngine(EngineBase):
     # --- views -------------------------------------------------------------------------------
 
     def _main(self, ctx: Ctx, cap: RequestCapability) -> None:
-        ctx.reply(
-            _fill(tx.MAIN_INTRO, title=cap.title), [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
-        )
+        ctx.reply(f"{self._head(ctx, cap)}\n{tx.MAIN_INTRO}", self._entry_rows(ctx, cap))
 
     async def _queue(self, ctx: Ctx, cap: RequestCapability) -> None:
         """The main view for staff and managers: requests waiting for an owner action (their status
         is one some owner action starts from), newest first, each with its action buttons, above
         the usual entries. Only the newest ``QUEUE_LIMIT`` are listed; a line counts the rest."""
-        entries = [self._new_row(cap), self._mine_row(cap), ctx.home_row()]
+        entries = self._entry_rows(ctx, cap)
         pending = sorted({status for act in cap.owner_actions for status in act.from_statuses})
         requests = (
             await ctx.store.list_records(cap.key, status_in=pending, order_by="-id", limit=QUEUE_LIMIT)
@@ -283,7 +295,8 @@ class RequestEngine(EngineBase):
 
     async def _new(self, ctx: Ctx, cap: RequestCapability, page: int) -> None:
         if cap.item_resource is None:
-            await forms.start(ctx, self, cap, intro=ctx.t(cap, "form_intro", title=cap.title))
+            head = self._head(ctx, cap, "main", tx.NEW_CRUMB)
+            await forms.start(ctx, self, cap, intro=f"{head}\n{ctx.t(cap, 'form_intro', title=cap.title)}")
             return
         resource = self._resource(ctx, cap)
         if resource is None:
@@ -291,7 +304,9 @@ class RequestEngine(EngineBase):
             return
         items = await listing.load_items(ctx, resource)
         if not items:
-            ctx.reply(tx.NO_ITEMS, [self._mine_row(cap), ctx.home_row()])
+            ctx.reply(
+                f"{self._head(ctx, cap, 'main', tx.NEW_CRUMB)}\n{tx.NO_ITEMS}", self._entry_rows(ctx, cap)
+            )
             return
         shown, page, pages = listing.paginate(items, page)
         rows: Rows = [
@@ -301,9 +316,8 @@ class RequestEngine(EngineBase):
         nav = listing.nav_row(cap, page, pages, ACT_NEW)
         if nav:
             rows.append(nav)
-        rows.append(self._mine_row(cap))
-        rows.append(ctx.home_row())
-        lines = [ctx.t(cap, "pick_item", title=cap.title)]
+        rows.append(self._back_main_row(ctx, cap))
+        lines = [self._head(ctx, cap, "main", tx.NEW_CRUMB), ctx.t(cap, "pick_item", title=cap.title)]
         lines += [_fill(tx.PICK_LINE, title=listing.record_title(ctx, resource, r)) for r in shown]
         if pages > 1:
             lines.append(listing.page_indicator(page, pages))
@@ -318,7 +332,9 @@ class RequestEngine(EngineBase):
             ctx.reject(cap, "submit", "not_found", tx.ITEM_NOT_FOUND, self._back_rows(ctx, cap))
             return
         intro = (
-            ctx.t(cap, "form_intro", title=cap.title)
+            self._head(ctx, cap, "main", tx.NEW_CRUMB)
+            + "\n"
+            + ctx.t(cap, "form_intro", title=cap.title)
             + "\n"
             + _fill(tx.PICKED_LINE, item=self._item_title(ctx, cap, item, item.id))
         )
@@ -326,10 +342,12 @@ class RequestEngine(EngineBase):
 
     async def _mine(self, ctx: Ctx, cap: RequestCapability) -> None:
         requests = await ctx.store.list_records(cap.key, actor_id=ctx.actor.id, order_by="-id")
+        head = self._head(ctx, cap, "mine")
+        back = [chrome.back_to(ctx, chrome.route_of(ctx, cap, "mine")), ctx.home_button()]
         if not requests:
-            ctx.reply(ctx.t(cap, "mine_empty"), [self._new_row(cap), ctx.home_row()])
+            ctx.reply(f"{head}\n{ctx.t(cap, 'mine_empty')}", [self._new_row(cap), back])
             return
-        lines = [ctx.t(cap, "mine_header")]
+        lines = [head, ctx.t(cap, "mine_header")]
         for r in requests:
             item = ""
             if r.item_id is not None:
@@ -344,7 +362,7 @@ class RequestEngine(EngineBase):
                     when=formatting.format_jalali_date(r.created_at, ctx.tz),
                 )
             )
-        ctx.reply("\n".join(lines), [self._new_row(cap), ctx.home_row()])
+        ctx.reply("\n".join(lines), [self._new_row(cap), back])
 
 
 def _owner_label(act: OwnerAction) -> str:

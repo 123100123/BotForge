@@ -11,11 +11,15 @@ Record layout (``botspec/models.py`` module docstring), capability key ``K``:
 Money is integer tomans. ``payment_status`` is written once ("unpaid") and never changed here.
 
 Navigation (drivers locate buttons by parsed callback action/arg, never by label):
-  open main / ``list:<page>`` / ``open:[<page>]`` / ``home``  paginated item list (title + price;
-                       out-of-stock items marked), one ``item:<id>`` per item, ``cart``, ``mine``
-  ``item:<id>``        details, ``add:<id>``, ``cart``, back (to the item's page), home
-  ``add:<id>``         qty + 1 in the actor's cart (rejected ``out_of_stock`` beyond the stock,
-                       ``not_found`` for a missing/unpriced item, ``invalid_input`` beyond the caps)
+  open main / ``list:<page>`` / ``open:[<page>]`` / ``home``  headed, paginated item list (one
+                       ``item:<id>`` button per item labelled «title · price», out-of-stock items
+                       marked), ``cart`` (with the unit count) when the cart is not empty, ``mine``
+  ``item:<id>[.<qty>]`` details and the quantity row (``item:<id>.<qty-1>`` / ``item:<id>.<qty+1>``;
+                       ``qty`` defaults to 1 and stays within the stock), ``add:<id>[.<qty>]``,
+                       ``cart``, back to the shop (the ``nav`` parent route), home
+  ``add:<id>[.<qty>]`` ``qty`` (default 1) more in the actor's cart (rejected ``out_of_stock``
+                       beyond the stock, ``not_found`` for a missing/unpriced item,
+                       ``invalid_input`` beyond the caps); confirms with the quantity added
   ``dec:<id>``         qty - 1 (the line goes at 0, the cart record when empty), then the cart
   ``cart``             lines (qty x unit price), total, ``chk``, ``open``, one ``dec:<id>`` per line
   ``chk``              empty cart -> rejected ``invalid_input``; stock pre-check; then the shared
@@ -69,6 +73,7 @@ from app.runtime.callbacks import (
 )
 from app.runtime.contracts import Button
 from app.runtime.ctx import Ctx, parse_int
+from app.runtime.engines import chrome
 from app.runtime.store import Record
 from app.runtime.texts import orders as tx
 
@@ -104,6 +109,13 @@ def money(amount: int) -> str:
 
 def _int(value: Any) -> int | None:
     return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _split_arg(arg: str) -> tuple[int | None, int]:
+    """``"15"`` -> ``(15, 1)``; ``"15.3"`` -> ``(15, 3)`` (a missing or bad quantity is 1)."""
+    head, _, tail = arg.partition(".")
+    qty = parse_int(tail) if tail else 1
+    return parse_int(head), min(max(qty or 1, 1), MAX_QTY)
 
 
 @dataclass
@@ -170,9 +182,9 @@ class OrdersEngine:
         elif action in (ACT_LIST, ACT_OPEN, ACT_HOME):
             await self._list(ctx, cap, parse_int(arg) or 0)
         elif action == ACT_ITEM:
-            await self._item(ctx, cap, parse_int(arg))
+            await self._item(ctx, cap, *_split_arg(arg))
         elif action == ACT_ADD:
-            await self._add(ctx, cap, parse_int(arg))
+            await self._add(ctx, cap, *_split_arg(arg))
         elif action == ACT_DEC:
             await self._dec(ctx, cap, parse_int(arg))
         elif action == ACT_CART:
@@ -233,7 +245,7 @@ class OrdersEngine:
         ctx.outcome(cap, "order", "submitted", record_id=order.id)
         placed = ctx.t(cap, "placed", title=cap.title, id=_num(order.id), total=money(total))
         status_line = _fill(tx.STATUS_LINE, status=self._status_label(cap, order.status))
-        ctx.reply(f"{placed}\n{status_line}", [self._mine_row(cap), self._continue_row(cap), ctx.home_row()])
+        ctx.reply(f"{placed}\n{status_line}", [[*self._mine_row(cap), ctx.home_button()]])
         if "placed" in cap.notify_owner_on:
             details = "\n".join(f"{f.label}: {ctx.fmt(f, values.get(f.key))}" for f in cap.checkout_fields)
             ctx.notify_owner(
@@ -435,17 +447,19 @@ class OrdersEngine:
             )
         return "\n".join(lines)
 
-    def _item_line(self, ctx: Ctx, cap: OrdersCapability, resource: Resource, item: Record) -> str:
+    def _item_label(self, ctx: Ctx, cap: OrdersCapability, resource: Resource, item: Record) -> str:
+        """The shop-list button: «title · price تومان», marked «ناموجود» when it cannot be bought.
+        The title is cut so the whole label fits ``listing.MAX_BUTTON_LABEL``."""
         price = self._price(cap, item)
-        line = ctx.t(
-            cap,
-            "item_line",
-            title=listing.record_title(ctx, resource, item),
-            price=money(price) if price is not None else "—",
-        )
-        if price is None or self._stock(cap, item) == 0:
-            line = _fill(tx.MARKED_LINE, line=line, mark=tx.OUT_OF_STOCK_MARK)
-        return line
+        title = listing.record_title(ctx, resource, item)
+        shown = money(price) if price is not None else "—"
+        sold_out = price is None or self._stock(cap, item) == 0
+        fixed = ctx.t(cap, "item_line", title="", price=shown)
+        if sold_out:
+            fixed = _fill(tx.MARKED_LINE, line=fixed, mark=tx.OUT_OF_STOCK_MARK)
+        title = listing.truncate(title, max(12, listing.MAX_BUTTON_LABEL - len(fixed)))
+        line = ctx.t(cap, "item_line", title=title, price=shown)
+        return _fill(tx.MARKED_LINE, line=line, mark=tx.OUT_OF_STOCK_MARK) if sold_out else line
 
     # --- buttons -----------------------------------------------------------------------------
 
@@ -458,14 +472,40 @@ class OrdersEngine:
         return [Ctx.button(tx.CONTINUE_BUTTON, cap, ACT_OPEN)]
 
     @staticmethod
-    def _cart_row(cap: OrdersCapability) -> list[Button]:
-        return [Ctx.button(tx.CART_BUTTON, cap, ACT_CART)]
+    def _shop_row(cap: OrdersCapability) -> list[Button]:
+        return [Ctx.button(tx.SHOP_BUTTON, cap, ACT_OPEN)]
+
+    @staticmethod
+    def _cart_row(cap: OrdersCapability, count: int = 0) -> list[Button]:
+        label = _fill(tx.CART_BUTTON_COUNT, count=_num(count)) if count else tx.CART_BUTTON
+        return [Ctx.button(label, cap, ACT_CART)]
 
     def _shop_nav(self, ctx: Ctx, cap: OrdersCapability) -> Rows:
-        return [self._continue_row(cap), ctx.home_row()]
+        """After a refusal that has nothing to do with the cart: back to the shop, or home."""
+        return [self._shop_row(cap), ctx.home_row()]
 
     def _cart_nav(self, ctx: Ctx, cap: OrdersCapability) -> Rows:
         return [self._cart_row(cap), self._continue_row(cap), ctx.home_row()]
+
+    # --- headings ----------------------------------------------------------------------------
+
+    @staticmethod
+    def _crumbs(ctx: Ctx, cap: OrdersCapability) -> list[str]:
+        """The capability's title as an extra crumb, only when a bot sells through several orders
+        capabilities (one «🛍 فروشگاه» heading could not tell them apart)."""
+        shops = [c for c in ctx.spec.capabilities if c.type == "orders" and ctx.can_use(c)]
+        return [cap.title] if len(shops) > 1 else []
+
+    def _shop_head(self, ctx: Ctx, cap: OrdersCapability, *extra: str) -> str:
+        """«🛍 فروشگاه» (› capability title when several) then ``extra`` crumbs."""
+        return chrome.heading(ctx, cap, "main", *self._crumbs(ctx, cap), *extra)
+
+    @staticmethod
+    def _cart_head(ctx: Ctx, cap: OrdersCapability, *extra: str) -> str:
+        return ctx.heading(chrome.sub_route(chrome.route_of(ctx, cap), "cart"), *extra, cap=cap)
+
+    async def _cart_units(self, ctx: Ctx, cap: OrdersCapability) -> int:
+        return sum(qty for _, qty in _cart_items(await self._get_cart(ctx, cap)))
 
     @staticmethod
     def _owner_rows(cap: OrdersCapability, order: Record) -> Rows:
@@ -488,32 +528,37 @@ class OrdersEngine:
         if resource is None:
             ctx.stale()
             return
+        head = self._shop_head(ctx, cap)
         items = await listing.load_items(ctx, resource)
         if not items:
-            ctx.reply(ctx.t(cap, "empty", title=cap.title), [self._mine_row(cap), ctx.home_row()])
+            ctx.reply(
+                f"{head}\n{ctx.t(cap, 'empty', title=cap.title)}", [self._mine_row(cap), ctx.home_row()]
+            )
             return
         shown, page, pages = listing.paginate(items, page)
         rows: Rows = [
-            [ctx.button(listing.truncate(listing.record_title(ctx, resource, r)), cap, ACT_ITEM, r.id)]
-            for r in shown
+            [ctx.button(self._item_label(ctx, cap, resource, r), cap, ACT_ITEM, r.id)] for r in shown
         ]
-        nav = listing.nav_row(cap, page, pages)
-        if nav:
-            rows.append(nav)
-        rows.append([*self._cart_row(cap), *self._mine_row(cap)])
-        rows.append(ctx.home_row())
-        lines = [ctx.t(cap, "list_header", title=cap.title)]
-        lines += [self._item_line(ctx, cap, resource, r) for r in shown]
+        nav_row = listing.nav_row(cap, page, pages)
+        if nav_row:
+            rows.append(nav_row)
+        units = await self._cart_units(ctx, cap)
+        if units:
+            rows.append(self._cart_row(cap, units))
+        rows += [self._mine_row(cap), ctx.home_row()]
+        lines = [head, ctx.t(cap, "list_header", title=cap.title)]
         if pages > 1:
             lines.append(listing.page_indicator(page, pages))
         ctx.reply("\n".join(lines), rows)
 
-    async def _item(self, ctx: Ctx, cap: OrdersCapability, item_id: int | None) -> None:
+    async def _item(self, ctx: Ctx, cap: OrdersCapability, item_id: int | None, qty: int) -> None:
         resource = ctx.spec.resource(cap.resource)
         item = await ctx.store.get_record(resource.key, item_id) if resource and item_id is not None else None
         if resource is None or item is None:
-            ctx.stale()
+            ctx.reply(tx.ITEM_UNAVAILABLE, self._shop_nav(ctx, cap))
             return
+        title = listing.record_title(ctx, resource, item)
+        price, stock = self._price(cap, item), self._stock(cap, item)
         hidden = {resource.title_field, cap.price_field, cap.stock_field}
         details = listing.detail_lines(
             ctx,
@@ -521,58 +566,75 @@ class OrdersEngine:
             item,
             [f.key for f in resource.fields if f.key not in hidden and item.data.get(f.key) is not None],
         )
-        stock = self._stock(cap, item)
+        sold_out = price is None or stock == 0
         if stock is not None:
             stock_text = _num(stock) if stock > 0 else tx.OUT_OF_STOCK_MARK
-            details = "\n".join(x for x in (details, _fill(tx.STOCK_LINE, stock=stock_text)) if x)
-        price = self._price(cap, item)
+            details = "\n".join(x for x in (_fill(tx.STOCK_LINE, stock=stock_text), details) if x)
         text = ctx.t(
             cap,
             "item_detail",
-            title=listing.record_title(ctx, resource, item),
+            title=title,
             details=details,
             price=money(price) if price is not None else tx.OUT_OF_STOCK_MARK,
-        )
-        items = await listing.load_items(ctx, resource)
-        rows: Rows = [
-            [ctx.button(tx.ADD_BUTTON, cap, ACT_ADD, item.id)],
-            self._cart_row(cap),
-            ctx.back_home_row(cap, ACT_LIST, listing.page_of(items, item.id)),
-        ]
-        ctx.reply(text, rows)
+        ).rstrip()
+        if sold_out:
+            text += f"\n{tx.SOLD_OUT}"
+        rows: Rows = []
 
-    async def _add(self, ctx: Ctx, cap: OrdersCapability, item_id: int | None) -> None:
+        def arg(q: int) -> str:
+            return str(item.id) if q == 1 else f"{item.id}.{q}"
+
+        if sold_out:
+            # kept so that pressing it answers «این محصول تمام شده است.» (the state message)
+            rows.append([ctx.button(tx.ADD_BUTTON, cap, ACT_ADD, item.id)])
+        else:
+            top = MAX_QTY if stock is None else min(MAX_QTY, stock)
+            qty = min(max(qty, 1), top)
+            rows.append(
+                [
+                    ctx.button(tx.QTY_MINUS, cap, ACT_ITEM, arg(max(qty - 1, 1))),
+                    ctx.button(_num(qty), cap, ACT_ITEM, arg(qty)),
+                    ctx.button(tx.QTY_PLUS, cap, ACT_ITEM, arg(min(qty + 1, top))),
+                ]
+            )
+            rows.append([ctx.button(tx.ADD_BUTTON, cap, ACT_ADD, arg(qty))])
+        rows.append(self._cart_row(cap, await self._cart_units(ctx, cap)))
+        back = chrome.back_to(ctx, chrome.sub_route(chrome.route_of(ctx, cap), "shop.i"), tx.BACK_TO_SHOP)
+        rows.append([back, ctx.home_button()])
+        ctx.reply(f"{self._shop_head(ctx, cap, title)}\n{text}", rows)
+
+    async def _add(self, ctx: Ctx, cap: OrdersCapability, item_id: int | None, qty: int) -> None:
         resource = ctx.spec.resource(cap.resource)
         item = await ctx.store.get_record(resource.key, item_id) if resource and item_id is not None else None
         if resource is None or item is None or self._price(cap, item) is None:
-            ctx.reject(cap, "order", "not_found", tx.ITEM_UNAVAILABLE, self._cart_nav(ctx, cap))
+            ctx.reject(cap, "order", "not_found", tx.ITEM_UNAVAILABLE, self._shop_nav(ctx, cap))
             return
         title = listing.record_title(ctx, resource, item)
+        stock = self._stock(cap, item)
+        if stock == 0:
+            ctx.reject(cap, "order", "out_of_stock", tx.SOLD_OUT, self._shop_nav(ctx, cap))
+            return
         cart = await self._get_cart(ctx, cap)
         items = _cart_items(cart)
         current = dict(items).get(item.id, 0)
-        qty = current + 1
-        stock = self._stock(cap, item)
-        if stock is not None and qty > stock:
+        total = current + qty
+        if stock is not None and total > stock:
             text = ctx.t(cap, "out_of_stock", title=title)
             ctx.reject(cap, "order", "out_of_stock", text, self._cart_nav(ctx, cap))
             return
-        if qty > MAX_QTY or (current == 0 and len(items) >= MAX_LINES):
+        if total > MAX_QTY or (current == 0 and len(items) >= MAX_LINES):
             ctx.reject(cap, "order", "invalid_input", tx.CART_LIMIT, self._cart_nav(ctx, cap))
             return
         if current:
-            items = [(i, qty if i == item.id else q) for i, q in items]
+            items = [(i, total if i == item.id else q) for i, q in items]
         else:
-            items.append((item.id, qty))
+            items.append((item.id, total))
         await self._save_cart(ctx, cap, cart, items)
-        ctx.reply(
-            ctx.t(cap, "added_to_cart", title=title, qty=_num(qty)),
-            [
-                [ctx.button(tx.ADD_BUTTON, cap, ACT_ADD, item.id), *self._cart_row(cap)],
-                self._continue_row(cap),
-                ctx.home_row(),
-            ],
-        )
+        text = ctx.t(cap, "added_to_cart", title=title, qty=_num(qty))
+        if current:
+            text += "\n" + _fill(tx.IN_CART_NOTE, qty=_num(total))
+        units = sum(q for _, q in items)
+        ctx.reply(text, [[*self._cart_row(cap, units), *self._continue_row(cap)], ctx.home_row()])
 
     async def _dec(self, ctx: Ctx, cap: OrdersCapability, item_id: int | None) -> None:
         cart = await self._get_cart(ctx, cap)
@@ -586,9 +648,10 @@ class OrdersEngine:
         if resource is None:
             ctx.stale()
             return
+        head = self._cart_head(ctx, cap)
         lines, _ = await self._lines(ctx, cap, resource, await self._get_cart(ctx, cap))
         if not lines:
-            ctx.reply(ctx.t(cap, "cart_empty"), self._shop_nav(ctx, cap))
+            ctx.reply(f"{head}\n{ctx.t(cap, 'cart_empty')}", self._shop_nav(ctx, cap))
             return
         text_lines = [
             _fill(tx.CART_LINE, title=ln.title, qty=_num(ln.qty), total=money(ln.subtotal)) for ln in lines
@@ -603,7 +666,8 @@ class OrdersEngine:
             for ln in lines
         ]
         rows += [[ctx.button(tx.CHECKOUT_BUTTON, cap, ACT_CHK)], self._continue_row(cap), ctx.home_row()]
-        ctx.reply(ctx.t(cap, "cart_summary", lines="\n".join(text_lines), total=money(total)), rows)
+        summary = ctx.t(cap, "cart_summary", lines="\n".join(text_lines), total=money(total))
+        ctx.reply(f"{head}\n{summary}", rows)
 
     async def _checkout(self, ctx: Ctx, cap: OrdersCapability) -> None:
         resource = ctx.spec.resource(cap.resource)
@@ -614,17 +678,19 @@ class OrdersEngine:
         if loaded is None:
             return
         total = sum(ln.subtotal for ln in loaded[1])
-        intro = ctx.t(cap, "checkout_prompt", total=money(total))
+        head = self._cart_head(ctx, cap, tx.CHECKOUT_CRUMB)
+        intro = f"{head}\n{ctx.t(cap, 'checkout_prompt', total=money(total))}"
         await forms.start(ctx, self, cap, fields=cap.checkout_fields, intro=intro)
 
     async def _mine(self, ctx: Ctx, cap: OrdersCapability) -> None:
+        head = chrome.heading(ctx, cap, "mine")
         orders = await ctx.store.list_records(
             cap.key, actor_id=ctx.actor.id, order_by="-id", limit=MINE_LIMIT
         )
         if not orders:
-            ctx.reply(ctx.t(cap, "mine_empty"), self._shop_nav(ctx, cap))
+            ctx.reply(f"{head}\n{ctx.t(cap, 'mine_empty')}", self._shop_nav(ctx, cap))
             return
-        lines = [ctx.t(cap, "mine_header")]
+        lines = [head, ctx.t(cap, "mine_header")]
         rows: Rows = []
         for order in orders:
             lines.append(
@@ -642,7 +708,7 @@ class OrdersEngine:
                     ctx.button(_fill(tx.CANCEL_ORDER_BUTTON, id=_num(order.id)), cap, ACT_CANCEL, order.id)
                 )
             rows.append(row)
-        rows += [self._continue_row(cap), ctx.home_row()]
+        rows += self._shop_nav(ctx, cap)
         ctx.reply("\n".join(lines), rows)
 
     async def _own_order(self, ctx: Ctx, cap: OrdersCapability, order_id: int | None) -> Record | None:
@@ -652,11 +718,11 @@ class OrdersEngine:
     async def _show(self, ctx: Ctx, cap: OrdersCapability, order_id: int | None) -> None:
         order = await self._own_order(ctx, cap, order_id)
         if order is None:
-            ctx.stale()
+            ctx.reply(tx.ORDER_NOT_FOUND, [self._mine_row(cap), ctx.home_row()])
             return
         text = _fill(
             tx.ORDER_DETAIL,
-            id=_num(order.id),
+            heading=chrome.heading(ctx, cap, "mine", _fill(tx.ORDER_CRUMB, id=_num(order.id))),
             lines=self._items_text(_order_items(order)),
             total=money(_int(order.data.get("total")) or 0),
             status=self._status_label(cap, order.status),
@@ -685,7 +751,7 @@ class OrdersEngine:
         await self._move_stock(ctx, cap, order, +1)
         ctx.reply(
             ctx.t(cap, "cancelled", id=_num(order.id)),
-            [self._mine_row(cap), self._continue_row(cap), ctx.home_row()],
+            [self._mine_row(cap), self._shop_row(cap), ctx.home_row()],
         )
         if "cancelled" in cap.notify_owner_on:
             ctx.notify_owner(

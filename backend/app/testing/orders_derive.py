@@ -16,9 +16,10 @@ latest order's status. Emitted templates:
   non_owner_rejected   a customer sending an owner action is rejected ``not_allowed`` and the
                        status is unchanged (when the initial status has an owner action)
 
-A capability with no main menu item, or whose resource is missing, is skipped. Restricted
-audiences and disabled capabilities are handled by ``derive.derive_scenarios`` (multi-customer
-templates such as ``out_of_stock`` are dropped there when driven as the owner).
+A capability with no main entry in ``nav.virtual_menu``, or whose resource is missing, is
+skipped. Restricted audiences and disabled capabilities are handled by
+``derive.derive_scenarios`` (multi-customer templates such as ``out_of_stock`` are dropped there
+when driven as the owner).
 """
 
 from types import SimpleNamespace

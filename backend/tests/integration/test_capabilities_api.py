@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 
 from app.botspec.models import BookingCapability, BotSpec
 from app.db.models import Bot, BotModuleRow, Revision
+from app.runtime.nav import virtual_menu
 from tests.integration.conftest import MakeBot
 from tests.integration.helpers import SessionFactory
 
@@ -87,7 +88,7 @@ async def test_enable_then_disable_events(
     spec = BotSpec.model_validate(rev.spec)
     events = spec.capability("events")
     assert isinstance(events, BookingCapability) and events.preset == "events" and events.enabled
-    assert any(m.capability == "events" and m.view == "main" for m in spec.menu)
+    assert any(e.capability == "events" and e.view == "main" for e in virtual_menu(spec))
     assert rev.test_report and rev.test_report["failed"] == 0 and rev.test_report["total"] > 0
     assert any(s["id"].startswith("derived:events:") for s in rev.scenarios or [])
     assert rev.patch and rev.change_request
@@ -269,3 +270,4 @@ async def test_disable_last_capabilities_is_structured_error(
     res = await client.post(f"/bots/{bot_id}/capabilities/booking/disable", json={})
     assert res.status_code == 409
     assert res.json()["error"]["code"] == "invalid_spec"
+    assert "no_enabled_capabilities" in res.text

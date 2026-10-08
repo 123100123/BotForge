@@ -87,7 +87,7 @@ async def test_admin_events_follow_the_same_rule() -> None:
 async def test_on_internal_workflows_staff_submit_and_only_managers_decide() -> None:
     h = Harness(repair_spec(audience="staff"))  # e.g. leave requests: staff are the submitters
     r = await h.tap(STAFF, MENU_MAIN)
-    assert text(r) == engine._fill(tx.MAIN_INTRO, title=TITLE)  # no queue: staff cannot decide here
+    assert text(r) == f"📝 {TITLE}\n{tx.MAIN_INTRO}"  # no queue: staff cannot decide here
     await h.tap(STAFF, f"{CAP}:new:")
     for answer in ANSWERS:
         r = await h.send(STAFF, answer)
@@ -133,7 +133,7 @@ async def test_the_queue_lists_pending_requests_newest_first_with_their_actions(
         f"{CAP}:own:{r1}.reject",
         f"{CAP}:new:",
         f"{CAP}:mine:",
-        "menu:home:",
+        "nav:go:home",
     ]
     labels = [b.label for b in buttons(q)]
     assert labels[0] == f"تأیید (کد {fa(r5)})" and labels[2] == f"انجام شد (کد {fa(r2)})"
@@ -145,8 +145,8 @@ async def test_the_queue_lists_pending_requests_newest_first_with_their_actions(
     # the owner is a manager and sees the queue too; customers keep the plain entry view
     assert button_data(await h.tap("owner", MENU_MAIN))[0] == f"{CAP}:own:{r5}.approve"
     customer = await h.tap(ALI, MENU_MAIN)
-    assert text(customer) == engine._fill(tx.MAIN_INTRO, title=TITLE)
-    assert button_data(customer) == [f"{CAP}:new:", f"{CAP}:mine:", "menu:home:"]
+    assert text(customer) == f"📝 {TITLE}\n{tx.MAIN_INTRO}"
+    assert button_data(customer) == [f"{CAP}:new:", f"{CAP}:mine:", "nav:go:home"]
 
 
 async def test_the_queue_is_capped_and_says_how_many_more_wait() -> None:
@@ -158,12 +158,26 @@ async def test_the_queue_is_capped_and_says_how_many_more_wait() -> None:
     assert body.endswith(engine._fill(engine.QUEUE_MORE, count=fa(2)))
 
 
+async def test_staff_home_adds_the_request_queue() -> None:
+    """Staff get the customer home plus «📋 صف درخواست‌ها» (``staff.q``), which opens the queue;
+    customers never see it and pressing it is stale for them."""
+    h = Harness(repair_spec())
+    rid = await seed(h, "new")
+    staff_home = button_data(await h.start(STAFF))
+    assert staff_home[-1] == "nav:go:staff.q"
+    assert "nav:go:staff.q" not in button_data(await h.start(ALI))
+    q = await h.tap(STAFF, "nav:go:staff.q")
+    assert f"{CAP}:own:{rid}.approve" in button_data(q)
+    stale = await h.tap(ALI, "nav:go:staff.q")
+    assert stale.messages[0].edit is False and f"{CAP}:own:{rid}.approve" not in button_data(stale)
+
+
 async def test_an_empty_queue_still_offers_the_entries() -> None:
     h = Harness(repair_spec())
     await seed(h, "done")
     q = await h.tap(STAFF, MENU_MAIN)
     assert text(q) == engine._fill(engine.QUEUE_EMPTY, title=TITLE)
-    assert button_data(q) == [f"{CAP}:new:", f"{CAP}:mine:", "menu:home:"]
+    assert button_data(q) == [f"{CAP}:new:", f"{CAP}:mine:", "nav:go:home"]
 
 
 async def test_queue_values_are_one_line_and_cut_short() -> None:
@@ -202,7 +216,7 @@ async def test_staff_only_capabilities_are_visible_to_the_staff_persona() -> Non
     spec: BotSpec = with_cap(load_example("workshop.botspec.json"), "info", audience="staff")
     h = Harness(spec)
     staff, ali = persona_actor("staff"), persona_actor("ali")
-    assert "menu:open:about" in menu_data(await h.start(staff))
-    assert "menu:open:about" not in menu_data(await h.start(ali))
+    assert "nav:go:info" in menu_data(await h.start(staff))
+    assert "nav:go:info" not in menu_data(await h.start(ali))
     assert not is_stale(await h.tap(staff, "info:show:about"))
     assert is_stale(await h.tap(ali, "info:show:about"))

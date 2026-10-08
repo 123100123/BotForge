@@ -13,7 +13,7 @@ from app.agent import events as ev
 from app.agent.checks import check_acceptance, compact_json, requirement_ids
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
-from app.agent.phases import BUDGET_MESSAGE, add_block_reason, section, task_message
+from app.agent.phases import BUDGET_MESSAGE, CORRECTIVE_RETRY_REASON, add_block_reason, section, task_message
 from app.agent.prompts import system_prompt
 from app.botspec.outline import spec_outline
 from app.testing.derive import derive_scenarios
@@ -103,6 +103,7 @@ async def run(ctx: RunContext) -> Next:
                     "keeping their ids. Fix every listed problem.",
                 },
             ]
+            await ctx.emit(ev.retrying("testgen", 2, CORRECTIVE_RETRY_REASON))
             try:
                 out, usage = await ctx.llm.structured(
                     task="testgen",

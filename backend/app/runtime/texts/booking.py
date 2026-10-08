@@ -14,9 +14,9 @@ from typing import NamedTuple
 from app.runtime.texts.common import FORM_TEXTS
 
 TEXTS: dict[str, str] = {
-    "list_header": "{title}\nیکی از موارد زیر را انتخاب کنید:",
-    "empty": "{title}\nدر حال حاضر موردی برای ثبت‌نام وجود ندارد.",
-    "item_detail": "{title}\n\n{details}\n\nظرفیت باقی‌مانده: {remaining}",
+    "list_header": "یکی از موارد زیر را انتخاب کنید.",
+    "empty": "در حال حاضر موردی برای ثبت‌نام وجود ندارد.",
+    "item_detail": "{details}\n\nظرفیت باقی‌مانده: {remaining}",
     "confirmed": "ثبت‌نام شما در «{title}» قطعی شد.",
     "waitlisted": "ظرفیت «{title}» تکمیل است؛ شما در لیست انتظار قرار گرفتید (نفر {position}).",
     "full": "متأسفانه ظرفیت «{title}» تکمیل است.",
@@ -36,8 +36,8 @@ TEXTS: dict[str, str] = {
     "owner_cancelled": "{user} ثبت‌نام خود در «{title}» را لغو کرد.",
     # events preset (see ``Words`` below for its fixed strings)
     "events_list_header": "رویدادهای پیش‌رو",
-    "events_empty": "{title}\nدر حال حاضر رویداد پیش‌رویی ثبت نشده است.",
-    "events_item_detail": "{title}\n\n{details}\n\nظرفیت باقی‌مانده: {remaining}",
+    "events_empty": "در حال حاضر رویداد پیش‌رویی ثبت نشده است.",
+    "events_item_detail": "{details}\n\nظرفیت باقی‌مانده: {remaining}",
     "events_confirmed": "شرکت شما در «{title}» ثبت شد.",
     "events_waitlisted": "ظرفیت «{title}» تکمیل است؛ شما در فهرست انتظار قرار گرفتید (نفر {position}).",
     "events_full": "متأسفانه ظرفیت «{title}» تکمیل است.",

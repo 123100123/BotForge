@@ -1,21 +1,24 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
-import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
+import Link from "next/link";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { ArrowLeftIcon, FileSpreadsheetIcon } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
+import { InfoNote } from "@/components/app/state-blocks";
+import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { ErrorState } from "@/components/ui/error-state";
+import { Skeleton } from "@/components/ui/skeleton";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import { fa, formatDateTime } from "@/lib/format";
+import { fa } from "@/lib/format";
 import type { AnalysisProfileOut, AnalysisRunOut, Bot, UploadOut } from "@/lib/types";
-import { cn } from "@/lib/utils";
-import { InspectionView } from "./inspection-view";
-import { STATUS_LABELS, STATUS_VARIANT } from "./labels";
-import { ProfileCard } from "./profile-card";
-import { ProfileCreateForm } from "./profile-create-form";
-import { RunResult } from "./run-result";
-import { UploadZone } from "./upload-zone";
+import { ProfileEditDialog } from "./profile-edit-dialog";
+import { ProfileList } from "./profile-list";
+import { RunDialog } from "./run-dialog";
+import { RunHistory } from "./run-history";
+import { RunReport } from "./run-report";
+import { SetupFlow } from "./setup-flow";
 
 interface AnalystData {
   uploads: UploadOut[];
@@ -23,24 +26,50 @@ interface AnalystData {
   runs: AnalysisRunOut[];
 }
 
-/** Data Analyst: upload a workbook, review its inspection, save profiles, run them and browse the runs. */
+/** Insert or replace by id, newest first. */
+function upsert<T extends { id: string }>(list: T[], item: T): T[] {
+  return [item, ...list.filter((x) => x.id !== item.id)];
+}
+
+/**
+ * Spreadsheet analysis (تحلیل فایل اکسل). Until a profile exists it is the four-step setup; after that it is
+ * the list of profiles, a way to run one on a file, and the history of runs. A run is a page of its own
+ * (`?run=<id>`), so it can be linked.
+ */
 export function AnalystTab({ bot }: { bot: Bot }) {
   return <AnalystScreen key={bot.id} botId={bot.id} />;
 }
 
+function AnalystSkeleton() {
+  return (
+    <div role="status" aria-label="در حال بارگذاری" className="flex flex-col gap-4">
+      <Skeleton className="h-8 w-56" />
+      <Skeleton className="h-28 w-full" />
+      <Skeleton className="h-28 w-full" />
+    </div>
+  );
+}
+
 function AnalystScreen({ botId }: { botId: string }) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const runId = useSearchParams().get("run");
+  const [attempt, setAttempt] = useState(0);
   const [data, setData] = useState<AnalystData | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [inspectedId, setInspectedId] = useState<string | null>(null);
-  const [activeRunId, setActiveRunId] = useState<string | null>(null);
+  const [setup, setSetup] = useState<boolean | null>(null);
+  const [runFor, setRunFor] = useState<{ profileId?: string } | null>(null);
+  const [editing, setEditing] = useState<AnalysisProfileOut | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const resultRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     let cancelled = false;
     Promise.all([api.listUploads(botId), api.listAnalysisProfiles(botId), api.listAnalysisRuns(botId)]).then(
       ([uploads, profiles, runs]) => {
-        if (!cancelled) setData({ uploads: uploads ?? [], profiles: profiles ?? [], runs: runs ?? [] });
+        if (cancelled) return;
+        setError(null);
+        setData({ uploads: uploads ?? [], profiles: profiles ?? [], runs: runs ?? [] });
+        setSetup((s) => s ?? (profiles ?? []).length === 0);
       },
       (err) => {
         if (!cancelled) setError(errorMessage(err));
@@ -49,174 +78,164 @@ function AnalystScreen({ botId }: { botId: string }) {
     return () => {
       cancelled = true;
     };
-  }, [botId]);
+  }, [botId, attempt]);
+
+  // A run page starts at its top.
+  useEffect(() => {
+    if (runId) window.scrollTo?.({ top: 0 });
+  }, [runId]);
 
   const patch = useCallback((fn: (d: AnalystData) => AnalystData) => setData((d) => (d ? fn(d) : d)), []);
+  const onUploaded = useCallback((u: UploadOut) => patch((d) => ({ ...d, uploads: upsert(d.uploads, u) })), [patch]);
+  const onProfile = useCallback((p: AnalysisProfileOut) => patch((d) => ({ ...d, profiles: upsert(d.profiles, p) })), [patch]);
 
-  useEffect(() => {
-    if (activeRunId) resultRef.current?.scrollIntoView?.({ behavior: "smooth", block: "nearest" });
-  }, [activeRunId]);
-
-  if (error) return <ErrorNote>{error}</ErrorNote>;
-  if (!data) return <LoadingBlock />;
+  if (error) return <ErrorState message={error} onRetry={() => setAttempt((a) => a + 1)} />;
+  if (!data || setup === null) return <AnalystSkeleton />;
 
   const { uploads, profiles, runs } = data;
-  const inspected = uploads.find((u) => u.id === inspectedId) ?? null;
-  const activeRun = runs.find((r) => r.id === activeRunId) ?? null;
-  const profileOf = (run: AnalysisRunOut) => profiles.find((p) => p.id === run.profile_id) ?? null;
+  const runHref = (run: AnalysisRunOut) => `${pathname}?run=${encodeURIComponent(run.id)}`;
 
-  function onUploaded(upload: UploadOut) {
-    patch((d) => ({ ...d, uploads: [upload, ...d.uploads.filter((u) => u.id !== upload.id)] }));
-    return upload;
-  }
-
-  function onProfileCreated(profile: AnalysisProfileOut) {
-    patch((d) => ({ ...d, profiles: [profile, ...d.profiles] }));
-    setNotice(`پروفایل «${profile.name}» ساخته شد. حالا می‌توانید با «اجرای تحلیل» آن را روی یک فایل اجرا کنید.`);
-  }
-
-  async function runProfile(profile: AnalysisProfileOut, uploadId: string, narrative: boolean) {
+  async function runProfile(profile: AnalysisProfileOut, uploadId: string, narrative: boolean): Promise<AnalysisRunOut> {
     const run = await api.runAnalysis(botId, profile.id, { upload_id: uploadId, narrative });
-    patch((d) => ({ ...d, runs: [run, ...d.runs.filter((r) => r.id !== run.id)] }));
-    setNotice(null);
-    setActiveRunId(run.id);
+    patch((d) => ({ ...d, runs: upsert(d.runs, run) }));
     // The run count lives on the server; a failed refresh only leaves the old count visible.
     api.listAnalysisProfiles(botId).then(
       (fresh) => patch((d) => ({ ...d, profiles: fresh ?? d.profiles })),
       () => {},
     );
+    return run;
   }
 
-  async function updateProfileFromRun(run: AnalysisRunOut, profile: AnalysisProfileOut | null) {
-    if (!run.upload_id) return;
-    const created = await api.createAnalysisProfile(botId, {
-      upload_id: run.upload_id,
-      name: profile ? `${profile.name} (به‌روز)` : undefined,
-      daily_report: profile?.daily_report ?? false,
-    });
-    patch((d) => ({ ...d, profiles: [created, ...d.profiles] }));
-    setNotice(`پروفایل جدید «${created.name}» از ساختار تازهٔ فایل ساخته شد. پروفایل قبلی دست‌نخورده ماند.`);
-    setActiveRunId(null);
+  if (setup) {
+    return (
+      <SetupFlow
+        botId={botId}
+        uploads={uploads}
+        onUploaded={onUploaded}
+        onProfile={onProfile}
+        runProfile={runProfile}
+        onFinish={() => {
+          setSetup(false);
+          router.replace(pathname);
+        }}
+      />
+    );
+  }
+
+  const editDialog = editing && (
+    <ProfileEditDialog
+      botId={botId}
+      profile={editing}
+      onClose={() => setEditing(null)}
+      onSaved={(p) => {
+        onProfile(p);
+        setEditing(null);
+      }}
+    />
+  );
+  const profileOf = (run: AnalysisRunOut) => profiles.find((p) => p.id === run.profile_id) ?? null;
+
+  // One run, as a page.
+  if (runId) {
+    const run = runs.find((r) => r.id === runId);
+    return (
+      <div className="flex flex-col gap-4">
+        <Link href={pathname} className="inline-flex w-fit items-center gap-1.5 rounded-xs text-small text-brand-text hover:underline">
+          <ArrowLeftIcon aria-hidden className="size-4 rtl:-scale-x-100" strokeWidth={1.75} />
+          همهٔ تحلیل‌ها
+        </Link>
+        {run ? (
+          <RunReport
+            key={run.id}
+            botId={botId}
+            run={run}
+            profile={profileOf(run)}
+            onProfileCreated={(profile, intent) => {
+              onProfile(profile);
+              setNotice(
+                intent === "update"
+                  ? `نسخهٔ به‌روز «${profile.name}» ساخته شد. می‌توانید آن را ویرایش کنید و بعد با «اجرای تحلیل» روی فایل اجرا کنید.`
+                  : `پروفایل تازهٔ «${profile.name}» ساخته شد. حالا می‌توانید با «اجرای تحلیل» آن را روی فایل اجرا کنید.`,
+              );
+              if (intent === "update") setEditing(profile);
+              router.push(pathname);
+            }}
+            onRetry={async (r) => {
+              const profile = profileOf(r);
+              if (!profile || !r.upload_id) return;
+              const next = await runProfile(profile, r.upload_id, true);
+              router.replace(runHref(next));
+            }}
+          />
+        ) : (
+          <EmptyState
+            icon={<FileSpreadsheetIcon />}
+            title="این تحلیل پیدا نشد"
+            description="ممکن است حذف شده باشد. از فهرست تحلیل‌ها یکی دیگر را باز کنید."
+            action={
+              <Button variant="secondary" asChild>
+                <Link href={pathname}>رفتن به فهرست تحلیل‌ها</Link>
+              </Button>
+            }
+          />
+        )}
+        {editDialog}
+      </div>
+    );
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-bold">تحلیل‌گر داده</h2>
-        <p className="text-sm leading-7 text-muted-foreground">
-          فایل اکسل یا CSV را بارگذاری کنید؛ دستیار ساختار آن را می‌فهمد و یک پروفایل تحلیل قابل‌استفادهٔ مجدد می‌سازد.
-        </p>
-      </header>
-
+    <div className="flex flex-col gap-8">
       {notice && <InfoNote>{notice}</InfoNote>}
 
-      <section aria-label="بارگذاری فایل" className="flex flex-col gap-3">
-        <UploadZone
+      <section aria-labelledby="profiles-title" className="flex flex-col gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 id="profiles-title" className="text-h2 text-fg">
+            پروفایل‌های تحلیل
+            <span className="ms-1.5 text-body font-normal text-fg-muted">({fa(profiles.length)})</span>
+          </h2>
+          <Button type="button" variant="secondary" size="sm" onClick={() => setRunFor({})}>
+            تحلیل فایل تازه
+          </Button>
+        </div>
+        <ProfileList profiles={profiles} onRun={(p) => setRunFor({ profileId: p.id })} onEdit={setEditing} />
+      </section>
+
+      <section aria-labelledby="history-title" className="flex flex-col gap-3">
+        <h2 id="history-title" className="text-h2 text-fg">
+          سابقهٔ تحلیل‌ها
+          {runs.length > 0 && <span className="ms-1.5 text-body font-normal text-fg-muted">({fa(runs.length)})</span>}
+        </h2>
+        {runs.length === 0 ? (
+          <div className="rounded-md border border-border bg-surface">
+            <EmptyState
+              icon={<FileSpreadsheetIcon />}
+              title="هنوز تحلیلی اجرا نشده است"
+              description="روی «اجرای تحلیل» بزنید و یک فایل بدهید؛ نتیجه‌ها اینجا ثبت می‌شوند."
+            />
+          </div>
+        ) : (
+          <RunHistory runs={runs} profiles={profiles} hrefFor={runHref} />
+        )}
+      </section>
+
+      {runFor && (
+        <RunDialog
           botId={botId}
-          onUploaded={(u) => {
-            onUploaded(u);
-            setInspectedId(u.id);
+          profiles={profiles}
+          uploads={uploads}
+          initialProfileId={runFor.profileId}
+          onUploaded={onUploaded}
+          onClose={() => setRunFor(null)}
+          onRun={async (profile, uploadId, narrative) => {
+            const run = await runProfile(profile, uploadId, narrative);
+            setRunFor(null);
             setNotice(null);
+            router.push(runHref(run));
           }}
         />
-        {uploads.length > 0 && (
-          <div className="flex flex-col gap-1.5 sm:max-w-sm">
-            <Label htmlFor="analyst-inspect">بررسی فایل‌های قبلی</Label>
-            <Select id="analyst-inspect" value={inspectedId ?? ""} onChange={(e) => setInspectedId(e.target.value || null)}>
-              <option value="">انتخاب فایل…</option>
-              {uploads.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.filename} — {formatDateTime(u.created_at)}
-                </option>
-              ))}
-            </Select>
-          </div>
-        )}
-      </section>
-
-      {inspected && (
-        <InspectionView upload={inspected}>
-          <ProfileCreateForm botId={botId} upload={inspected} onCreated={onProfileCreated} />
-        </InspectionView>
       )}
-
-      <section aria-label="پروفایل‌های تحلیل" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
-          پروفایل‌های تحلیل{profiles.length > 0 && <span className="ms-1 text-muted-foreground">({fa(profiles.length)})</span>}
-        </h3>
-        {profiles.length === 0 ? (
-          <EmptyState title="هنوز پروفایل تحلیلی ساخته نشده است">
-            {uploads.length === 0
-              ? "یک فایل اکسل یا CSV بارگذاری کنید تا ساختار آن بررسی شود و بتوانید از آن پروفایل بسازید."
-              : "یکی از فایل‌های بارگذاری‌شده را بررسی کنید و از آن پروفایل تحلیل بسازید."}
-          </EmptyState>
-        ) : (
-          <div className="grid items-start gap-3 md:grid-cols-2">
-            {profiles.map((p) => (
-              <ProfileCard
-                key={p.id}
-                botId={botId}
-                profile={p}
-                uploads={uploads}
-                onUploaded={onUploaded}
-                onRun={runProfile}
-                onSaved={(saved) => patch((d) => ({ ...d, profiles: d.profiles.map((x) => (x.id === saved.id ? saved : x)) }))}
-              />
-            ))}
-          </div>
-        )}
-      </section>
-
-      {activeRun && (
-        <div ref={resultRef} className="scroll-mt-4">
-          <RunResult key={activeRun.id} run={activeRun} profile={profileOf(activeRun)} onUpdateProfile={updateProfileFromRun} />
-        </div>
-      )}
-
-      <section aria-label="سابقهٔ اجراها" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
-          سابقهٔ اجراها{runs.length > 0 && <span className="ms-1 text-muted-foreground">({fa(runs.length)})</span>}
-        </h3>
-        {runs.length === 0 ? (
-          <EmptyState title="هنوز تحلیلی اجرا نشده است">
-            بعد از ساخت پروفایل، «اجرای تحلیل» را بزنید تا نتیجه‌ها اینجا ثبت شوند.
-          </EmptyState>
-        ) : (
-          <ul className="flex flex-col gap-2">
-            {runs.map((r) => {
-              const selected = r.id === activeRunId;
-              return (
-                <li key={r.id}>
-                  <button
-                    type="button"
-                    onClick={() => setActiveRunId(r.id)}
-                    aria-pressed={selected}
-                    className={cn(
-                      "flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2.5 text-start transition-colors outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                      selected && "border-primary bg-accent/30",
-                    )}
-                  >
-                    <span className="flex min-w-0 flex-col gap-0.5">
-                      <span className="truncate text-sm font-medium">
-                        <bdi>{r.filename ?? "فایل حذف‌شده"}</bdi>
-                      </span>
-                      <span className="text-xs text-muted-foreground">
-                        {profileOf(r)?.name ?? "پروفایل حذف‌شده"} · {formatDateTime(r.created_at)}
-                      </span>
-                    </span>
-                    <span className="flex items-center gap-2">
-                      {r.status === "ok" && (r.anomalies?.length ?? 0) > 0 && (
-                        <Badge variant="warning">{fa(r.anomalies.length)} ناهنجاری</Badge>
-                      )}
-                      <Badge variant={STATUS_VARIANT[r.status] ?? "secondary"}>{STATUS_LABELS[r.status] ?? r.status}</Badge>
-                    </span>
-                  </button>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </section>
+      {editDialog}
     </div>
   );
 }

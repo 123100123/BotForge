@@ -12,9 +12,11 @@ from app.agent import events as ev
 from app.agent import prompts
 from app.agent.checks import compact_json
 from app.agent.context import Next, RunContext
+from app.agent.llm import LLMError
 from app.agent.state import ChatTurn, RunState
 
 BUDGET_MESSAGE = "بودجهٔ این گفتگو برای ساخت ربات تمام شد."
+CORRECTIVE_RETRY_REASON = "بعضی آزمون‌ها ایراد داشتند؛ دوباره می‌نویسم."
 STEP_LIMIT_TEXT = (
     "ایجنت پیش از تأیید نهایی کارش به سقف تعداد اقدام‌ها رسید. اگر می‌خواهید ادامه دهد، یک پیام بفرستید."
 )
@@ -47,15 +49,26 @@ async def say(ctx: RunContext, text: str) -> None:
     await ctx.emit(ev.agent_message(text))
 
 
-async def fail(ctx: RunContext, message: str, detail: str | None = None) -> Next:
-    """End the run as failed with a Persian explanation (error event + agent message)."""
+async def fail(
+    ctx: RunContext, message: str, detail: str | None = None, code: str = ev.VALIDATION_FAILED
+) -> Next:
+    """End the run as failed with a Persian explanation (error event + agent message).
+
+    ``code`` is the stable ``error.code``: VALIDATION_FAILED (the default: the agent could not reach
+    a valid result), BUDGET_EXCEEDED, or LLM_UNAVAILABLE. Nothing has reached the live bot, so
+    ``applied`` is always false."""
     ctx.state.error = detail or message
     if ctx.state.kind == "modify" and ctx.state.revision_id is not None:
         # A draft from an earlier round of this run must not outlive the failed run.
         await ctx.repo.reject_revision(ctx.state.revision_id)
-    await ctx.emit(ev.error(message))
+    await ctx.emit(ev.error(message, code))
     await say(ctx, message)
     return Next("failed", "failed")
+
+
+def llm_failure_code(exc: LLMError) -> str:
+    """``error.code`` for a model call that failed: the API was unreachable, or its output was unusable."""
+    return ev.LLM_UNAVAILABLE if exc.code == "api_error" else ev.VALIDATION_FAILED
 
 
 def section(tag: str, content: str | BaseModel | Any) -> str:

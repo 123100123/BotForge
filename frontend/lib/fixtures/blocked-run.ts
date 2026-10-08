@@ -28,7 +28,9 @@ export function blockedRunScript(ctx: ScriptContext): ScriptItem[] {
   };
 
   return [
-    ev("phase_started", { phase: "understand" }, 500),
+    ev("phase_started", { phase: "triage" }, 400),
+    ev("phase_finished", { phase: "triage", ok: true, summary: "درخواست تغییر ربات است" }, 700),
+    ev("phase_started", { phase: "understand" }, 400),
     ev("agent_message", { text: "درخواست شما را با قابلیت‌های فعلی بررسی می‌کنم." }, 700),
     ev("requirements", { requirements }, 1300),
     ev("phase_finished", { phase: "understand", ok: true, summary: "یک مورد از درخواست قابل انجام نیست؛ بقیه فرض‌های قبلی حفظ شد" }, 500),
@@ -81,7 +83,6 @@ export function blockedRunScript(ctx: ScriptContext): ScriptItem[] {
     ),
     ev("phase_finished", { phase: "review", ok: true, summary: "بازبینی آماده شد" }, 400),
 
-    ev("phase_started", { phase: "await_approval" }, 400),
     ev("agent_message", { text: "این تغییر کامل انجام نشد و قابل تأیید نیست. می‌توانید آن را رد کنید و درخواست را بدون بخش پرداخت دوباره بنویسید." }, 300),
     ev(
       "approval_requested",

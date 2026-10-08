@@ -5,16 +5,18 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.botspec.models import BotSpec
 from app.db.models import Bot, RecordRow
+from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import TelegramOrigin
 from app.integrations.telegram.client import FakeTelegramClient
 from app.runtime.callbacks import make_callback
 from app.runtime.contracts import Actor, RuntimeEvent
 from app.runtime.pg_store import PgStore
 from app.runtime.runtime import BotRuntime
+from app.runtime.texts import nav as nav_texts
 from app.services.dispatch import dispatch
 from tests.integration.helpers import REPO, SessionFactory
 from tests.integration.tg_helpers import CAP, LiveBot, capacity_spec, make_live_bot
@@ -152,6 +154,23 @@ async def test_messages_to_non_telegram_actors_are_skipped_and_keep_the_last_err
         assert row is not None and row.tg_last_error == "sendMessage: Forbidden: bot was blocked by the user"
 
 
+async def test_a_parked_bots_polling_conflict_error_is_not_overwritten_by_delivery(
+    session_factory: SessionFactory, bot: LiveBot, spec: BotSpec, fake_tg: FakeTelegramClient
+) -> None:
+    async with session_factory() as session:  # the poller parked the bot after this snapshot was read
+        await session.execute(
+            update(Bot).where(Bot.id == bot.id).values(tg_last_error=texts.POLLING_CONFLICT)
+        )
+        await session.commit()
+    fake_tg.fail_methods["sendMessage"] = "Forbidden: bot was blocked by the user"
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)  # a failed delivery
+    fake_tg.fail_methods.clear()
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)  # a clean one
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error == texts.POLLING_CONFLICT
+
+
 async def test_delivery_failure_is_logged_with_bot_and_description(
     session_factory: SessionFactory,
     bot: LiveBot,
@@ -211,11 +230,46 @@ async def test_runtime_failure_rolls_back_answers_the_callback_and_raises(
         raise RuntimeError("engine exploded")
 
     monkeypatch.setattr(BotRuntime, "handle", boom)
-    ev = event(bot, "live", "601", "callback", data="menu:home:")
+    ev = event(bot, "live", "601", "callback", data="book_workshop:book:7")
     with pytest.raises(RuntimeError, match="engine exploded"):
         await run(session_factory, bot, spec, ev, fake_tg, origin=TelegramOrigin(601, "cq-9", 5))
     assert [k["callback_query_id"] for k in fake_tg.calls_to("answerCallbackQuery")] == ["cq-9"]
-    assert fake_tg.calls_to("sendMessage") == []
+    # The user is told, in a NEW message (the pressed message 5 is not edited), with a retry of the
+    # same button and a way home; the answer comes first.
+    assert [m for m, _ in fake_tg.calls] == ["answerCallbackQuery", "sendMessage"]
+    (sent,) = fake_tg.calls_to("sendMessage")
+    assert sent["chat_id"] == 601 and sent["text"] == nav_texts.ERROR
+    assert sent["reply_markup"]["inline_keyboard"] == [
+        [{"text": nav_texts.RETRY, "callback_data": "book_workshop:book:7"}],
+        [{"text": nav_texts.HOME, "callback_data": "nav:go:home"}],
+    ]
+    assert fake_tg.calls_to("editMessageText") == []
+
+
+async def test_runtime_failure_on_text_offers_home_only_and_group_presses_post_nothing(
+    session_factory: SessionFactory,
+    bot: LiveBot,
+    spec: BotSpec,
+    fake_tg: FakeTelegramClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def boom(self: Any, *args: Any) -> Any:
+        raise RuntimeError("engine exploded")
+
+    monkeypatch.setattr(BotRuntime, "handle", boom)
+    with pytest.raises(RuntimeError):
+        await run(session_factory, bot, spec, event(bot, "live", "601", "text", text="سلام"), fake_tg)
+    (sent,) = fake_tg.calls_to("sendMessage")
+    assert sent["reply_markup"]["inline_keyboard"] == [
+        [{"text": nav_texts.HOME, "callback_data": "nav:go:home"}]
+    ]
+    fake_tg.calls.clear()
+    group = event(bot, "live", "601", "callback", data="book_workshop:book:7").model_copy(
+        update={"chat_type": "group"}
+    )
+    with pytest.raises(RuntimeError):
+        await run(session_factory, bot, spec, group, fake_tg, origin=TelegramOrigin(-100, "cq-1", 9))
+    assert [m for m, _ in fake_tg.calls] == ["answerCallbackQuery"]  # nothing is posted to a group
 
 
 async def test_event_for_another_bot_is_refused(

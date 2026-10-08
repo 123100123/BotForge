@@ -318,10 +318,15 @@ async def test_open_info_single_and_multiple_pages() -> None:
 
 
 async def test_open_without_menu_item_fails_clearly() -> None:
-    spec = patched(op("remove", ["menu", "my_bookings"]))
-    ok, msg = await run_steps(spec, [step("open", actor="ali", view="mine")])
+    ok, msg = await run_steps(workshop(), [step("open", actor="ali", capability="info", view="mine")])
     assert not ok
     assert "mine" in msg
+
+
+async def test_legacy_menu_items_are_not_needed_to_open() -> None:
+    spec = patched(op("remove", ["menu", "my_bookings"]), op("remove", ["menu", "workshops"]))
+    ok, msg = await run_steps(spec, [step("open", actor="ali", view="mine")])
+    assert ok, msg
 
 
 async def test_open_item_on_info_is_rejected() -> None:

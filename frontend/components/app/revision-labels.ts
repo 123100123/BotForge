@@ -15,6 +15,11 @@ export const REVISION_STATUS_VARIANTS: Record<RevisionStatus, "secondary" | "suc
   rejected: "destructive",
 };
 
+/** Only a draft or the active version can be tried in the simulator (the API rejects the rest). */
+export function isTestable(rev: Pick<RevisionSummary, "status">): boolean {
+  return rev.status === "draft" || rev.status === "active";
+}
+
 /** "نسخهٔ ۳ (فعال)" for revision selectors. */
 export function revisionOptionLabel(rev: Pick<RevisionSummary, "number" | "status" | "created_at">): string {
   return `نسخهٔ ${fa(rev.number)} (${REVISION_STATUS_LABELS[rev.status]}) - ${relativeTime(rev.created_at)}`;

@@ -35,6 +35,7 @@ export const mockApi: Api = {
   postRunMessage: (runId, message) => call(() => engine.postRunMessage(runId, message)),
   approveRun: (runId) => call(() => engine.approveRun(runId)),
   rejectRun: (runId) => call(() => engine.rejectRun(runId)),
+  retryRun: (runId) => call(() => engine.retryRun(runId)),
 
   listRevisions: (botId) => call(() => tabs.listRevisions(botId)),
   getRevision: (revisionId) => call(() => tabs.getRevision(revisionId)),
@@ -56,6 +57,7 @@ export const mockApi: Api = {
   getTelegram: (botId) => call(() => tabs.getTelegram(botId)),
   connectTelegram: (botId, token) => call(() => tabs.connectTelegram(botId, token)),
   disconnectTelegram: (botId) => call(() => tabs.disconnectTelegram(botId)),
+  retryTelegram: (botId) => call(() => tabs.retryTelegram(botId)),
 
   listCapabilities: () => call(() => capabilities.listCapabilities()),
   enableCapability: (_botId, capId, body) => call(() => capabilities.enableCapability(capId, body)),
@@ -68,7 +70,11 @@ export const mockApi: Api = {
   uploadWorkbook: (_botId, file) => call(() => analyst.uploadWorkbook(file)),
   listUploads: () => call(() => analyst.listUploads()),
   listAnalysisProfiles: () => call(() => analyst.listAnalysisProfiles()),
-  createAnalysisProfile: (_botId, body) => call(() => analyst.createAnalysisProfile(body)),
+  // The profile draft is a model call: slow enough to see (and cancel) the waiting state.
+  createAnalysisProfile: async (_botId, body) => {
+    await engine.sleep(1800);
+    return call(() => analyst.createAnalysisProfile(body));
+  },
   updateAnalysisProfile: (_botId, profileId, body) => call(() => analyst.updateAnalysisProfile(profileId, body)),
   runAnalysis: (_botId, profileId, body) => call(() => analyst.runAnalysis(profileId, body)),
   listAnalysisRuns: (_botId, profileId) => call(() => analyst.listAnalysisRuns(profileId)),

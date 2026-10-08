@@ -38,6 +38,10 @@ MAX_RETRY_AFTER = 5.0  # seconds; a longer 429 is raised instead of stalling the
 # The update types BotForge handles (app.api.webhook); setWebhook and getUpdates ask for exactly these.
 # ``my_chat_member``: the bot was added to or removed from a group or channel (``bot_chats``).
 ALLOWED_UPDATES = ["message", "callback_query", "my_chat_member"]
+# Lower-cased part of Telegram's 409 description when a second getUpdates consumer ended this one
+# ("Conflict: terminated by other getUpdates request; make sure that only one bot instance is
+# running"). The other 409, "can't use getUpdates method while webhook is active", is not a competitor.
+COMPETING_POLLER = "terminated by other getupdates request"
 # getUpdates holds the request open for up to its ``timeout``; the read timeout must exceed that.
 LONG_POLL_GRACE = 15.0
 # answerCallbackQuery allows 200 characters of toast text; stay below it.
@@ -110,8 +114,10 @@ class TelegramApi(Protocol):
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None: ...
 
+    async def get_webhook_info(self) -> dict[str, Any]: ...
+
     async def get_updates(
-        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str], limit: int | None = None
     ) -> list[dict[str, Any]]: ...
 
     async def send_message(
@@ -124,6 +130,14 @@ class TelegramApi(Protocol):
 
     async def answer_callback_query(
         self, callback_query_id: str, text: str | None = None, show_alert: bool = False
+    ) -> None: ...
+
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None: ...
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
     ) -> None: ...
 
     async def get_file(self, file_id: str) -> str: ...
@@ -216,14 +230,24 @@ class TelegramClient:
         connect passes True, as the webhook-mode connect's setWebhook drops them."""
         await self._call("deleteWebhook", {"drop_pending_updates": drop_pending_updates})
 
+    async def get_webhook_info(self) -> dict[str, Any]:
+        """The bot's webhook as Telegram holds it; ``url`` is empty when none is set. Used by connect to
+        see whether another server already serves the bot."""
+        result = await self._call("getWebhookInfo")
+        return result if isinstance(result, dict) else {}
+
     async def get_updates(
-        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str], limit: int | None = None
     ) -> list[dict[str, Any]]:
         """Long poll: Telegram answers when an update arrives or after ``timeout`` seconds. Passing
-        ``offset`` confirms every update below it. Fails with error code 409 while a webhook is set."""
+        ``offset`` confirms every update below it (connect's probe passes none, so nothing is
+        confirmed, and ``limit=1``). Fails with error code 409 while a webhook is set, and for the
+        older of two concurrent consumers ("terminated by other getUpdates request")."""
         payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": allowed_updates}
         if offset is not None:
             payload["offset"] = offset
+        if limit is not None:
+            payload["limit"] = limit
         read_timeout = httpx.Timeout(timeout + LONG_POLL_GRACE, connect=5.0)
         result = await self._call("getUpdates", payload, timeout=read_timeout, retry=False)
         return [u for u in result if isinstance(u, dict)] if isinstance(result, list) else []
@@ -261,6 +285,28 @@ class TelegramClient:
             if show_alert:
                 payload["show_alert"] = True
         await self._call("answerCallbackQuery", payload)
+
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None:
+        """``setMyCommands``: the command list Telegram shows in the chat's command menu. ``commands``
+        are ``{"command", "description"}`` dicts; ``scope`` is a ``BotCommandScope`` object (for
+        example ``{"type": "chat", "chat_id": 1}``), ``None`` meaning the default scope."""
+        payload: dict[str, Any] = {"commands": commands}
+        if scope is not None:
+            payload["scope"] = scope
+        await self._call("setMyCommands", payload)
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
+    ) -> None:
+        """``setChatMenuButton``: the button next to the message box. Without ``chat_id`` it is the
+        default for every private chat; ``menu_button`` defaults to ``{"type": "commands"}`` (opens the
+        command list)."""
+        payload: dict[str, Any] = {"menu_button": menu_button or {"type": "commands"}}
+        if chat_id is not None:
+            payload["chat_id"] = chat_id
+        await self._call("setChatMenuButton", payload)
 
     async def get_file(self, file_id: str) -> str:
         """The ``file_path`` to download ``file_id`` with. ``TelegramError`` when Telegram has none
@@ -376,6 +422,7 @@ class FakeTelegramClient:
         self.get_me_error: TelegramError | None = None
         self.pending_updates: list[dict[str, Any]] = []
         self.get_updates_errors: list[Exception] = []
+        self.webhook_url = ""  # what get_webhook_info reports (set by tests; set_webhook leaves it)
         self.poll_wait = 0.05
         self.files: dict[str, bytes] = {}
         self._file_paths: dict[str, str] = {}  # file_path handed out by get_file -> file_id
@@ -420,10 +467,15 @@ class FakeTelegramClient:
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
         self._record("deleteWebhook", drop_pending_updates=drop_pending_updates)
 
+    async def get_webhook_info(self) -> dict[str, Any]:
+        self._record("getWebhookInfo")
+        return {"url": self.webhook_url, "pending_update_count": 0}
+
     async def get_updates(
-        self, *, offset: int | None, timeout: int, allowed_updates: list[str]
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str], limit: int | None = None
     ) -> list[dict[str, Any]]:
-        self._record("getUpdates", offset=offset, timeout=timeout, allowed_updates=allowed_updates)
+        extra = {} if limit is None else {"limit": limit}
+        self._record("getUpdates", offset=offset, timeout=timeout, allowed_updates=allowed_updates, **extra)
         if self.get_updates_errors:
             raise self.get_updates_errors.pop(0)
         if offset is not None:  # confirmed: Telegram forgets them (a malformed id counts as earlier)
@@ -462,6 +514,16 @@ class FakeTelegramClient:
             text=toast_text(text),
             show_alert=show_alert,
         )
+
+    async def set_my_commands(
+        self, commands: list[dict[str, str]], scope: dict[str, Any] | None = None
+    ) -> None:
+        self._record("setMyCommands", commands=commands, scope=scope)
+
+    async def set_chat_menu_button(
+        self, chat_id: int | None = None, menu_button: dict[str, Any] | None = None
+    ) -> None:
+        self._record("setChatMenuButton", chat_id=chat_id, menu_button=menu_button or {"type": "commands"})
 
     async def get_file(self, file_id: str) -> str:
         self._record("getFile", file_id=file_id)

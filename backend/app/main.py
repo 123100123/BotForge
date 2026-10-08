@@ -141,8 +141,9 @@ SWEEP_SECONDS = 60.0
 
 
 async def mark_interrupted_runs(stale_after: timedelta = STALE_RUN_AFTER) -> int:
-    """Agent runs left in ``running`` by a process that is gone become ``interrupted``, each with
-    its ``run_status`` event (also published to live streams in this process)."""
+    """Agent runs left in ``running`` by a process that is gone become ``interrupted``, each with a
+    ``run_interrupted`` event and its ``run_status`` event in the same transaction (also published
+    to live streams in this process), so a client that tails the run sees what happened."""
     envelopes = await SqlAgentRepository(get_sessionmaker()).interrupt_stale_runs(stale_after)
     for envelope in envelopes:
         default_bus.publish(envelope)

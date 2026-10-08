@@ -6,8 +6,8 @@ import { cn } from "@/lib/utils";
 import type { Scenario, ScenarioResult } from "@/lib/types";
 
 const GROUPS: { source: Scenario["source"]; title: string; hint: string }[] = [
-  { source: "derived", title: "آزمون‌های مشتق‌شده", hint: "از روی تنظیمات ربات ساخته شده‌اند" },
-  { source: "acceptance", title: "آزمون‌های پذیرش", hint: "از روی نیازمندی‌هایی که شما گفتید" },
+  { source: "derived", title: "آزمون‌های عمومی ربات", hint: "از روی پیکربندی ربات ساخته شده‌اند" },
+  { source: "acceptance", title: "آزمون‌های خواستهٔ شما", hint: "از روی چیزهایی که شما گفتید" },
 ];
 
 interface ScenarioListProps {
@@ -17,7 +17,7 @@ interface ScenarioListProps {
   onSelect: (id: string) => void;
 }
 
-/** Scenarios grouped by source, each with its pass/fail state. */
+/** Scenarios grouped by source, each with its pass/fail state (icon and word, never color alone). */
 export function ScenarioList({ scenarios, results, selectedId, onSelect }: ScenarioListProps) {
   return (
     <div className="flex flex-col gap-5">
@@ -28,13 +28,13 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
         return (
           <section key={g.source} aria-label={g.title} className="flex flex-col gap-1">
             <div className="px-2">
-              <h3 className="flex items-center justify-between gap-2 text-sm font-semibold">
+              <h5 className="flex items-center justify-between gap-2 text-small font-semibold text-fg">
                 {g.title}
-                <span className="text-xs font-normal text-muted-foreground">
+                <span className="text-caption font-normal text-fg-muted">
                   {fa(passed)} از {fa(items.length)}
                 </span>
-              </h3>
-              <p className="text-xs text-muted-foreground">{g.hint}</p>
+              </h5>
+              <p className="text-caption text-fg-muted">{g.hint}</p>
             </div>
             <ul className="flex flex-col gap-0.5">
               {items.map((s) => {
@@ -47,16 +47,16 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
                       onClick={() => onSelect(s.id)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-start text-sm leading-6 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
-                        active ? "bg-accent text-accent-foreground" : "hover:bg-muted",
+                        "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-start text-small transition-colors duration-fast",
+                        active ? "bg-brand-soft text-fg" : "hover:bg-surface-sunken",
                       )}
                     >
                       {!r ? (
-                        <CircleDashed aria-label="اجرا نشده" className="mt-1 size-4 shrink-0 text-muted-foreground" />
+                        <CircleDashed strokeWidth={1.75} aria-label="اجرا نشده" className="mt-1 size-4 shrink-0 text-fg-muted" />
                       ) : r.passed ? (
-                        <CircleCheck aria-label="موفق" className="mt-1 size-4 shrink-0 text-success" />
+                        <CircleCheck strokeWidth={1.75} aria-label="موفق" className="mt-1 size-4 shrink-0 text-success-text" />
                       ) : (
-                        <CircleX aria-label="ناموفق" className="mt-1 size-4 shrink-0 text-destructive" />
+                        <CircleX strokeWidth={1.75} aria-label="ناموفق" className="mt-1 size-4 shrink-0 text-danger-text" />
                       )}
                       <span>{s.title}</span>
                     </button>

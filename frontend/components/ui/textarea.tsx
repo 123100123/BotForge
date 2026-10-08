@@ -1,17 +1,9 @@
 import * as React from "react";
 import { cn } from "@/lib/utils";
+import { FIELD_CLASS } from "@/components/ui/input";
 
 function Textarea({ className, ...props }: React.ComponentProps<"textarea">) {
-  return (
-    <textarea
-      data-slot="textarea"
-      className={cn(
-        "flex min-h-16 w-full rounded-md border border-input bg-card px-3 py-2 text-sm transition-colors outline-none placeholder:text-muted-foreground focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 disabled:cursor-not-allowed disabled:opacity-50",
-        className,
-      )}
-      {...props}
-    />
-  );
+  return <textarea data-slot="textarea" className={cn(FIELD_CLASS, "flex min-h-20 py-2 leading-7", className)} {...props} />;
 }
 
 export { Textarea };

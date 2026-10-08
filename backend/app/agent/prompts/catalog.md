@@ -7,11 +7,13 @@ A BotSpec has five parts (capability types: info, catalog, booking, request, ord
  "bot": {"name": "<Persian>", "welcome_text": "<Persian>", "timezone": "Asia/Tehran", "language": "fa"},
  "resources": [ ...owner-managed item types... ],
  "capabilities": [ ...what bot users can do... ],
- "menu": [ ...main-menu buttons, 1 to 8... ]}
+ "menu": []}
 ```
 
 Every list is a list of objects with a unique `key`. Resource keys and capability keys share one
-namespace (they must differ), and `menu` is reserved. All objects reject unknown properties.
+namespace (they must differ), and `menu` and `nav` are reserved. All objects reject unknown
+properties. Always write `"menu": []`: you do not design the bot's navigation (see "Navigation is
+generated").
 
 ## Resources (owner-managed items)
 
@@ -52,7 +54,7 @@ What: list -> detail browsing of a resource, no reservation.
 Parameters: `type: "catalog"`, `key`, `title`, `resource` (resource key), `detail_fields` (field
 keys shown on the detail view), `upcoming_only_field` (a datetime field; hides past items; default
 null), `sort_field` (default null = insertion order), `sort_desc` (default false), `texts` (default []).
-When: the owner wants customers to see a menu, a price list, or services, but not reserve them.
+When: the owner wants customers to see a price list, a product list or services, but not reserve them.
 Example: `{"type": "catalog", "key": "services", "title": "خدمات", "resource": "service",
 "detail_fields": ["description", "price"]}`
 
@@ -83,8 +85,8 @@ Parameters (defaults in brackets):
 - `notify_owner_on` [[]]: any of "booked", "waitlisted", "cancelled" - owner alerts in Telegram.
 - `notify_user_on` [["promoted"]]: the user is told when promoted from the waitlist.
 - `texts` [[]]: Persian text overrides (see below); usually leave empty.
-Menu: give a booking a "main" menu item (browse and book) and, when cancellation is enabled, a
-"mine" menu item (my reservations) - otherwise users cannot reach their bookings to cancel.
+Navigation: the bot adds the entry points itself (browse and book, my reservations / my
+registrations); the resource's `label_plural` is the noun shown in them.
 Sensible defaults: owner notified on "booked" and "cancelled"; duplicates blocked.
 Events preset (registry id events): `preset: "events"` (default "booking") is the same booking
 capability shaped for the events of a team, club or company: RSVP = booking, "mine" = my RSVPs.
@@ -157,7 +159,7 @@ request), `cancellable_statuses` [[]] (statuses in which the customer may cancel
 Records (you never write them): orders are records of collection `<key>` (items, total,
 payment_status), carts of `<key>.cart`, order lines of `<key>.lines`. Price and stock are integer
 fields on the resource's items, so the owner edits them in the Data tab.
-Menu: a "main" item (shop and cart) and a "mine" item (my orders, cancel).
+Navigation: the bot adds the shop, the cart and "my orders" entries itself.
 When: the owner sells several products or wants carts and stock. Online payment is NOT available.
 Default shape (use it unless the owner says otherwise):
 ```
@@ -172,16 +174,22 @@ Default shape (use it unless the owner says otherwise):
  "cancellable_statuses": ["new"], "notify_owner_on": ["placed", "cancelled"], "notify_user_on": ["status_changed"], "texts": []}
 ```
 
-## Menu
+## Navigation is generated
 
-`{"key", "label" (Persian button text), "capability" (capability key), "view": "main" | "mine"}`.
-1 to 8 items reaching ENABLED capabilities (items of disabled capabilities do not count). "mine"
-is only for booking, request and orders capabilities. Every enabled capability should be reachable
-from the menu.
+You never design menus or buttons. The bot builds its navigation by itself from the enabled
+capabilities and the user's role: a customer home (shop, my orders, events, my registrations,
+support, info pages) and a separate manager panel for the owner. Every enabled capability gets its
+entry points automatically, and Back and Home buttons are added to every screen. Leave
+`"menu": []` and never add, edit or remove menu items.
+What you do control, and what shows up there:
+- a capability's `title` is its heading (and the name of an info or request entry);
+- a resource's `label` and `label_plural` are the business nouns used in booking and events
+  entries ("ثبت‌نام در کارگاه‌ها", "کارگاه‌های من"), so choose natural singular and plural nouns;
+- `enabled: false` removes a capability's entries; `audience` decides who sees them.
 
 ## enabled and audience (booking, request and orders capabilities)
 
-- `enabled` [true]: false hides the capability from users (menu, buttons) but keeps its
+- `enabled` [true]: false hides the capability from users (its entries and buttons) but keeps its
   configuration and records. To turn a feature off, set `enabled` to false instead of removing it,
   and set it back to true to turn it on again. Remove only when the owner wants it gone for good.
 - `audience` ["everyone"]: who may use it: "everyone", "staff" (staff and managers: internal forms
@@ -222,8 +230,8 @@ Examples:
 {"op": "set", "path": ["capabilities", "book_workshop", "cancellation", "deadline_hours"], "value": 2}
 {"op": "add", "path": ["capabilities", "book_workshop", "form_fields"],
  "value": {"key": "phone", "label": "شماره تماس", "type": "phone", "required": true, "choices": null, "default": null}}
-{"op": "add", "path": ["menu"], "value": {"key": "my_bookings", "label": "ثبت‌نام‌های من", "capability": "book_workshop", "view": "mine"}}
-{"op": "remove", "path": ["menu", "about"]}
+{"op": "set", "path": ["capabilities", "book_workshop", "title"], "value": "ثبت‌نام در کارگاه"}
+{"op": "set", "path": ["capabilities", "about", "enabled"], "value": false}
 ```
 
 ## Unsupported (record with a reason and the closest alternative)

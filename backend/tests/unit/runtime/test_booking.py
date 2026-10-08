@@ -19,7 +19,7 @@ from app.runtime.engines import get_engine
 from app.runtime.memory_store import MemoryStore
 from app.runtime.store import Record
 from app.runtime.texts import booking as tx
-from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from tests.unit.runtime.harness import EXAMPLES, T0, Harness, button_data, text
 
 CAP = "book_workshop"
@@ -166,7 +166,7 @@ async def test_list_shows_upcoming_items_sorted_and_hides_started() -> None:
     sooner = await seed_item(h, "زودتر", hours=24)
     r = await h.tap("ali", MENU_MAIN)
     assert text(r) == (
-        "ثبت‌نام در کارگاه\nیکی از موارد زیر را انتخاب کنید:\n"
+        "📅 کارگاه‌ها\nیکی از موارد زیر را انتخاب کنید.\n"
         "• زودتر (دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۱:۳۰)\n"
         "• دیرتر (چهارشنبه ۱۵ مهر ۱۴۰۵، ساعت ۱۱:۳۰)"
     )
@@ -174,7 +174,7 @@ async def test_list_shows_upcoming_items_sorted_and_hides_started() -> None:
         f"{CAP}:item:{sooner}",
         f"{CAP}:item:{later}",
         f"{CAP}:mine:",
-        "menu:home:",
+        "nav:go:home",
     ]
     assert not has(r, "item", started)
     # list callback with a page arg renders the same list
@@ -185,7 +185,7 @@ async def test_list_shows_upcoming_items_sorted_and_hides_started() -> None:
 async def test_list_empty_and_pagination() -> None:
     h = Harness(booking_spec())
     r = await h.tap("ali", MENU_MAIN)
-    assert text(r) == "ثبت‌نام در کارگاه\nدر حال حاضر موردی برای ثبت‌نام وجود ندارد."
+    assert text(r) == "📅 کارگاه‌ها\nدر حال حاضر موردی برای ثبت‌نام وجود ندارد."
     ids = [await seed_item(h, f"کارگاه {i}", hours=24 + i) for i in range(10)]
     r = await h.tap("ali", MENU_MAIN)
     assert [parse_callback(d)[2] for d in button_data(r) if ":item:" in d] == [str(i) for i in ids[:8]]
@@ -199,10 +199,10 @@ async def test_item_detail_buttons_remaining_waitlist_and_own_status() -> None:
     w = await seed_item(h, price=1500000)
     r = await open_item(h, "ali", w)
     t = text(r)
-    assert t.startswith("کارگاه عکاسی\n\nتوضیحات: توضیح\nمدرس: مریم احمدی\nزمان شروع: ")
+    assert t.startswith("📅 کارگاه‌ها › کارگاه عکاسی\nتوضیحات: توضیح\nمدرس: مریم احمدی\nزمان شروع: ")
     assert "هزینه (تومان): ۱٬۵۰۰٬۰۰۰" in t
     assert "ظرفیت باقی‌مانده: ۱" in t and "تعداد در لیست انتظار: ۰" in t
-    assert button_data(r) == [f"{CAP}:book:{w}", f"{CAP}:list:0", "menu:home:"]
+    assert button_data(r) == [f"{CAP}:book:{w}", "nav:go:bkg", "nav:go:home"]  # Back = the list route
 
     b_ali = await book_ok(h, "ali", w)
     r = await open_item(h, "ali", w)
@@ -225,7 +225,7 @@ async def test_item_detail_without_waitlist_has_no_waitlist_line() -> None:
 async def test_item_stale_and_started_item_detail_still_offers_book() -> None:
     h = Harness(booking_spec())
     r = await h.tap("ali", f"{CAP}:item:999")
-    assert text(r) == common.STALE
+    assert text(r) == nav_texts.STALE
     started = await seed_item(h, hours=-2)
     r = await h.tap("ali", f"{CAP}:item:{started}")
     assert has(r, "book", started) and tx.CLOSED_LINE in text(r)
@@ -544,7 +544,7 @@ async def test_mine_view_lists_active_bookings_with_cancel_buttons() -> None:
     b = await seed_item(h, "ب", hours=30)
     c = await seed_item(h, "ج", hours=36)
     r = await h.tap("ali", MENU_MINE)
-    assert text(r) == "شما در حال حاضر ثبت‌نام فعالی ندارید." and has(r, "list", 0)
+    assert text(r) == "🗓 رزروهای من\nشما در حال حاضر ثبت‌نام فعالی ندارید." and has(r, "list", 0)
     await book_ok(h, "sara", b)
     ba = await book_ok(h, "ali", a)
     bb = await book_ok(h, "ali", b, "waitlisted")
@@ -552,11 +552,12 @@ async def test_mine_view_lists_active_bookings_with_cancel_buttons() -> None:
     await cancel_via_mine(h, "ali", bc)
     r = await h.tap("ali", MENU_MINE)
     assert text(r) == (
+        "🗓 رزروهای من\n"
         "ثبت‌نام‌های فعال شما:\n"
         "• الف (دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۱:۳۰) — قطعی\n"
         "• ب (دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۷:۳۰) — در لیست انتظار (نفر ۱)"
     )
-    assert button_data(r) == [f"{CAP}:cancel:{ba}", f"{CAP}:cancel:{bb}", f"{CAP}:list:0", "menu:home:"]
+    assert button_data(r) == [f"{CAP}:cancel:{ba}", f"{CAP}:cancel:{bb}", f"{CAP}:list:0", "nav:go:home"]
     r2 = await h.tap("ali", f"{CAP}:mine:")
     assert text(r2) == text(r)
 
@@ -672,9 +673,9 @@ async def test_mine_marks_bookings_of_started_items() -> None:
     await book_ok(h, "ali", past)
     await book_ok(h, "ali", upcoming)
     h.advance(2)
-    lines = text(await h.tap("ali", MENU_MINE)).splitlines()
-    assert lines[1].startswith("• الف") and lines[1].endswith("— برگزار شده")
-    assert lines[2].startswith("• ب") and lines[2].endswith("— قطعی")
+    lines = text(await h.tap("ali", MENU_MINE)).splitlines()  # heading, intro, then one line per booking
+    assert lines[2].startswith("• الف") and lines[2].endswith("— برگزار شده")
+    assert lines[3].startswith("• ب") and lines[3].endswith("— قطعی")
 
 
 # --- promotion --------------------------------------------------------------------------------
@@ -836,7 +837,7 @@ async def test_text_overrides_from_cap_texts() -> None:
     r = await book(h, "sara", w)
     assert own_messages(r, "sara")[0].text == "نوبت شما: ۱"
     r = await open_item(h, "reza", w)
-    assert text(r).startswith("کارگاه عکاسی | ۰")
+    assert text(r).startswith("📅 کارگاه‌ها › کارگاه عکاسی\nکارگاه عکاسی | ۰")
 
 
 async def test_display_name_used_in_owner_notice() -> None:

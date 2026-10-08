@@ -10,6 +10,7 @@ from app.runtime.callbacks import (
     ACT_OWN,
     ACTIONS_BY_TYPE,
     MENU,
+    NAV,
     CallbackError,
     make_callback,
     parse_callback,
@@ -70,6 +71,17 @@ def test_callback_vocabulary() -> None:
     assert {"list", "item", "book", "mine", "cancel", "ans", "skip", "stop"} == ACTIONS_BY_TYPE["booking"]
     assert {"new", "pick", "mine", "own"} <= ACTIONS_BY_TYPE["request"]
     assert ACTIONS_BY_TYPE["info"] == {"show"} and ACTIONS_BY_TYPE["catalog"] == {"list", "item"}
+    assert ACTIONS_BY_TYPE[NAV] == {"go"}  # additive (2026-10-08): stable navigation routes
+
+
+def test_nav_routes_are_ascii_machine_ids() -> None:
+    assert make_callback(NAV, "go", "shop.i~2.15") == "nav:go:shop.i~2.15"
+    assert parse_callback("nav:go:home") == (NAV, "go", "home")
+    for bad in ("فروشگاه", "Home", "a:b", "a b", ""):
+        with pytest.raises(CallbackError):
+            make_callback(NAV, "go", bad)
+    with pytest.raises(CallbackError):
+        make_callback(NAV, "go", "x" * 58)  # over 64 bytes
 
 
 # ---------------------------------------------------------------- runtime contracts

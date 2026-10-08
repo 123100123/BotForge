@@ -7,7 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint .",
-    "test:next-path": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-next-path.mjs"
+    "test:next-path": "node --disable-warning=MODULE_TYPELESS_PACKAGE_JSON scripts/check-next-path.mjs",
+    "check:rtl": "node scripts/check-rtl-classes.mjs",
+    "check:parity": "node scripts/check-schema-parity.mjs"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.117.2",

@@ -216,11 +216,11 @@ async def test_golden_flow_book_waitlist_cancel_and_promotion(
     # start -> menu
     assert (await ali.say("/start")).status_code == 200
     assert ali.last_text().startswith("سلام")
-    assert any(b["callback_data"] == "menu:open:workshops" for b in ali.buttons())
+    assert any(b["callback_data"] == "nav:go:bkg" for b in ali.buttons())
     assert fake_tg.calls[-1][0] == "sendMessage"
 
     # menu -> list -> item: each callback edits the message that carried the button
-    await ali.press(ali.data_with("menu:open:workshops"))
+    await ali.press(ali.data_with("nav:go:bkg"))
     assert fake_tg.calls[-1][0] == "editMessageText" and fake_tg.calls[-1][1]["message_id"] == 77
     assert "کارگاه عکاسی" in ali.last_text() or any("کارگاه عکاسی" in b["text"] for b in ali.buttons())
     await ali.press(ali.data_with(f"{CAP}:item:"))
@@ -275,7 +275,7 @@ async def test_text_message_outside_a_form_shows_the_menu(
 ) -> None:
     chat = Chat(tg_client, bot, fake_tg, 603)
     await chat.say("یک پیام تصادفی")
-    assert any(b["callback_data"].startswith("menu:open:") for b in chat.buttons())
+    assert any(b["callback_data"].startswith("nav:go:") for b in chat.buttons())
 
 
 async def test_hostile_user_text_never_reaches_telegram_unescaped(
@@ -613,3 +613,34 @@ async def test_delivery_failure_does_not_fail_the_webhook_and_state_is_kept(
         )
     assert [r.status for r in rows] == ["confirmed"]  # committed before delivery
     assert "blocked" in (await load_bot(session_factory, bot.id)).tg_last_error
+
+
+async def test_owner_link_sets_the_owner_chat_commands_with_panel(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient
+) -> None:
+    owner = Chat(tg_client, bot, fake_tg, 900)
+    await owner.say(f"/start owner_{bot.owner_link_code}")
+    assert owner.last_text() == texts.OWNER_LINKED
+    [commands] = fake_tg.calls_to("setMyCommands")
+    assert commands["scope"] == {"type": "chat", "chat_id": 900}
+    assert [c["command"] for c in commands["commands"]] == ["start", "menu", "help", "panel"]
+    assert commands["commands"][-1]["description"] == "پنل مدیریت"
+
+    # a rejected link sets nothing
+    intruder = Chat(tg_client, bot, fake_tg, 901)
+    await intruder.say(f"/start owner_{bot.owner_link_code}")
+    assert intruder.last_text() == texts.OWNER_LINK_INVALID
+    assert len(fake_tg.calls_to("setMyCommands")) == 1
+
+
+async def test_a_failing_set_my_commands_does_not_break_the_owner_link(
+    tg_client: httpx.AsyncClient,
+    bot: LiveBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+) -> None:
+    fake_tg.fail_methods["setMyCommands"] = "Bad Request: nope"
+    owner = Chat(tg_client, bot, fake_tg, 900)
+    assert (await owner.say(f"/start owner_{bot.owner_link_code}")).status_code == 200
+    assert owner.last_text() == texts.OWNER_LINKED
+    assert (await load_bot(session_factory, bot.id)).owner_actor_id == "900"

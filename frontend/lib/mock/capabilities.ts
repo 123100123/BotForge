@@ -137,7 +137,7 @@ function seed(): CapabilityOut[] {
       requires: ["reporting"],
       features: ["خلاصهٔ روزانه", "خلاصهٔ هفتگی"],
     }),
-    cap("copilot", "دستیار هوشمند", "از کسب‌وکارتان بپرسید و تغییرات را با دستیار انجام دهید.", "intelligence", {
+    cap("copilot", "دستیار کسب‌وکار", "از کسب‌وکارتان بپرسید و تغییرات را با دستیار انجام دهید.", "intelligence", {
       kind: "module",
       enabled: true,
       features: ["پرسش از داده‌ها", "تغییر ربات"],
@@ -226,7 +226,7 @@ function toggle(capId: string, action: "enable" | "disable", body: CapabilityTog
     const message = p.blocked_by.length > 0
       ? "این قابلیت در حال حاضر قابل فعال‌سازی نیست."
       : p.needs_agent
-        ? "برای این قابلیت باید از دستیار هوشمند کمک بگیرید."
+        ? "برای این قابلیت باید از دستیار کمک بگیرید."
         : "پیش‌نمایش تغییرات؛ چیزی اعمال نشد.";
     return { plan: p, applied: false, revision_id: null, revision_number: null, message };
   }

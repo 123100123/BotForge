@@ -312,13 +312,25 @@ def test_catalog_and_info_only_spec() -> None:
     assert catalog.steps[0].contains == "مورد ۱"
 
 
-def test_capabilities_without_a_main_menu_item_are_skipped() -> None:
-    assert (
-        derive_scenarios(patched(op("remove", ["menu", "workshops"]), op("remove", ["menu", "my_bookings"])))
-        != []
-    )
-    spec = patched(op("remove", ["menu", "workshops"]), op("remove", ["menu", "my_bookings"]))
-    assert not [s for s in derive_scenarios(spec) if s.id.startswith(f"derived:{CAP}:")]
+def test_reachability_comes_from_the_compiled_homes_not_spec_menu() -> None:
+    """Removing legacy menu items changes nothing (the homes are compiled from the capabilities);
+    a capability the homes do not offer is skipped: a catalog over the resource an enabled orders
+    capability sells (one shop)."""
+    unmenued = patched(op("remove", ["menu", "workshops"]), op("remove", ["menu", "my_bookings"]))
+    assert [s.id for s in derive_scenarios(unmenued)] == [s.id for s in derive_scenarios(workshop())]
+
+    catalog = {
+        "type": "catalog", "key": "browse", "title": "فهرست", "resource": "workshop",
+        "detail_fields": ["description"],
+    }  # fmt: skip
+    orders = {
+        "type": "orders", "key": "shop", "title": "فروشگاه", "resource": "workshop", "price_field": "price",
+        "statuses": [{"key": "new", "label": "جدید"}], "initial_status": "new", "owner_actions": [],
+    }  # fmt: skip
+    alone = patched(op("add", ["capabilities"], catalog))
+    assert [s.id for s in derive_scenarios(alone) if s.id.startswith("derived:browse:")] != []
+    shadowed = patched(op("add", ["capabilities"], catalog), op("add", ["capabilities"], orders))
+    assert not [s for s in derive_scenarios(shadowed) if s.id.startswith("derived:browse:")]
 
 
 def test_request_capabilities_emit_request_templates() -> None:

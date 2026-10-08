@@ -177,18 +177,20 @@ async def test_variant_with_choice_boolean_and_optional_fields() -> None:
     assert (await run_all(spec)).failed == 0
 
 
-async def test_variant_without_mine_menu_skips_the_mine_check() -> None:
+async def test_legacy_menu_items_do_not_decide_reachability() -> None:
+    """«درخواست‌های من» is always reachable (``sup.mine``), with or without legacy menu items."""
     data = repair_data()
-    data["menu"] = [m for m in data["menu"] if m["key"] != "my_requests"]
+    full = [s.model_dump() for s in mine(BotSpec.model_validate(data))]
+    data["menu"] = [m for m in data["menu"] if m["capability"] != "repair"]
     spec = BotSpec.model_validate(data)
-    submit = mine(spec)[0]
-    assert [s.do for s in submit.steps] == ["submit_request", "expect_request"]
+    assert [s.model_dump() for s in mine(spec)] == full
+    assert "open" in [s.do for s in mine(spec)[0].steps]
     assert (await run_all(spec)).failed == 0
 
 
-def test_capability_without_a_main_menu_item_emits_nothing() -> None:
+def test_disabled_capability_emits_nothing() -> None:
     data = repair_data()
-    data["menu"] = [m for m in data["menu"] if m["capability"] != "repair"]
+    next(c for c in data["capabilities"] if c["key"] == "repair")["enabled"] = False
     assert mine(BotSpec.model_validate(data)) == []
 
 

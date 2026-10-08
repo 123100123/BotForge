@@ -15,6 +15,11 @@ Order of operations, and why it matters:
 3. COMMIT;
 4. only then, for ``env="live"``, deliver messages through Telegram.
 
+If the runtime raises, the transaction is rolled back (nothing happened), the pressed button is
+answered, and for a live private-chat event the user gets a NEW message «نتوانستم این کار را انجام
+دهم…» with [تلاش دوباره] (the same callback data again) and [🏠 خانه] (``error_notice``); the
+exception is re-raised for the caller to log (``webhook.process_update`` logs and drops it).
+
 The commit happens BEFORE delivery. The business state is therefore durable even if Telegram is
 down, and a slow Telegram call never holds the advisory lock or an open transaction. The price is
 that a delivery failure cannot undo the booking: it is logged and recorded in ``bots.tg_last_error``
@@ -47,11 +52,12 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.botspec.models import BotSpec, Role
 from app.db.models import Bot
+from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import (
     NOT_MODIFIED,
     TelegramOrigin,
@@ -61,9 +67,12 @@ from app.integrations.telegram.adapter import (
 )
 from app.integrations.telegram.client import TelegramApi, TelegramError, TelegramProvider, default_provider
 from app.roles.service import get_role
-from app.runtime.contracts import OutMessage, RuntimeEvent, RuntimeResponse
+from app.runtime import nav
+from app.runtime.callbacks import MAX_CALLBACK_BYTES
+from app.runtime.contracts import Button, OutMessage, RuntimeEvent, RuntimeResponse
 from app.runtime.pg_store import PgStore, advisory_lock
 from app.runtime.runtime import BotRuntime
+from app.runtime.texts import nav as nav_texts
 from app.security.crypto import TokenCryptoError, decrypt_token
 from app.services.group_cards import Card, is_events_capability, render_for_item
 
@@ -115,10 +124,12 @@ async def dispatch(
     try:
         response = await BotRuntime().handle(event, spec, store)
         await session.commit()  # durable BEFORE anything is sent to Telegram
-    except BaseException:
+    except BaseException as exc:
         await session.rollback()
         if live:
             await _answer_callback_best_effort(target, origin, provider)
+            if isinstance(exc, Exception):  # not on cancellation
+                await _send_error_notice_best_effort(target, event, origin, provider)
         raise
 
     if live:
@@ -192,6 +203,37 @@ async def _answer_callback_best_effort(
         await client.answer_callback_query(origin.callback_query_id)
     except TelegramError as exc:
         log.warning("bot %s: %s", target.id, exc)
+
+
+def error_notice(event: RuntimeEvent) -> OutMessage:
+    """What the user sees when the runtime failed on their event (the transaction was rolled back,
+    so nothing happened): an actionable notice, [تلاش دوباره] re-sending the pressed button's data
+    when there was one, and [🏠 خانه]."""
+    rows: list[list[Button]] = []
+    # Longer data than Telegram allows cannot have come from a button: no retry then.
+    if event.kind == "callback" and event.data and len(event.data.encode("utf-8")) <= MAX_CALLBACK_BYTES:
+        rows.append([Button(label=nav_texts.RETRY, data=event.data)])
+    rows.append([nav.home_button()])
+    return OutMessage(to_actor_id=event.actor.id, text=nav_texts.ERROR, buttons=rows)
+
+
+async def _send_error_notice_best_effort(
+    target: _Target, event: RuntimeEvent, origin: TelegramOrigin | None, provider: TelegramProvider
+) -> None:
+    """After a runtime failure on a private-chat event: send ``error_notice`` as a NEW message (the
+    pressed message is left as it is). Group presses got their answer already and nothing is ever
+    posted to a group; admin events answer through the web. Never raises."""
+    if event.chat_type != "private" or event.kind == "admin" or not _CHAT_ID.fullmatch(event.actor.id):
+        return
+    client = _client_for(target, provider)
+    if client is None:
+        return
+    try:
+        await send_out_message(client, error_notice(event), event, None)  # no origin: never an edit
+    except TelegramError as exc:
+        _log_failure(target, exc)
+    except Exception:
+        log.exception("bot %s: could not send the error notice", target.id)
 
 
 async def _deliver(
@@ -400,7 +442,20 @@ async def _record_error(session: AsyncSession, bot: _Target, error: str | None) 
     if bot.last_error == error:
         return
     try:
-        await session.execute(update(Bot).where(Bot.id == bot.id).values(tg_last_error=error))
+        # A parked poller's POLLING_CONFLICT error is the park marker: neither a later delivery error
+        # nor a clean delivery may overwrite it (only the owner's retry, a reconnect or a restart does).
+        await session.execute(
+            update(Bot)
+            .where(
+                Bot.id == bot.id,
+                or_(
+                    Bot.tg_last_error.is_(None),
+                    Bot.tg_last_error.not_like(f"{texts.POLLING_CONFLICT_PREFIX}%"),
+                ),
+            )
+            .values(tg_last_error=error)
+            .execution_options(synchronize_session=False)
+        )
         bot.last_error = error
         await session.commit()
     except Exception:

@@ -10,6 +10,7 @@ from app.runtime.ctx import Ctx
 from app.runtime.engines import override_engine
 from app.runtime.engines.base import EngineBase
 from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from tests.unit.runtime.harness import Harness, button_data, buttons, text
 
 FIELDS: list[dict[str, Any]] = [
@@ -162,16 +163,16 @@ async def test_stop_aborts(h: Harness, engine: FakeFormEngine) -> None:
     await h.send("ali", "علی")
     r = await h.tap("ali", "order:stop:")
     assert text(r) == "فرم لغو شد."
-    assert button_data(r) == ["menu:open:order_menu"]
+    assert button_data(r) == ["nav:go:sup"]  # the compiled home, not spec.menu
     assert await h.store.get_session("ali") is None
     assert engine.done == []
     r = await h.tap("ali", "order:stop:")  # nothing to stop any more
-    assert text(r) == common.STALE
+    assert text(r) == nav_texts.STALE
 
 
 async def test_bad_answer_index_and_no_session(h: Harness, engine: FakeFormEngine) -> None:
     r = await h.tap("ali", "order:ans:0")
-    assert text(r) == common.STALE
+    assert text(r) == nav_texts.STALE
     await h.tap("ali", "menu:open:order_menu")
     r = await h.tap("ali", "order:ans:0")  # "name" is a text field: no choices
     assert text(r).startswith(common.STALE + "\nلطفاً «نام»")

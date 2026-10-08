@@ -191,10 +191,17 @@ async def test_startup_interrupts_running_runs_without_a_heartbeat(
     assert await _statuses(session_factory, run_ids) == ["interrupted", "waiting_user", "done", "interrupted"]
     async with session_factory() as session:
         events = (
-            (await session.execute(select(AgentEvent).where(AgentEvent.run_id == run_ids[0]))).scalars().all()
+            (
+                await session.execute(
+                    select(AgentEvent).where(AgentEvent.run_id == run_ids[0]).order_by(AgentEvent.id)
+                )
+            )
+            .scalars()
+            .all()
         )
     assert [(e.type, e.payload) for e in events] == [
-        ("run_status", {"status": "interrupted", "phase": "build"})
+        ("run_interrupted", {"reason": "server_restart"}),
+        ("run_status", {"status": "interrupted", "phase": "build"}),
     ]
 
 
@@ -235,7 +242,10 @@ async def test_a_heartbeat_keeps_a_running_run_from_being_swept(session_factory:
         assert paused_row is not None and paused_row.updated_at < datetime.now(UTC) - STALE_RUN_AFTER
 
     envelopes = await repo.interrupt_stale_runs(STALE_RUN_AFTER)
-    assert [e.run_id for e in envelopes] == [str(silent)]
+    assert [(e.run_id, e.type) for e in envelopes] == [
+        (str(silent), "run_interrupted"),
+        (str(silent), "run_status"),
+    ]
     assert await _statuses(session_factory, [beating, silent, paused]) == [
         "running",
         "interrupted",

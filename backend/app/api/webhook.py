@@ -49,6 +49,7 @@ from app.db.session import get_session
 from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import ParsedUpdate, parse_update
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
+from app.integrations.telegram.commands import register_owner_commands
 from app.integrations.telegram.onboarding import armed_owner_code
 from app.roles import TEAM_ROLES
 from app.roles.service import (
@@ -328,6 +329,10 @@ async def _link_owner(
         linked = consumed.first() is not None
     await session.commit()  # also releases the lock
     text = texts.OWNER_LINKED if linked else texts.OWNER_LINK_INVALID
+    if linked:  # the owner's chat also gets /panel in its command menu (best effort)
+        client = client_for_bot(fresh, telegram)
+        if client is not None:
+            await register_owner_commands(client, parsed.origin.chat_id)
     await reply_plain(session, fresh, parsed.origin.chat_id, text, telegram=telegram, origin=parsed.origin)
 
 

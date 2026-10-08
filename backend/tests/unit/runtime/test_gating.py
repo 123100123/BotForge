@@ -7,7 +7,7 @@ import pytest
 from app.botspec.models import BotSpec
 from app.runtime.contracts import Actor, RuntimeEvent, RuntimeResponse, audience_allows
 from app.runtime.memory_store import MemoryStore
-from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from app.runtime.texts import orders as orders_texts
 from app.testing.derive import derive_scenarios
 from app.testing.runner import run_scenarios
@@ -31,7 +31,17 @@ def menu_data(resp: RuntimeResponse) -> list[str]:
 
 
 def is_stale(resp: RuntimeResponse) -> bool:
-    return len(resp.messages) == 1 and resp.messages[0].text == common.STALE
+    """A stale answer: ONE new message (never an edit) under the stale notice."""
+    msgs = resp.messages
+    return len(msgs) == 1 and msgs[0].text.startswith(nav_texts.STALE) and msgs[0].edit is False
+
+
+async def user_home(h: Harness, actor: Actor | str) -> RuntimeResponse:
+    """The actor's user home: managers land on the manager home and open «نمای مشتری»."""
+    resp = await h.start(actor)
+    if "nav:go:cust" in menu_data(resp):
+        resp = await h.tap(actor, "nav:go:cust")
+    return resp
 
 
 # ---------------------------------------------------------------- roles
@@ -57,11 +67,12 @@ async def test_disabled_capability_hidden_and_stale() -> None:
     spec = with_cap(load_example("workshop.botspec.json"), "info", enabled=False)
     h = Harness(spec)
     resp = await h.start("ali")
-    assert "menu:open:about" not in menu_data(resp)
-    assert "menu:open:workshops" in menu_data(resp)
+    assert "nav:go:info" not in menu_data(resp)
+    assert "nav:go:bkg" in menu_data(resp)
     assert is_stale(await h.tap("ali", "menu:open:about"))
+    assert "nav:go:info" not in menu_data(h.last)  # type: ignore[arg-type]
+    assert is_stale(await h.tap("ali", "nav:go:info"))
     assert is_stale(await h.tap("ali", "info:show:about"))
-    assert "menu:open:about" not in menu_data(h.last)  # type: ignore[arg-type]
     # Even the owner cannot use a disabled capability from Telegram.
     assert is_stale(await h.tap("owner", "info:show:about"))
 
@@ -108,8 +119,9 @@ async def test_restricted_capability(audience: str, allowed: set[str]) -> None:
     spec = with_cap(load_example("workshop.botspec.json"), "info", audience=audience)
     h = Harness(spec)
     for actor in (ALI, STAFF, MANAGER, OWNER):
-        visible = "menu:open:about" in menu_data(await h.start(actor))
+        visible = "nav:go:info" in menu_data(await user_home(h, actor))
         opened = await h.tap(actor, "menu:open:about")
+        assert is_stale(await h.tap(actor, "nav:go:info")) is not (actor.id in allowed)
         shown = await h.tap(actor, "info:show:about")
         if actor.id in allowed:
             assert visible, actor.id
@@ -138,6 +150,8 @@ async def test_group_context_noops() -> None:
     assert (await group_event(h, "text", text="سلام")).messages == []
     assert (await group_event(h, "callback", data="menu:home:")).messages == []
     assert (await group_event(h, "callback", data="menu:open:about")).messages == []
+    assert (await group_event(h, "callback", data="nav:go:home")).messages == []
+    assert (await group_event(h, "callback", data="nav:go:info")).messages == []
     assert (await group_event(h, "callback", data="garbage")).messages == []
     assert "ali" not in h.store.users
     routed = await group_event(h, "callback", data="info:show:about")
@@ -151,11 +165,16 @@ async def test_orders_stub_and_events_preset_run() -> None:
     spec = BotSpec.model_validate(business_data())
     h = Harness(spec, MemoryStore())
     start = await h.start("ali")
-    assert "menu:open:shop_menu" in menu_data(start)
+    assert "nav:go:shop" in menu_data(start) and "nav:go:ord" in menu_data(start)
     # The real orders engine (W1-ORD) answers every entry point; nothing exists yet, so it writes nothing.
     shop = await h.tap("ali", "menu:open:shop_menu")
-    assert shop.messages[0].text == orders_texts.TEXTS["empty"].replace("{title}", "فروشگاه")
-    assert (await h.tap("ali", "menu:open:my_orders")).messages[0].text == orders_texts.TEXTS["mine_empty"]
+    assert shop.messages[0].text == "🛍 فروشگاه\n" + orders_texts.TEXTS["empty"].replace("{title}", "فروشگاه")
+    assert (await h.tap("ali", "menu:open:my_orders")).messages[0].text == (
+        "📦 سفارش‌های من\n" + orders_texts.TEXTS["mine_empty"]
+    )
+    assert (await h.tap("ali", "nav:go:ord")).messages[0].text == "📦 سفارش‌های من\n" + orders_texts.TEXTS[
+        "mine_empty"
+    ]
     for resp in (
         await h.tap("ali", "shop:add:1"),
         await h.tap("ali", "shop:chk:"),
@@ -165,6 +184,7 @@ async def test_orders_stub_and_events_preset_run() -> None:
         assert resp.effects == []
     events = await h.tap("ali", "menu:open:events_menu")
     assert events.messages and not is_stale(events)
+    assert not is_stale(await h.tap("ali", "nav:go:evt"))
     assert is_stale(await h.tap("ali", "info:add:1"))  # orders-only action on another type
 
 

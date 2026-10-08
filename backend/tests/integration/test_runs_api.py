@@ -437,8 +437,8 @@ async def test_run_status_events_and_startup_interruption_over_the_api(
     bot_id, _ = await make_bot("alice", active=False)
     token = "123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawQ"
     created = await api.start(bot_id, f"{GOLDEN_PROMPT} {token}")
-    # The run waits for approval (still active), so its SSE stream stays open by design, and
-    # httpx.ASGITransport returns a response only after the app finishes: read the table instead.
+    # The run waits for approval; read the stored events directly (the stream of a paused run
+    # replays them and ends, test_live_stream_ends_when_the_run_reaches_a_terminal_state).
     events = [e.model_dump(mode="json") for e in await api.orch.repo.list_events(created["id"])]
     statuses = [e["payload"] for e in events if e["type"] == "run_status"]
     assert statuses == [

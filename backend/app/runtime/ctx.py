@@ -12,8 +12,8 @@ from typing import Any, Literal
 
 from app.botspec.models import AnyCapability, BotSpec, FieldDef
 from app.botspec.text_keys import fill_text
-from app.runtime import formatting, manager
-from app.runtime.callbacks import ACT_HOME, ACT_OPEN, MENU, make_callback
+from app.runtime import formatting, nav
+from app.runtime.callbacks import make_callback
 from app.runtime.contracts import (
     Actor,
     Button,
@@ -28,6 +28,7 @@ from app.runtime.contracts import (
 )
 from app.runtime.store import Record, Store
 from app.runtime.texts import common, default_text
+from app.runtime.texts import nav as nav_texts
 
 Buttons = list[list[Button]]
 OutcomeAction = Literal["book", "cancel", "submit", "owner_action", "order"]
@@ -202,6 +203,8 @@ class Ctx:
         return formatting.format_datetime(value, self.tz)
 
     # --- buttons and menus -------------------------------------------------------------------
+    # Navigation is compiled by ``runtime/nav.py`` (role homes, stable ``nav:go:<route>`` routes);
+    # these helpers delegate to it so every engine gets the same Back/Home contract.
 
     @staticmethod
     def button(label: str, cap: AnyCapability | str, action: str, arg: str | int = "") -> Button:
@@ -209,58 +212,59 @@ class Ctx:
 
     @staticmethod
     def home_button() -> Button:
-        return Button(label=common.HOME, data=make_callback(MENU, ACT_HOME))
+        """«🏠 خانه» -> ``nav:go:home`` (the presser's role home)."""
+        return nav.home_button()
 
     def home_row(self) -> list[Button]:
         return [self.home_button()]
 
     def back_home_row(self, cap: AnyCapability | str, action: str, arg: str | int = "") -> list[Button]:
-        """``[بازگشت -> cap:action:arg, منوی اصلی]``."""
+        """``[‹ بازگشت -> cap:action:arg, 🏠 خانه]`` (an in-screen Back inside one capability)."""
         return [self.button(common.BACK, cap, action, arg), self.home_button()]
+
+    def back_button(self, route: str) -> Button:
+        """«‹ بازگشت» to the deterministic parent of ``route`` (``nav.back_route``)."""
+        return nav.back_button(self, route)
+
+    def heading(self, route: str, *extra: str, cap: AnyCapability | None = None) -> str:
+        """Breadcrumb heading line for a screen of ``route`` (``nav.heading``), e.g.
+        ``ctx.heading("shop", "نوشیدنی‌ها") -> "🛍 فروشگاه › نوشیدنی‌ها"``."""
+        return nav.heading(self.spec, route, *extra, cap=cap)
 
     def can_use(self, cap: AnyCapability) -> bool:
         """``capability_available(cap, self.actor)``."""
         return capability_available(cap, self.actor)
 
-    def _menu_item_visible(self, cap_key: str) -> bool:
-        """A menu item is shown unless its capability exists and is disabled or not allowed for
-        the actor (a missing capability keeps the old behaviour: shown, then stale on press)."""
-        cap = self.spec.capability(cap_key)
-        return cap is None or self.can_use(cap)
-
     def menu_button_for(
         self, cap: AnyCapability | str, view: str = "main", label: str | None = None
     ) -> Button | None:
-        """Button re-opening ``cap`` the way the menu does (first menu item for that capability
-        and view), or None if no menu item points at it or the capability is hidden from the
-        actor (disabled or not allowed)."""
-        key = _cap_key(cap)
-        if not self._menu_item_visible(key):
+        """Button re-opening ``cap``'s ``view`` through its nav route (``nav.route_for``), or None
+        when no route opens it or the capability is hidden from the actor (missing, disabled or
+        not allowed)."""
+        target = self.spec.capability(_cap_key(cap))
+        if target is None or not self.can_use(target):
             return None
-        item = next((m for m in self.spec.menu if m.capability == key and m.view == view), None)
-        if item is None:
+        route = nav.route_for(self.spec, target, view)
+        if route is None:
             return None
-        return Button(label=label or common.BACK, data=make_callback(MENU, ACT_OPEN, item.key))
+        return nav.nav_button(label or common.BACK, route)
 
     def menu_buttons(self) -> Buttons:
-        """One row per visible ``spec.menu`` item, callback ``menu:open:<item key>``. Items whose
-        capability is disabled or not allowed for the actor are left out. A manager gets one extra
-        last row, the manager panel (``runtime/manager.py``)."""
-        rows = [
-            [Button(label=m.label, data=make_callback(MENU, ACT_OPEN, m.key))]
-            for m in self.spec.menu
-            if self._menu_item_visible(m.capability)
-        ]
-        if self.actor.effective_role == "manager":
-            rows.append([manager.panel_button()])
-        return rows
+        """The buttons of the actor's role home (``nav.home_rows``): the manager home for managers,
+        else the user home compiled from the enabled capabilities the actor may use."""
+        return nav.home_rows(self)
 
     def show_menu(self, text: str | None = None, edit: bool | None = None) -> None:
-        self.reply(text if text is not None else common.MENU_HEADER, self.menu_buttons(), edit=edit)
+        """The actor's role home; ``text`` replaces the user home's heading."""
+        nav.show_home_now(self, text, edit=edit)
 
     def stale(self) -> None:
-        """The pressed option no longer exists: short Persian notice plus the main menu."""
-        self.reply(common.STALE, self.menu_buttons())
+        """The pressed option no longer exists: a NEW message with a short notice and one button to
+        the current menu (``nav:go:home``). The pressed message is never modified. In a group it
+        does nothing (Decision Log: group menu and stale handling are no-ops)."""
+        if self.event.chat_type == "group":
+            return
+        self.reply(nav_texts.STALE, [[nav.nav_button(nav_texts.STALE_BUTTON, nav.HOME)]], edit=False)
 
     # --- session -----------------------------------------------------------------------------
 

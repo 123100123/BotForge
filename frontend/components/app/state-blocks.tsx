@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 import { Card, CardContent } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
 import { cn } from "@/lib/utils";
 
 /** Inline error line for a failed request. */
 export function ErrorNote({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <p role="alert" className={cn("rounded-md bg-destructive/10 p-3 text-sm leading-7 text-destructive", className)}>
+    <p role="alert" className={cn("rounded-sm bg-danger-soft p-3 text-small text-danger-text", className)}>
       {children}
     </p>
   );
@@ -25,8 +26,8 @@ export function InfoNote({
     <p
       role="status"
       className={cn(
-        "rounded-md p-3 text-sm leading-7",
-        tone === "success" ? "bg-success/10 text-success" : "bg-warning/15 text-warning",
+        "rounded-sm p-3 text-small",
+        tone === "success" ? "bg-success-soft text-success-text" : "bg-warning-soft text-warning-text",
         className,
       )}
     >
@@ -38,8 +39,8 @@ export function InfoNote({
 export function LoadingBlock({ className }: { className?: string }) {
   return (
     <div role="status" aria-label="در حال بارگذاری" className={cn("flex flex-col gap-3", className)}>
-      <div className="h-8 w-48 animate-pulse rounded bg-muted" />
-      <div className="h-40 animate-pulse rounded-xl bg-muted" />
+      <Skeleton className="h-8 w-48" />
+      <Skeleton className="h-40 rounded-md" />
     </div>
   );
 }
@@ -49,7 +50,7 @@ export function EmptyState({ title, children, action }: { title: string; childre
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-3 py-10 text-center">
-        <h3 className="text-base font-semibold">{title}</h3>
+        <h3 className="text-h3">{title}</h3>
         {children && <p className="max-w-md text-sm leading-7 text-muted-foreground">{children}</p>}
         {action}
       </CardContent>

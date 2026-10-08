@@ -139,6 +139,10 @@ class ToolOutcome:
 
 ToolHandler = Callable[[str, dict[str, Any]], Awaitable[ToolOutcome]]
 UsageHook = Callable[[Usage], bool]  # called after every model response; False stops the loop
+TurnHook = Callable[[int], Awaitable[None]]  # awaited before each model call of a loop; 1-based turn
+RetryHook = Callable[[str], Awaitable[None]]  # awaited before the client retries a call; Persian reason
+
+PLAIN_JSON_RETRY_REASON = "ساختار خروجی مدل پذیرفته نشد؛ دوباره با قالب ساده تلاش می‌کنم."
 
 
 @dataclass
@@ -171,6 +175,7 @@ class LLMClient(Protocol):
         messages: list[Any],
         schema: type[BaseModel],
         tier: Tier = "strong",
+        on_retry: RetryHook | None = None,
     ) -> tuple[BaseModel, Usage]: ...
 
     async def tool_loop(
@@ -184,6 +189,7 @@ class LLMClient(Protocol):
         max_tool_calls: int,
         tier: Tier = "strong",
         on_usage: UsageHook | None = None,
+        on_turn: TurnHook | None = None,
     ) -> LoopResult: ...
 
 
@@ -359,6 +365,7 @@ class AnthropicLLM:
         messages: list[Any],
         schema: type[BaseModel],
         tier: Tier = "strong",
+        on_retry: RetryHook | None = None,
     ) -> tuple[BaseModel, Usage]:
         import anthropic
 
@@ -375,6 +382,8 @@ class AnthropicLLM:
             if "schema" not in str(exc).lower():
                 raise
             log.warning("structured output rejected for task=%s; retrying with a JSON instruction", task)
+            if on_retry is not None:
+                await on_retry(PLAIN_JSON_RETRY_REASON)
             params["output_config"].pop("format", None)
             if not params["output_config"]:
                 params.pop("output_config")
@@ -409,6 +418,7 @@ class AnthropicLLM:
         max_tool_calls: int,
         tier: Tier = "strong",
         on_usage: UsageHook | None = None,
+        on_turn: TurnHook | None = None,
     ) -> LoopResult:
         history: list[Any] = list(messages)
         params = self._params(task, tier, system, history)
@@ -419,7 +429,11 @@ class AnthropicLLM:
         state = {"calls": 0}
         nudged = False
         last_text: str | None = None
+        turn_no = 0
         while True:
+            turn_no += 1
+            if on_turn is not None:
+                await on_turn(turn_no)
             message, usage = await self._call(task, {**params, "messages": history})
             total = total + usage
             if on_usage is not None and not on_usage(usage):
@@ -477,7 +491,16 @@ class ToolCall:
 
 # A scripted turn: a list of tool calls, or plain text (a turn with no tool call).
 FakeTurn = list[ToolCall] | str
-StructuredScript = BaseModel | dict[str, Any] | Exception | Callable[[list[Any]], Any]
+
+
+@dataclass
+class PlainJsonRetry:
+    """A scripted structured result that arrives only after the client's plain-JSON retry."""
+
+    result: Any
+
+
+StructuredScript = BaseModel | dict[str, Any] | Exception | PlainJsonRetry | Callable[[list[Any]], Any]
 
 
 @dataclass
@@ -532,6 +555,7 @@ class FakeLLM:
         messages: list[Any],
         schema: type[BaseModel],
         tier: Tier = "strong",
+        on_retry: RetryHook | None = None,
     ) -> tuple[BaseModel, Usage]:
         self.calls.append(FakeCall("structured", task, tier, system, list(messages)))
         queue = self.structured_scripts.get(task) or []
@@ -540,6 +564,11 @@ class FakeLLM:
         item = queue.pop(0)
         if callable(item) and not isinstance(item, BaseModel):
             item = item(messages)
+        if isinstance(item, PlainJsonRetry):
+            # Simulates the real client's plain-JSON fallback: the retry hook fires, then the call succeeds.
+            if on_retry is not None:
+                await on_retry(PLAIN_JSON_RETRY_REASON)
+            item = item.result
         if isinstance(item, Exception):
             raise item
         usage = self._charge()
@@ -561,6 +590,7 @@ class FakeLLM:
         max_tool_calls: int,
         tier: Tier = "strong",
         on_usage: UsageHook | None = None,
+        on_turn: TurnHook | None = None,
     ) -> LoopResult:
         self.calls.append(FakeCall("tool_loop", task, tier, system, list(messages), [t.name for t in tools]))
         queue = self.loop_scripts.get(task) or []
@@ -573,6 +603,7 @@ class FakeLLM:
         nudged = False
         last_text: str | None = None
         counter = 0
+        turn_no = 0
 
         async def recording_handler(name: str, args: dict[str, Any]) -> ToolOutcome:
             if name not in known:
@@ -592,6 +623,9 @@ class FakeLLM:
             if not turns:
                 return LoopResult("end_turn", state["calls"], total, last_text)
             turn = turns.pop(0)
+            turn_no += 1
+            if on_turn is not None:
+                await on_turn(turn_no)
             usage = self._charge()
             total = total + usage
             if on_usage is not None and not on_usage(usage):

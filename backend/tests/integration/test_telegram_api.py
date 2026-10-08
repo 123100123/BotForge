@@ -13,7 +13,7 @@ from app.integrations.telegram.client import FakeTelegramClient, TelegramError
 from app.security.crypto import decrypt_token
 from tests.integration.conftest import MakeBot
 from tests.integration.helpers import SessionFactory
-from tests.integration.tg_helpers import ALICE, new_token
+from tests.integration.tg_helpers import ALICE, make_live_bot, new_token
 
 BOB = {"X-Test-User": "bob"}
 
@@ -106,9 +106,16 @@ async def test_telegram_bot_already_used_by_another_bot_is_refused(
     assert response.status_code == 409
     error = response.json()["error"]
     assert error["code"] == "telegram_bot_in_use" and "قبلاً" in error["message"]
+    assert error["message"] == (
+        "ربات تلگرام @workshop_test_bot قبلاً به کسب‌وکار دیگری در این سامانه وصل شده است. "
+        "اول آن را از آنجا جدا کنید."
+    )
     row = await stored(session_factory, second)
     assert row.tg_token_enc is None and row.tg_bot_id is None and row.tg_webhook_secret is None
     assert len(fake_tg.calls_to("setWebhook")) == 1  # only the first bot registered a webhook
+    first_row = await stored(session_factory, first)  # the first business is unaffected
+    assert first_row.tg_bot_id == fake_tg.bot_id and first_row.tg_token_enc and first_row.status == "draft"
+    assert first_row.tg_last_error is None
 
 
 async def test_reconnecting_the_same_bot_is_allowed(tg_client: httpx.AsyncClient, make_bot: MakeBot) -> None:
@@ -266,3 +273,178 @@ async def test_another_owners_bot_is_a_404(tg_client: httpx.AsyncClient, make_bo
     assert (await tg_client.get(f"/bots/{bot_id}/telegram", headers=BOB)).status_code == 404
     assert (await connect(tg_client, bot_id, new_token()[1], BOB)).status_code == 404
     assert (await tg_client.delete(f"/bots/{bot_id}/telegram", headers=BOB)).status_code == 404
+
+
+# --- one Telegram bot, one BotForge bot, across servers ---------------------------------------------
+
+ELSEWHERE = "telegram_bot_in_use_elsewhere"
+COMPETITOR = TelegramError(
+    "getUpdates",
+    "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running",
+    error_code=409,
+)
+
+
+async def assert_nothing_stored(
+    session_factory: SessionFactory, bot_id: Any, fake_tg: FakeTelegramClient
+) -> None:
+    row = await stored(session_factory, bot_id)
+    assert row.tg_token_enc is None and row.tg_bot_id is None and row.tg_webhook_secret is None
+    assert fake_tg.calls_to("setWebhook") == [] and fake_tg.calls_to("deleteWebhook") == []
+
+
+async def test_a_webhook_of_another_server_refuses_the_connection(
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.webhook_url = "https://other-server.example.test/tg/0f0f0f0f-0000-0000-0000-000000000000"
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 409
+    error = response.json()["error"]
+    assert error["code"] == ELSEWHERE and "سرور دیگری" in error["message"]
+    assert fake_tg.calls_to("getUpdates") == []  # no probe: with a webhook set nobody can be polling
+    await assert_nothing_stored(session_factory, bot_id, fake_tg)
+
+
+async def test_a_webhook_of_this_server_is_a_reconnect_and_needs_no_probe(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.webhook_url = f"https://bots.example.test/tg/{bot_id}"
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+    assert fake_tg.calls_to("getUpdates") == [] and len(fake_tg.calls_to("setWebhook")) == 1
+
+
+async def test_a_competing_poller_found_by_the_probe_refuses_the_connection(
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.get_updates_errors.append(COMPETITOR)
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 409 and response.json()["error"]["code"] == ELSEWHERE
+    assert response.json()["error"]["message"] == (
+        "این ربات تلگرام همین حالا به سرور دیگری وصل است (یک نسخهٔ دیگر BotForge یا برنامهٔ دیگری). "
+        "اول آن را از آنجا جدا کنید، بعد دوباره امتحان کنید."
+    )
+    # the probe never confirms anything: no offset, one update at most
+    [probe] = fake_tg.calls_to("getUpdates")
+    assert probe["offset"] is None and probe["limit"] == 1 and probe["timeout"] == 6
+    await assert_nothing_stored(session_factory, bot_id, fake_tg)
+
+
+async def test_a_clean_token_connects_after_a_probe_that_finds_nobody(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.push_updates({"update_id": 5})  # pending updates are seen by the probe and left alone
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+    names = [name for name, _ in fake_tg.calls]
+    assert names == [
+        "getMe",
+        "getWebhookInfo",
+        "getUpdates",
+        "setWebhook",
+        "setMyCommands",
+        "setChatMenuButton",
+    ]
+    assert fake_tg.pending_updates == [{"update_id": 5}]
+
+
+async def test_other_probe_failures_do_not_block_the_connection(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.get_updates_errors.append(TelegramError("getUpdates", "Bad Gateway", error_code=502))
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+
+
+async def test_a_webhook_info_failure_is_reported(
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+) -> None:
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.fail_methods["getWebhookInfo"] = "Bad Request"
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 502 and response.json()["error"]["code"] == "telegram_error"
+    await assert_nothing_stored(session_factory, bot_id, fake_tg)
+
+
+async def test_reconnecting_the_same_token_here_is_not_a_false_positive(
+    tg_client: httpx.AsyncClient, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    """This server's own poller holds the token: a probe would see it as a competitor."""
+    bot = await make_live_bot(session_factory, None)
+    fake_tg.bot_id = bot.tg_bot_id
+    fake_tg.get_updates_errors.append(COMPETITOR)  # what our own poller would cause
+    response = await connect(tg_client, bot.id, bot.token)
+    assert response.status_code == 200, response.text
+    assert fake_tg.calls_to("getUpdates") == []  # no probe
+    assert fake_tg.get_updates_errors == [COMPETITOR]
+    assert (await stored(session_factory, bot.id)).tg_bot_id == bot.tg_bot_id
+
+
+async def test_the_same_telegram_bot_with_a_new_token_is_probed(
+    tg_client: httpx.AsyncClient, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    bot = await make_live_bot(session_factory, None)
+    fake_tg.bot_id = bot.tg_bot_id
+    fake_tg.get_updates_errors.append(COMPETITOR)
+    response = await connect(tg_client, bot.id, new_token()[1])
+    assert response.status_code == 409 and response.json()["error"]["code"] == ELSEWHERE
+    assert len(fake_tg.calls_to("getUpdates")) == 1
+
+
+async def test_polling_mode_refuses_a_foreign_webhook_without_a_public_url(
+    monkeypatch: pytest.MonkeyPatch,
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+) -> None:
+    monkeypatch.setenv("TELEGRAM_MODE", "polling")
+    monkeypatch.setenv("PUBLIC_BASE_URL", "http://localhost")
+    get_settings.cache_clear()
+    bot_id, _ = await make_bot("alice", active=False)
+    fake_tg.webhook_url = "https://other-server.example.test/tg/x"
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 409 and response.json()["error"]["code"] == ELSEWHERE
+    await assert_nothing_stored(session_factory, bot_id, fake_tg)
+    fake_tg.webhook_url = ""  # no webhook and no poller: polling-mode connect works
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+
+
+async def test_connect_sets_the_default_commands_and_the_commands_menu_button(
+    tg_client: httpx.AsyncClient, make_bot: MakeBot, fake_tg: FakeTelegramClient
+) -> None:
+    bot_id, _ = await make_bot("alice")
+    assert (await connect(tg_client, bot_id, new_token()[1])).status_code == 200
+    [commands] = fake_tg.calls_to("setMyCommands")
+    assert commands["scope"] is None  # default scope
+    assert [c["command"] for c in commands["commands"]] == ["start", "menu", "help"]
+    assert [c["description"] for c in commands["commands"]] == ["شروع", "منوی اصلی", "راهنما"]
+    [button] = fake_tg.calls_to("setChatMenuButton")
+    assert button["chat_id"] is None and button["menu_button"] == {"type": "commands"}
+
+
+@pytest.mark.parametrize("method", ["setMyCommands", "setChatMenuButton"])
+async def test_a_failing_command_registration_does_not_fail_connect(
+    tg_client: httpx.AsyncClient,
+    make_bot: MakeBot,
+    fake_tg: FakeTelegramClient,
+    session_factory: SessionFactory,
+    method: str,
+) -> None:
+    bot_id, _ = await make_bot("alice")
+    fake_tg.fail_methods[method] = "Bad Request: not allowed"
+    response = await connect(tg_client, bot_id, new_token()[1])
+    assert response.status_code == 200 and response.json()["connected"] is True
+    assert (await stored(session_factory, bot_id)).tg_token_enc is not None
+    assert fake_tg.calls_to(method)  # it was tried

@@ -19,7 +19,7 @@ from app.agent.checks import check_acceptance, compact_json, requirement_ids
 from app.agent.context import Next, RunContext
 from app.agent.llm import LLMError
 from app.agent.modify import releasable_ids, target_ids
-from app.agent.phases import BUDGET_MESSAGE, section
+from app.agent.phases import BUDGET_MESSAGE, CORRECTIVE_RETRY_REASON, section
 from app.agent.phases.testgen import AcceptanceOut, _unique_id
 from app.agent.prompts import system_prompt
 from app.botspec.outline import spec_outline
@@ -111,6 +111,7 @@ async def author(ctx: RunContext, targets: set[str], notes: list[str]) -> list[S
                 "keeping their ids. Fix every listed problem.",
             },
         ]
+        await ctx.emit(ev.retrying("testgen", 2, CORRECTIVE_RETRY_REASON))
         try:
             out, usage = await ctx.llm.structured(
                 task="testgen",

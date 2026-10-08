@@ -1,12 +1,20 @@
+import {
+  CalendarIcon,
+  CircleCheckIcon,
+  CircleDashedIcon,
+  CircleXIcon,
+  HashIcon,
+  InfoIcon,
+  OctagonAlertIcon,
+  ToggleLeftIcon,
+  TriangleAlertIcon,
+  TypeIcon,
+  type LucideIcon,
+} from "lucide-react";
 import { fa, toFaDigits } from "@/lib/format";
-import type {
-  AnalysisAnomaly,
-  AnalysisCheckSpec,
-  AnalysisMetricSpec,
-  AnalysisRunOut,
-  InferredColumnType,
-} from "@/lib/types";
+import type { AnalysisAnomaly, AnalysisRunOut, InferredColumnType } from "@/lib/types";
 
+/** The kind of values a column holds, as the upload inspection detects it (types only, never meaning). */
 export const TYPE_LABELS: Record<InferredColumnType, string> = {
   text: "متن",
   integer: "عدد صحیح",
@@ -16,21 +24,16 @@ export const TYPE_LABELS: Record<InferredColumnType, string> = {
   empty: "خالی",
 };
 
-export const MEASURE_LABELS: Record<AnalysisMetricSpec["measure"], string> = {
-  count: "تعداد",
-  sum: "مجموع",
-  avg: "میانگین",
-  min: "کمترین",
-  max: "بیشترین",
+export const TYPE_ICONS: Record<InferredColumnType, LucideIcon> = {
+  text: TypeIcon,
+  integer: HashIcon,
+  decimal: HashIcon,
+  datetime: CalendarIcon,
+  boolean: ToggleLeftIcon,
+  empty: CircleDashedIcon,
 };
 
-export const CHECK_LABELS: Record<AnalysisCheckSpec["kind"], string> = {
-  outlier_high: "مقدار غیرعادی بالا",
-  outlier_low: "مقدار غیرعادی پایین",
-  threshold_above: "بیشتر از حد مجاز",
-  threshold_below: "کمتر از حد مجاز",
-  missing_values: "مقدار خالی",
-};
+type Tone = "neutral" | "success" | "warning" | "danger" | "info";
 
 export const SEVERITY_LABELS: Record<AnalysisAnomaly["severity"], string> = {
   info: "اطلاع",
@@ -38,10 +41,12 @@ export const SEVERITY_LABELS: Record<AnalysisAnomaly["severity"], string> = {
   critical: "بحرانی",
 };
 
-export const SEVERITY_VARIANT: Record<AnalysisAnomaly["severity"], "accent" | "warning" | "destructive"> = {
-  info: "accent",
-  warning: "warning",
-  critical: "destructive",
+export const SEVERITY_TONE: Record<AnalysisAnomaly["severity"], Tone> = { info: "info", warning: "warning", critical: "danger" };
+
+export const SEVERITY_ICONS: Record<AnalysisAnomaly["severity"], LucideIcon> = {
+  info: InfoIcon,
+  warning: TriangleAlertIcon,
+  critical: OctagonAlertIcon,
 };
 
 export const STATUS_LABELS: Record<AnalysisRunOut["status"], string> = {
@@ -50,19 +55,31 @@ export const STATUS_LABELS: Record<AnalysisRunOut["status"], string> = {
   failed: "ناموفق",
 };
 
-export const STATUS_VARIANT: Record<AnalysisRunOut["status"], "success" | "warning" | "destructive"> = {
-  ok: "success",
-  schema_changed: "warning",
-  failed: "destructive",
+export const STATUS_TONE: Record<AnalysisRunOut["status"], Tone> = { ok: "success", schema_changed: "warning", failed: "danger" };
+
+export const STATUS_ICONS: Record<AnalysisRunOut["status"], LucideIcon> = {
+  ok: CircleCheckIcon,
+  schema_changed: TriangleAlertIcon,
+  failed: CircleXIcon,
 };
 
 /** Largest file the backend accepts. */
 export const MAX_UPLOAD_BYTES = 5 * 1024 * 1024;
 
+/** Error code of the per-account daily limit on assistant calls (profile drafts and run summaries). */
+export const DAILY_CAP_CODE = "analysis_daily_cap";
+
 export function fileSizeText(bytes: number): string {
   if (bytes < 1024) return `${fa(bytes)} بایت`;
   if (bytes < 1024 * 1024) return `${toFaDigits((bytes / 1024).toFixed(1).replace(".", "٫"))} کیلوبایت`;
   return `${toFaDigits((bytes / (1024 * 1024)).toFixed(1).replace(".", "٫"))} مگابایت`;
+}
+
+/** Who sent a file: the panel (null) or a staff member through Telegram (`tg:<id>`). */
+export function submitterText(submittedBy: string | null): string {
+  if (!submittedBy) return "از همین پنل";
+  if (submittedBy.startsWith("tg:")) return "کارمند، از تلگرام";
+  return submittedBy;
 }
 
 const FA_AR_DIGITS = /[۰-۹٠-٩]/g;
