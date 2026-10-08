@@ -85,7 +85,7 @@ export function AssistantProvider({ botId, children }: { botId: string; children
           <SheetHeader className="border-b px-5 py-4">
             <SheetTitle>دستیار</SheetTitle>
             <SheetDescription>
-              از داده‌های کسب‌وکارتان بپرسید؛ دستیار چیزی را در ربات تغییر نمی‌دهد.
+              از کسب‌وکارتان بپرسید یا تغییری را درخواست کنید؛ تا تأیید شما چیزی عوض نمی‌شود.
             </SheetDescription>
           </SheetHeader>
           <div className="flex min-h-0 flex-1 flex-col p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))]">

@@ -1,93 +1,56 @@
 "use client";
 
+import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
-import { ChevronDown, Loader2, SendHorizontal, Wrench } from "lucide-react";
+import { FileBarChartIcon, Loader2Icon, PencilLineIcon, SendHorizontalIcon } from "lucide-react";
+import { useAgentRunContext } from "@/components/agent/agent-run-provider";
+import { Segmented } from "@/components/app/segmented";
+import { useOptionalBusiness } from "@/components/app/business-context";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
-import { fa, formatNumber, toFaDigits } from "@/lib/format";
-import type { ToolCallOut } from "@/lib/types";
+import { toFaDigits } from "@/lib/format";
+import { sectionHref } from "@/lib/routes";
+import { useMediaQuery } from "@/lib/use-media-query";
 import { cn } from "@/lib/utils";
-import { HISTORY_LIMIT, type AskThread } from "./use-ask-thread";
+import { useAssistant } from "./assistant-provider";
+import { answerSources, suggestedQuestions } from "./sources";
+import type { AskThread } from "./use-ask-thread";
 
-export const SUGGESTIONS = [
-  "فروش این هفته چطور بود؟",
-  "کدام محصول کمترین فروش را داشت؟",
-  "چند نفر برای رویداد بعدی ثبت‌نام کرده‌اند؟",
-  "کی امروز گزارش نفرستاده؟",
-  "درخواست‌های در انتظار تأیید",
+type Mode = "ask" | "change";
+
+const MODE_OPTIONS: { value: Mode; label: string }[] = [
+  { value: "ask", label: "پرسش" },
+  { value: "change", label: "درخواست تغییر" },
 ];
 
-function formatArg(value: unknown, depth = 0): string {
-  if (value === null || value === undefined) return "—";
-  if (typeof value === "boolean") return value ? "بله" : "خیر";
-  if (typeof value === "number") return formatNumber(value);
-  if (typeof value === "string") return toFaDigits(value.length > 80 ? `${value.slice(0, 80)}…` : value);
-  if (Array.isArray(value)) return value.map((v) => formatArg(v, depth + 1)).join("، ");
-  if (typeof value === "object") {
-    if (depth > 0) return "…";
-    return Object.entries(value as Record<string, unknown>)
-      .map(([k, v]) => `${k}: ${formatArg(v, depth + 1)}`)
-      .join("؛ ");
-  }
-  return String(value);
-}
+const CHANGE_HELP = "این پیام یک پیشنهاد تغییر می‌سازد؛ تا شما تأیید نکنید چیزی در ربات عوض نمی‌شود.";
 
-function ToolChip({ call }: { call: ToolCallOut }) {
-  const [open, setOpen] = useState(false);
-  const args = Object.entries(call.arguments ?? {});
+/** Question chips (also used by the Overview). */
+export function SuggestionChips({ questions, onPick, disabled }: { questions: string[]; onPick: (q: string) => void; disabled?: boolean }) {
   return (
-    <li className="flex flex-col gap-1">
-      <button
-        type="button"
-        aria-expanded={open}
-        disabled={args.length === 0}
-        onClick={() => setOpen((o) => !o)}
-        className="inline-flex max-w-full items-center gap-1.5 self-start rounded-sm border bg-card px-2.5 py-1 text-start text-caption text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
-      >
-        <Wrench className="size-3 shrink-0" aria-hidden />
-        <span className="min-w-0">{toFaDigits(call.summary)}</span>
-        {args.length > 0 && (
-          <ChevronDown className={cn("size-3 shrink-0 transition-transform", open && "rotate-180")} aria-hidden />
-        )}
-      </button>
-      {open && args.length > 0 && (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-sm bg-card/60 px-3 py-2 text-caption">
-          {args.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-muted-foreground" dir="ltr">
-                {k}
-              </dt>
-              <dd className="break-words">{formatArg(v)}</dd>
-            </div>
-          ))}
-        </dl>
-      )}
-    </li>
-  );
-}
-
-function UsageFooter({ usage }: { usage: Record<string, unknown> }) {
-  const num = (k: string) => (typeof usage[k] === "number" ? (usage[k] as number) : 0);
-  const tokens = num("input_tokens") + num("output_tokens");
-  const cost = num("cost_usd") || num("cost");
-  if (tokens <= 0 && cost <= 0) return null;
-  return (
-    <p className="mt-2 text-caption text-muted-foreground">
-      {tokens > 0 && <span>{formatNumber(tokens)} توکن</span>}
-      {tokens > 0 && cost > 0 && " · "}
-      {cost > 0 && (
-        <span>
-          هزینه: <span dir="ltr">${toFaDigits(cost < 0.01 ? cost.toFixed(4) : cost.toFixed(2))}</span>
-        </span>
-      )}
-    </p>
+    <ul className="flex flex-wrap gap-2" aria-label="پرسش‌های پیشنهادی">
+      {questions.map((q) => (
+        <li key={q}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onPick(q)}
+            className="rounded-sm border border-border-strong bg-surface px-3 py-1.5 text-start text-small text-fg transition-colors duration-fast hover:bg-surface-sunken disabled:pointer-events-none disabled:opacity-50"
+          >
+            {q}
+          </button>
+        </li>
+      ))}
+    </ul>
   );
 }
 
 /**
- * The assistant's question view: a manager chat against POST /bots/{id}/copilot/messages. It only reads;
- * nothing in the bot changes. The thread state comes from the caller (AssistantProvider) so it persists.
+ * The assistant panel's content: questions (read-only answers with the sources they used) and, through the
+ * mode switch, change requests that become a proposal on the Changes page. The thread state comes from the
+ * caller (AssistantProvider) so it persists; a change request goes to the agent run controller.
  */
 export function AskPanel({
   thread,
@@ -100,123 +63,186 @@ export function AskPanel({
   inputId?: string;
 }) {
   const { turns, draft, setDraft, busy, failure, ask, retry } = thread;
+  const business = useOptionalBusiness();
+  const run = useAgentRunContext();
+  const assistant = useAssistant();
+  const router = useRouter();
+  const fullScreen = useMediaQuery("(max-width: 639.98px)");
+  const [mode, setMode] = useState<Mode>("ask");
+  const [sending, setSending] = useState(false);
   const endRef = useRef<HTMLDivElement>(null);
+
+  const botId = business?.bot.id ?? "";
+  const changesHref = sectionHref(botId, "changes");
+  const questions = suggestedQuestions(business?.capabilities ?? []);
+  const changeBlocked = run.awaitingOwner || run.status === "running" || run.busy;
+  const change = mode === "change";
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [turns, busy, failure]);
 
+  async function submitChange() {
+    const text = draft.trim();
+    if (!text || changeBlocked || sending) return;
+    setSending(true);
+    await run.send(text);
+    setDraft("");
+    setSending(false);
+    setMode("ask");
+    assistant.close();
+    router.push(changesHref);
+  }
+
+  function submit() {
+    if (change) void submitChange();
+    else ask(draft);
+  }
+
   function onSubmit(e: FormEvent) {
     e.preventDefault();
-    ask(draft);
+    submit();
   }
 
   function onKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && !e.shiftKey && !e.nativeEvent.isComposing) {
       e.preventDefault();
-      ask(draft);
+      submit();
     }
   }
 
+  function asChange(text: string) {
+    setDraft(text);
+    setMode("change");
+    requestAnimationFrame(() => document.getElementById(inputId ?? "")?.focus());
+  }
+
   const lastIsUser = turns.length > 0 && turns[turns.length - 1].role === "user";
+  const submitDisabled = draft.trim() === "" || (change ? changeBlocked : busy);
 
   return (
     <div className="flex min-h-0 flex-1 flex-col gap-4">
-        {turns.length === 0 ? (
-          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
-            <h3 className="text-h3">از کسب‌وکارتان بپرسید</h3>
-            <p className="max-w-md text-sm leading-7 text-muted-foreground">
-              دستیار از داده‌های ربات پاسخ می‌دهد و چیزی را تغییر نمی‌دهد. یکی از پرسش‌های زیر را امتحان کنید یا سؤال خودتان را بنویسید.
+      {turns.length === 0 ? (
+        <div className="flex flex-1 flex-col justify-center gap-4 py-2">
+          <div className="flex flex-col gap-1">
+            <h3 className="text-h3 text-fg">از دستیارتان بپرسید</h3>
+            <p className="text-small text-fg-secondary">
+              دستیار از داده‌های کسب‌وکار پاسخ می‌دهد و چیزی را تغییر نمی‌دهد. یکی از پرسش‌ها را امتحان کنید یا سؤال خودتان را بنویسید.
             </p>
-            <ul className="flex flex-wrap justify-center gap-2" aria-label="پرسش‌های پیشنهادی">
-              {SUGGESTIONS.map((s) => (
-                <li key={s}>
+          </div>
+          <SuggestionChips questions={questions} disabled={busy || change} onPick={(q) => ask(q)} />
+        </div>
+      ) : (
+        <ul className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto" aria-live="polite" aria-label="گفتگو با دستیار">
+          {turns.map((t, i) => {
+            if (t.role === "user") {
+              return (
+                <li key={i} className="flex max-w-[90%] flex-col items-start gap-1 self-start">
+                  <p className="rounded-md bg-brand-soft px-3 py-2 text-body whitespace-pre-wrap break-words text-fg">{t.content}</p>
                   <button
                     type="button"
-                    disabled={busy}
-                    onClick={() => ask(s)}
-                    className="rounded-sm border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-muted disabled:opacity-50"
+                    onClick={() => asChange(t.content)}
+                    className="inline-flex items-center gap-1 rounded-xs px-1 text-caption text-fg-muted underline-offset-4 transition-colors duration-fast hover:text-brand-text hover:underline"
                   >
-                    {s}
+                    <PencilLineIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
+                    ثبت به‌عنوان درخواست تغییر
                   </button>
                 </li>
-              ))}
-            </ul>
-          </div>
-        ) : (
-          <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" aria-live="polite" aria-label="گفتگو با دستیار">
-            {turns.map((t, i) => (
-              <li
-                key={i}
-                className={cn(
-                  "flex max-w-[90%] flex-col rounded-md p-3 text-sm leading-7 sm:max-w-[85%]",
-                  t.role === "user" ? "self-start bg-primary/10" : "self-end bg-muted",
+              );
+            }
+            const sources = answerSources(t.toolCalls);
+            return (
+              <li key={i} className="flex flex-col gap-2 ps-1">
+                <p className="text-body whitespace-pre-wrap break-words text-fg">{toFaDigits(t.content)}</p>
+                {sources.labels.length > 0 && (
+                  <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-caption text-fg-muted">
+                    <span>بر اساس: {sources.labels.join("، ")}</span>
+                    {sources.hasReport && botId && (
+                      <Link
+                        href={sectionHref(botId, "reports")}
+                        onClick={() => fullScreen && assistant.close()}
+                        className="inline-flex items-center gap-1 rounded-xs font-medium text-brand-text underline-offset-4 hover:underline"
+                      >
+                        <FileBarChartIcon className="size-3.5" strokeWidth={1.75} aria-hidden />
+                        باز کردن گزارش
+                      </Link>
+                    )}
+                  </p>
                 )}
-              >
-                <p className="whitespace-pre-wrap break-words">{t.role === "assistant" ? toFaDigits(t.content) : t.content}</p>
-                {t.toolCalls && t.toolCalls.length > 0 && (
-                  <ul className="mt-2 flex flex-col gap-1.5 border-t pt-2" aria-label="ابزارهای استفاده‌شده">
-                    {t.toolCalls.map((c, j) => (
-                      <ToolChip key={j} call={c} />
-                    ))}
-                  </ul>
-                )}
-                {t.usage && <UsageFooter usage={t.usage} />}
               </li>
-            ))}
-            {busy && (
-              <li className="flex items-center gap-2 self-end rounded-md bg-muted p-3 text-sm text-muted-foreground" role="status">
-                <Loader2 className="size-4 animate-spin" aria-hidden />
-                در حال فکر کردن…
-              </li>
-            )}
-            <div ref={endRef} />
-          </ul>
-        )}
+            );
+          })}
+          {busy && (
+            <li role="status" className="flex items-center gap-2 text-small text-fg-muted">
+              <Loader2Icon className="size-4 animate-spin" strokeWidth={1.75} aria-hidden />
+              دستیار در حال بررسی است…
+            </li>
+          )}
+          <div ref={endRef} />
+        </ul>
+      )}
 
-        {failure?.kind === "disabled" && (
-          <div className="flex flex-col items-start gap-2">
-            <InfoNote tone="warning" className="w-full">
-              {failure.message}
-            </InfoNote>
-            <Button variant="outline" size="sm" onClick={onOpenCapabilities}>
-              فعال‌سازی در قابلیت‌ها
-            </Button>
-          </div>
-        )}
-        {failure && failure.kind !== "disabled" && (
-          <div className="flex flex-col items-start gap-2">
-            <ErrorNote className="w-full">{failure.message}</ErrorNote>
-            {lastIsUser && failure.kind !== "limit" && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={retry}>
-                تلاش دوباره
-              </Button>
-            )}
-          </div>
-        )}
-
-        <form onSubmit={onSubmit} className="flex items-end gap-2">
-          <Textarea
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onKeyDown={onKeyDown}
-            rows={2}
-            placeholder="سؤال خود را بنویسید… (Enter برای ارسال، Shift+Enter برای خط جدید)"
-            aria-label="پرسش از کسب‌وکار"
-            id={inputId}
-            className="min-h-0 flex-1"
-          />
-          <Button type="submit" disabled={busy || draft.trim() === ""}>
-            <SendHorizontal className="rtl:-scale-x-100" />
-            <span className="hidden sm:inline">{busy ? "در حال فکر کردن…" : "ارسال"}</span>
-            <span className="sr-only sm:hidden">ارسال</span>
+      {failure?.kind === "disabled" && (
+        <div className="flex flex-col items-start gap-2">
+          <InfoNote tone="warning" className="w-full">
+            {failure.message}
+          </InfoNote>
+          <Button variant="secondary" size="sm" onClick={onOpenCapabilities}>
+            فعال‌سازی در قابلیت‌ها
           </Button>
-        </form>
-        {turns.length > 0 && (
-          <p className="text-caption text-muted-foreground">
-            {fa(Math.min(turns.length, HISTORY_LIMIT))} پیام آخر گفتگو برای دستیار ارسال می‌شود.
+        </div>
+      )}
+      {failure && failure.kind !== "disabled" && (
+        <div className="flex flex-col items-start gap-2">
+          <ErrorNote className="w-full">{failure.message}</ErrorNote>
+          {lastIsUser && failure.kind !== "limit" && (
+            <Button variant="secondary" size="sm" disabled={busy} onClick={retry}>
+              تلاش دوباره
+            </Button>
+          )}
+        </div>
+      )}
+
+      <form
+        onSubmit={onSubmit}
+        data-mode={mode}
+        className={cn(
+          "flex flex-col gap-3 rounded-md border p-3 transition-colors duration-fast",
+          change ? "border-brand bg-brand-soft" : "border-border bg-surface",
+        )}
+      >
+        <Segmented<Mode> label="نوع پیام" value={mode} onChange={setMode} options={MODE_OPTIONS} />
+        {change && <p className="text-small text-fg-secondary">{CHANGE_HELP}</p>}
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          rows={3}
+          placeholder={change ? "تغییری را که می‌خواهید توضیح دهید…" : "سؤال خود را بنویسید…"}
+          aria-label={change ? "درخواست تغییر" : "پرسش از دستیار"}
+          id={inputId}
+          className="min-h-0 resize-none"
+        />
+        {change && changeBlocked && (
+          <p role="status" className="flex flex-wrap items-center gap-x-3 gap-y-1 text-small text-warning-text">
+            <span>یک پیشنهاد تغییر باز دارید.</span>
+            <Link
+              href={changesHref}
+              onClick={() => fullScreen && assistant.close()}
+              className="rounded-xs font-medium underline underline-offset-4"
+            >
+              رفتن به تغییرات
+            </Link>
           </p>
         )}
+        <p className="hidden text-caption text-fg-muted sm:block">
+          <bdi>Enter</bdi> ارسال، <bdi>Shift+Enter</bdi> خط جدید
+        </p>
+        <Button type="submit" disabled={submitDisabled} loading={change ? sending : false} className="self-end">
+          <SendHorizontalIcon className="rtl:-scale-x-100" strokeWidth={1.75} />
+          {change ? "ساخت پیشنهاد تغییر" : "ارسال"}
+        </Button>
+      </form>
     </div>
   );
 }

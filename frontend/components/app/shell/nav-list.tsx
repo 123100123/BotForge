@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useId, useState } from "react";
 import { ChevronDown, FolderOpen } from "lucide-react";
 import { useOptionalAgentRun } from "@/components/agent/agent-run-provider";
+import { useAttention, type PendingCount } from "@/lib/adapters/attention";
 import { fa } from "@/lib/format";
 import { isNavItemActive, OVERFLOW_LABEL, type NavGroup, type NavItem } from "@/lib/nav";
 import { cn } from "@/lib/utils";
@@ -11,16 +12,30 @@ import { cn } from "@/lib/utils";
 /** A count that means work waiting (D04: no decorative badges). `label` is the screen-reader sentence. */
 export interface NavBadge {
   count: number;
+  /** Shown instead of the number when the count is a lower bound («۵۰+»). */
+  text?: string;
   label: string;
 }
 
+function pendingBadge(p: PendingCount | null): NavBadge | null {
+  if (!p || p.count <= 0) return null;
+  const plus = p.more || p.count >= 50;
+  const shown = plus ? `${fa(50)}+` : fa(p.count);
+  return { count: p.count, text: plus ? shown : undefined, label: `${shown} مورد جدید` };
+}
+
 /**
- * Badges per nav item id. Today only «تغییرات» (a proposal waits for the owner); Phase 3 adds Operations
- * counts (new orders, open requests) here, keyed by item id ("orders", "requests", "records:<key>").
+ * Badges per nav item id: «سفارش‌ها» (new orders), «درخواست‌ها» (open requests) and «تغییرات» (a proposal
+ * waits for the owner). The counts come from the attention adapter, whose reads are shared with the Overview.
  */
 export function useNavBadges(): Record<string, NavBadge> {
   const run = useOptionalAgentRun();
+  const { orders, requests } = useAttention();
   const badges: Record<string, NavBadge> = {};
+  const o = pendingBadge(orders);
+  if (o) badges.orders = o;
+  const r = pendingBadge(requests);
+  if (r) badges.requests = r;
   if (run?.awaitingOwner) {
     badges.changes = {
       count: 1,
@@ -36,8 +51,13 @@ export const NAV_ITEM_ACTIVE_CLASS = "bg-brand-soft font-semibold text-brand-tex
 
 export function NavCount({ badge, className }: { badge: NavBadge; className?: string }) {
   return (
-    <span className={cn("ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-xs bg-warning-soft px-1.5 text-caption leading-none font-semibold text-warning-text", className)}>
-      <span aria-hidden>{fa(badge.count)}</span>
+    <span
+      className={cn(
+        "ms-auto inline-flex h-5 min-w-5 items-center justify-center rounded-xs bg-brand-soft px-1.5 text-caption leading-none font-semibold text-brand-text tabular-nums",
+        className,
+      )}
+    >
+      <span aria-hidden>{badge.text ?? fa(badge.count)}</span>
       <span className="sr-only">{badge.label}</span>
     </span>
   );
