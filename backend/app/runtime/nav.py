@@ -33,8 +33,8 @@ Route table (id -> binding -> parent; role is the minimum effective role):
   staff.q      request capabilities (staff) -> engine.open(main), the staff queue           home
   mgr          manager home (managers)                                                      (root)
   mgr.ord[.<a>] orders capabilities (managers) -> the order queue (``runtime/manager_orders.py``) mgr
-  mgr.evt[.<id>] events capabilities (managers) -> engine list / item until U7              mgr
-  mgr.evt.new  events capabilities (managers) -> placeholder until U7                       mgr.evt
+  mgr.evt[.<id>] events capabilities (managers) -> the events screens (``runtime/manager_events.py``) mgr
+  mgr.evt.new  events capabilities (managers) -> the new-event form (same module)           mgr.evt
   mgr.req      request capabilities (managers) -> engine.open(main), the request queue,     mgr
                framed with the manager heading by ``runtime/manager.py``
   mgr.rep[.<k>] reports (managers): the report list; <k> = "all" or a capability key       mgr
@@ -216,9 +216,10 @@ def register_summary(provider: SummaryProvider) -> None:
 
 
 def load_extensions() -> None:
-    """Import the manager screens (``runtime/manager.py`` and what it imports), which register
-    their routes and home providers on import. Cached by Python after the first call."""
-    from app.runtime import manager  # noqa: F401  (manager imports nav: no top-level import)
+    """Import the manager screens (``runtime/manager.py`` and what it imports) and the event
+    management screens (``runtime/manager_events.py``), which register their routes and home
+    providers on import. Cached by Python after the first call."""
+    from app.runtime import manager, manager_events  # noqa: F401  (they import nav: no top-level import)
 
 
 # --- payloads ------------------------------------------------------------------------------------

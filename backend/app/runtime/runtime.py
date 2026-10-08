@@ -50,6 +50,7 @@ from typing import Literal
 from app.botspec.models import AnyCapability, BotSpec
 from app.roles import TEAM_ROLES, can_run_owner_actions
 from app.runtime import manager, nav
+from app.runtime import manager_events as _manager_events  # noqa: F401  (registers the mgr.evt routes, U7)
 from app.runtime.callbacks import (
     ACT_CANCEL,
     ACT_GO,

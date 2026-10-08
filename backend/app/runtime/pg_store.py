@@ -6,6 +6,7 @@ dependency, dispatch service) owns the transaction.
 
 import hashlib
 import uuid
+from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any, Literal
 
@@ -13,14 +14,15 @@ from sqlalchemy import delete, func, select, text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.db.models import Bot, BotUser, RecordRow, SessionRow
-from app.runtime.contracts import Actor
+from app.db.models import Bot, BotChatRow, BotUser, RecordRow, SessionRow
+from app.runtime.contracts import Actor, Button
 from app.runtime.store import Record
 
 if TYPE_CHECKING:
     from app.schemas.business import TeamOut
 
 Env = Literal["live", "sandbox"]
+MAX_GROUP_CHATS = 20
 
 
 def advisory_key(bot_id: uuid.UUID | str) -> int:
@@ -225,20 +227,47 @@ class PgStore:
     async def owner_actor_id(self) -> str | None:
         return self._owner_actor_id
 
-    # ------------------------------------------------------------------ optional extensions
-    # Not part of the Store protocol: the Telegram manager screens (runtime/manager_team.py) look
-    # them up with getattr, so other stores need not have them. Read only.
+    # ------------------------------------------------------------------ optional runtime services
+    # Not part of the frozen ``Store`` protocol: runtime modules detect them with ``getattr`` and
+    # fall back when a store lacks them (``runtime/manager_events.py``: Telegram event management).
 
-    async def display_names(self, actor_ids: list[str]) -> dict[str, str]:
-        """``{actor_id: display_name}`` of this ``(bot_id, env)``'s users among ``actor_ids``."""
-        if not actor_ids:
+    async def display_names(self, actor_ids: Collection[str]) -> dict[str, str]:
+        """``bot_users.display_name`` of these actors in this store's env (unknown ids left out)."""
+        ids = sorted(set(actor_ids))
+        if not ids:
             return {}
         stmt = select(BotUser.actor_id, BotUser.display_name).where(
-            BotUser.bot_id == self._bot_id,
-            BotUser.env == self._env,
-            BotUser.actor_id.in_(list(actor_ids)),
+            BotUser.bot_id == self._bot_id, BotUser.env == self._env, BotUser.actor_id.in_(ids)
         )
         return {actor_id: name for actor_id, name in (await self._session.execute(stmt)).all()}
+
+    async def group_chats(self) -> list[tuple[int, str]]:
+        """``(chat_id, title)`` of the groups the bot is an active member of, newest first; always
+        empty outside ``live`` (the simulator never posts into real groups)."""
+        if self._env != "live":
+            return []
+        stmt = (
+            select(BotChatRow.chat_id, BotChatRow.title)
+            .where(BotChatRow.bot_id == self._bot_id, BotChatRow.active.is_(True))
+            .order_by(BotChatRow.added_at.desc(), BotChatRow.chat_id)
+            .limit(MAX_GROUP_CHATS)
+        )
+        return [(chat_id, title) for chat_id, title in (await self._session.execute(stmt)).all()]
+
+    async def enqueue_outbox(
+        self, chat_ids: Sequence[int], text: str, buttons: list[list[Button]] | None = None
+    ) -> bool:
+        """Queue ``text`` for each chat in the notification outbox (sent by the ticker), in this
+        transaction, so it is committed or rolled back with the event. Live only: returns False
+        (nothing queued) for any other env, and the caller delivers some other way."""
+        if self._env != "live":
+            return False
+        from app.notifications.outbox import Message, enqueue_many  # outbox imports runtime.contracts
+
+        messages = [Message(chat_id=c, text=text, buttons=buttons) for c in dict.fromkeys(chat_ids)]
+        if messages:
+            await enqueue_many(self._session, bot_id=self._bot_id, env="live", messages=messages)
+        return True
 
     async def team_overview(self) -> "TeamOut | None":
         """The live bot's team as the Team API shows it (``roles.service.team_of``): staff link,

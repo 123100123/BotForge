@@ -10,6 +10,7 @@ fidelity choices, so behavior matches a JSON-backed database store:
 """
 
 import json
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any
 
@@ -169,8 +170,7 @@ class MemoryStore:
     async def owner_actor_id(self) -> str | None:
         return self._owner_actor_id
 
-    # --- optional extensions (not part of the Store protocol; runtime/manager_team.py) -------
+    # --- optional runtime services (not part of the Store protocol; see PgStore) ---------------
 
-    async def display_names(self, actor_ids: list[str]) -> dict[str, str]:
-        """``{actor_id: display_name}`` of the users seen so far among ``actor_ids``."""
-        return {a: self._users[a].display_name for a in actor_ids if a in self._users}
+    async def display_names(self, actor_ids: Collection[str]) -> dict[str, str]:
+        return {a: self._users[a].display_name for a in set(actor_ids) if a in self._users}

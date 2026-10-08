@@ -299,14 +299,14 @@ async def test_stale_navigation_is_a_new_message_with_the_home() -> None:
     assert button_data(r) == ["nav:go:home"]
 
 
-async def test_placeholder_routes_answer_with_a_notice_and_the_manager_home() -> None:
+async def test_no_manager_route_is_a_placeholder_once_extensions_load() -> None:
     h = Harness(BotSpec.model_validate(business_data()))
-    for data in ("nav:go:mgr.evt.new",):  # mgr.ord and mgr.team are real since U6
-        r = await h.tap(OWNER, data)
-        assert text(r).startswith(tx.COMING_SOON), data
-        assert "nav:go:cust" in button_data(r)
-    r = await h.tap(OWNER, "nav:go:mgr.evt")  # until U7: the events list
-    assert "events:" in " ".join(button_data(r))
+    for data in ("nav:go:mgr.ord", "nav:go:mgr.team", "nav:go:mgr.evt.new", "nav:go:mgr.evt"):
+        r = await h.tap(OWNER, data)  # U6 (mgr.ord, mgr.team) and U7 (mgr.evt, mgr.evt.new) are real
+        assert not text(r).startswith(tx.COMING_SOON), data
+    assert [rid for rid, route in nav.ROUTES.items() if not route.ready] == []
+    r = await h.tap(OWNER, "nav:go:mgr.evt")  # U7: the manager's events list (runtime/manager_events.py)
+    assert button_data(r)[0] == "nav:go:mgr.evt.new"
 
 
 # --- extension points ------------------------------------------------------------------------------
