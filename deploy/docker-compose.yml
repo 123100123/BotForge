@@ -59,7 +59,10 @@ services:
       # "webhook": Telegram posts updates to https://SITE_HOST/tg/<bot id> (it must reach this server).
       # "polling": the backend fetches them with getUpdates, outbound only (see deploy/.env.example).
       TELEGRAM_MODE: ${TELEGRAM_MODE:-webhook}
-      # Own login: email + password, server-side sessions in the HttpOnly bf_session cookie.
+      # Own login: email + password, server-side sessions in the HttpOnly bf_session cookie. This stack
+      # serves the web app and the API on one origin, which that cookie needs, so keep "local" (and the
+      # frontend's NEXT_PUBLIC_AUTH_PROVIDER below with it). "supabase" is the hosted Render deployment.
+      AUTH_PROVIDER: ${AUTH_PROVIDER:-local}
       AUTH_COOKIE_SECURE: ${AUTH_COOKIE_SECURE:-true}
       AUTH_ALLOW_SIGNUP: ${AUTH_ALLOW_SIGNUP:-true}
       AUTH_SESSION_TTL_HOURS: ${AUTH_SESSION_TTL_HOURS:-168}
@@ -129,6 +132,8 @@ services:
         # Inlined into the JavaScript at build time: changing one needs `docker compose up -d --build`.
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-/api}
         NEXT_PUBLIC_MOCK: ${NEXT_PUBLIC_MOCK:-}
+        # Must name the backend's AUTH_PROVIDER above: the own login.
+        NEXT_PUBLIC_AUTH_PROVIDER: ${NEXT_PUBLIC_AUTH_PROVIDER:-local}
     restart: unless-stopped
     networks: [internal]
 

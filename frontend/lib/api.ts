@@ -1,6 +1,8 @@
-import { API_BASE_URL, IS_MOCK } from "@/lib/config";
+import { API_BASE_URL, AUTH_PROVIDER, IS_MOCK } from "@/lib/config";
 import { ApiError, parseFieldErrors } from "@/lib/errors";
 import { mockApi } from "@/lib/mock/api";
+import { handleUnauthorized } from "@/lib/session-expiry";
+import { getAccessToken } from "@/lib/supabase";
 import type {
   AgentRun,
   AnalysisProfileCreateIn,
@@ -46,11 +48,13 @@ import type {
 } from "@/lib/types";
 
 export { ApiError } from "@/lib/errors";
+export { UNAUTHORIZED_EVENT } from "@/lib/session-expiry";
 export type { SimulatorEventBody } from "@/lib/types";
 
 /** Typed client for the roadmap's "Backend API" table. The mock implements the same interface. */
 export interface Api {
-  // Auth: the session is an HttpOnly cookie set by the backend; the frontend never sees a token.
+  // Auth (own login, NEXT_PUBLIC_AUTH_PROVIDER=local): the session is an HttpOnly cookie set by the
+  // backend; the frontend never sees a token. With Supabase sign-in these are not used (lib/auth.tsx).
   /** The signed-in user. Rejects with an ApiError of status 401 when there is no session. */
   me(): Promise<Me>;
   login(email: string, password: string): Promise<Me>;
@@ -141,14 +145,25 @@ const STATUS_MESSAGES: Record<number, string> = {
   429: "درخواست‌ها زیاد بود؛ کمی بعد دوباره امتحان کنید.",
 };
 
-/**
- * Window event fired when a request outside /auth gets a 401 (the session expired or was revoked).
- * The AuthProvider listens and drops to the signed-out state, which sends the user to /login.
- */
-export const UNAUTHORIZED_EVENT = "botforge:unauthorized";
-
 /** CSRF header the backend requires on every non-GET/HEAD request, including login and signup. */
 const CSRF_HEADERS = { "X-BotForge-CSRF": "1" } as const;
+
+/**
+ * How a call to the backend authenticates (JSON requests, the upload, the agent event stream):
+ * - local: the HttpOnly session cookie, which the browser sends by itself ("same-origin"), and the CSRF
+ *   header on every method other than GET and HEAD.
+ * - supabase: the Supabase access token as `Authorization: Bearer` (supabase-js refreshes it before it
+ *   expires) and no cookies at all ("omit"), so no ambient credential ever reaches the API. The CSRF
+ *   header is sent the same way; the backend does not need it there.
+ */
+export async function authInit(
+  method: string,
+): Promise<{ credentials: RequestCredentials; headers: Record<string, string> }> {
+  const csrf: Record<string, string> = method === "GET" || method === "HEAD" ? {} : { ...CSRF_HEADERS };
+  if (AUTH_PROVIDER !== "supabase") return { credentials: "same-origin", headers: csrf };
+  const token = await getAccessToken();
+  return { credentials: "omit", headers: token ? { ...csrf, Authorization: `Bearer ${token}` } : csrf };
+}
 
 /** Parses the backend's `{"error": {"code", "message"}}` envelope into an ApiError. */
 export async function parseErrorResponse(res: Response): Promise<ApiError> {
@@ -173,15 +188,23 @@ export async function parseErrorResponse(res: Response): Promise<ApiError> {
   );
 }
 
-async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
+interface RequestOptions {
+  /**
+   * The own login's session probe (`GET /me` from the AuthProvider): its 401 only means "signed out", so
+   * it never triggers the sign-out redirect.
+   */
+  probe?: boolean;
+}
+
+async function request<T>(method: string, path: string, body?: unknown, options: RequestOptions = {}): Promise<T> {
   let res: Response;
   try {
-    const safe = method === "GET" || method === "HEAD";
+    const auth = await authInit(method);
     res = await fetch(`${API_BASE_URL}${path}`, {
       method,
-      credentials: "same-origin",
+      credentials: auth.credentials,
       headers: {
-        ...(safe ? {} : CSRF_HEADERS),
+        ...auth.headers,
         ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
       },
       body: body !== undefined ? JSON.stringify(body) : undefined,
@@ -190,10 +213,11 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
     throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
   }
   if (!res.ok) {
-    if (res.status === 401 && !path.startsWith("/auth/") && typeof window !== "undefined") {
-      window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
-    }
-    throw await parseErrorResponse(res);
+    const err = await parseErrorResponse(res);
+    // The session expired or was revoked: sign out (Supabase) and go to /login?next=<this page>.
+    // The caller still gets the error.
+    if (res.status === 401 && !path.startsWith("/auth/") && !options.probe) void handleUnauthorized();
+    throw err;
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -201,18 +225,19 @@ async function request<T>(method: string, path: string, body?: unknown): Promise
 
 /**
  * Raw-body upload (no multipart): the file is the request body and its name travels in the query string.
- * Auth is the same session cookie as every other call, so the PUT carries the CSRF header like `request()`.
+ * It authenticates like every other call (`authInit`), so with the own login the PUT carries the CSRF header.
  */
 async function uploadFile(botId: string, file: File): Promise<UploadOut> {
   let res: Response;
   try {
+    const auth = await authInit("PUT");
     res = await fetch(
       `${API_BASE_URL}/uploads/bots/${encodeURIComponent(botId)}?filename=${encodeURIComponent(file.name)}`,
       {
         method: "PUT",
-        credentials: "same-origin",
+        credentials: auth.credentials,
         headers: {
-          ...CSRF_HEADERS,
+          ...auth.headers,
           "Content-Type": file.type || "application/octet-stream",
         },
         body: file,
@@ -221,14 +246,18 @@ async function uploadFile(botId: string, file: File): Promise<UploadOut> {
   } catch {
     throw new ApiError("network_error", "ارتباط با سرور برقرار نشد. اینترنت خود را بررسی کنید.");
   }
-  if (!res.ok) throw await parseErrorResponse(res);
+  if (!res.ok) {
+    const err = await parseErrorResponse(res);
+    if (res.status === 401) void handleUnauthorized();
+    throw err;
+  }
   return (await res.json()) as UploadOut;
 }
 
 const enc = encodeURIComponent;
 
 export const realApi: Api = {
-  me: () => request("GET", "/me"),
+  me: () => request("GET", "/me", undefined, { probe: true }),
   login: async (email, password) => (await request<{ user: Me }>("POST", "/auth/login", { email, password })).user,
   signup: async (email, password) => (await request<{ user: Me }>("POST", "/auth/signup", { email, password })).user,
   logout: () => request("POST", "/auth/logout"),

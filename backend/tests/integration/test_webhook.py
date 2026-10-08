@@ -129,6 +129,29 @@ async def test_oversized_body_is_rejected_after_the_secret_check(
     assert fake_tg.calls == []
 
 
+# Header bytes are decoded as latin-1, so "²", "³" and "¹" (0xB2, 0xB3, 0xB9) are the non-ASCII
+# characters for which str.isdigit() is true that can arrive; int() rejects every one of them.
+@pytest.mark.parametrize("declared", [b"\xb2", b"\xb3", b"\xb9", b"1\xb2", b"-1", b"1e3", b" 12"])
+async def test_a_content_length_that_is_not_ascii_digits_is_no_error(
+    tg_client: httpx.AsyncClient, bot: LiveBot, declared: bytes
+) -> None:
+    """``"²".isdigit()`` is true but ``int("²")`` fails: the webhook answered a 500. Such a header is
+    now ignored and the body is measured as it streams, as when no length is declared."""
+    headers = [
+        (b"content-type", b"application/json"),
+        (SECRET_HEADER.encode(), bot.secret.encode()),
+        (b"content-length", declared),
+    ]
+    body = json.dumps({"update_id": 987_654}).encode()
+    response = await tg_client.post(f"/tg/{bot.id}", content=body, headers=headers)
+    assert response.status_code == 200, (declared, response.text)
+    assert response.json() == {"ok": True}
+
+    big = json.dumps({"update_id": 987_655, "pad": "x" * (1024 * 1024 + 10)}).encode()
+    too_big = await tg_client.post(f"/tg/{bot.id}", content=big, headers=headers)
+    assert too_big.status_code == 413 and too_big.json()["error"]["code"] == "body_too_large"
+
+
 # --- dedupe, readiness -----------------------------------------------------------------------
 
 

@@ -90,7 +90,8 @@ def _error(status: int, code: str, message: str) -> HTTPException:
 
 async def _read_body(request: Request) -> bytes:
     declared = request.headers.get("content-length", "")
-    if declared.isdigit() and int(declared) > MAX_BODY_BYTES:
+    # ASCII digits only: str.isdigit() also accepts "²" or "٣", which int() then rejects (a 500).
+    if declared.isascii() and declared.isdigit() and int(declared) > MAX_BODY_BYTES:
         raise _error(413, "body_too_large", "حجم درخواست بیش از حد مجاز است.")
     chunks: list[bytes] = []
     total = 0

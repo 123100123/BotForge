@@ -31,8 +31,9 @@ from app.config import get_settings
 from app.db.session import DatabaseNotConfigured, database_configured, dispose_engine, get_sessionmaker
 from app.integrations.telegram import poller as telegram_poller
 from app.notifications import ticker as notification_ticker
+from app.security import supabase_auth
 from app.security.body_limit import BodyLimitMiddleware
-from app.security.cors import allowed_origin_regex, allowed_origins
+from app.security.cors import ALLOWED_REQUEST_HEADERS, allowed_origin_regex, allowed_origins
 from app.security.rate_limit import AuthRateLimits
 from app.security.redact import install_log_redaction
 from app.security.sessions import SessionCookieRefresh
@@ -251,8 +252,11 @@ def create_app() -> FastAPI:
         openapi_url="/openapi.json" if docs else None,
     )
     app.state.auth_rate_limits = AuthRateLimits()  # login and signup limits, per app instance
-    # Re-sends the session cookie after a sliding renewal (app/security/sessions.py). Innermost, so
-    # it sees every response the routes produce, including those returned as Response objects.
+    # SECURITY: says which AUTH_PROVIDER signs owners in; a supabase setup without usable keys is
+    # logged as an error here, at startup, and then refuses every login (fail closed).
+    supabase_auth.check_configuration(settings)
+    # Re-sends the session cookie after a sliding renewal (app/security/sessions.py; AUTH_PROVIDER=local
+    # only). Innermost, so it sees every response the routes produce, including Response objects.
     app.add_middleware(SessionCookieRefresh)
     # SECURITY: FastAPI parses a body before authentication runs, so bodies are capped up front.
     # Added before CORS so that CORS stays the outer layer and also decorates 413 answers.
@@ -265,7 +269,7 @@ def create_app() -> FastAPI:
         allow_origin_regex=allowed_origin_regex(settings.FRONTEND_ORIGIN_REGEX),
         allow_credentials=True,
         allow_methods=["*"],
-        allow_headers=["*"],
+        allow_headers=list(ALLOWED_REQUEST_HEADERS),  # Authorization by name (app/security/cors.py)
     )
     install_error_handlers(app)
 

@@ -16,6 +16,18 @@
 # branch applies 0003-0005 to the hosted Supabase database. 0003 adopts every existing Supabase owner
 # id as a placeholder user (same UUID, no password) so existing bots keep their owner; 0004 adds the
 # polling offset; 0005 the Business OS tables. Take a Supabase backup before that first deploy.
+# With AUTH_PROVIDER=supabase (below) an owner's next sign-in carries that same Supabase user id, so
+# they see their bots again, and the placeholder account takes the email from their token.
+#
+# Sign-in on Render: AUTH_PROVIDER=supabase (API) and NEXT_PUBLIC_AUTH_PROVIDER=supabase (web app).
+# The web app and the API are two *.onrender.com services, two different sites, so the own login's
+# SameSite=Lax session cookie cannot work between them. Instead the web app signs in with Supabase
+# Auth and sends the access token as "Authorization: Bearer" with no cookies; the API verifies it
+# (SUPABASE_* below), ignores cookies, needs no CSRF header, and answers 404 on its own /auth/login,
+# /auth/signup and /auth/logout. The self-hosted stack in deploy/ keeps AUTH_PROVIDER=local.
+# Who may sign up is set in the Supabase dashboard in this mode (its Authentication settings: whether new
+# users may sign up, and whether they must confirm their email); AUTH_ALLOW_SIGNUP applies only to the
+# own login. Set the project's Site URL to the web app's URL, where email confirmation links land.
 #
 # Self-hosting alternative: deploy/ (Docker Compose + Caddy, README "Self-hosting on a VPS").
 #
@@ -38,10 +50,12 @@ services:
       # sslmode=require also works (translated to ssl=require by app.config.to_async_url).
       - key: DATABASE_URL
         sync: false
-      # --- authentication (Supabase Auth) ---
-      # Not read by this branch yet: sign-in is the backend's own login (session cookie, defaults of
-      # AUTH_COOKIE_SECURE / AUTH_ALLOW_SIGNUP / AUTH_SESSION_TTL_HOURS in app/config.py). Kept for the
-      # AUTH_PROVIDER=local|supabase switch that comes next.
+      # --- authentication (Supabase Auth; see the top of this file) ---
+      - key: AUTH_PROVIDER           # supabase: bearer tokens from Supabase Auth; the web app must say the same
+        value: "supabase"
+      # Read with AUTH_PROVIDER=supabase. Set SUPABASE_URL, plus SUPABASE_JWKS_URL (projects with the new
+      # asymmetric signing keys) or SUPABASE_JWT_SECRET (legacy HS256). With neither, the API logs an
+      # error at startup and refuses every login (401 without a token, 503 with one).
       - key: SUPABASE_URL            # https://<project-ref>.supabase.co ; also pins the token issuer
         sync: false
       - key: SUPABASE_JWKS_URL       # <SUPABASE_URL>/auth/v1/.well-known/jwks.json (asymmetric keys)
@@ -102,10 +116,10 @@ services:
         value: "50"
 
   # The web app (Next.js). All values are public and inlined at build time, so a change needs a new build.
-  # With this branch's own login the session is a SameSite=Lax HttpOnly cookie sent "same-origin", so
-  # the browser must reach the API on the web app's own origin (deploy/ does that with Caddy proxying
-  # /api/*). Two *.onrender.com services are different sites: a cross-origin NEXT_PUBLIC_API_BASE_URL
-  # cannot sign in until the AUTH_PROVIDER switch (Supabase tokens) or a same-origin /api proxy lands.
+  # It signs in with Supabase Auth (NEXT_PUBLIC_AUTH_PROVIDER=supabase) and calls the API on its own
+  # *.onrender.com origin with the access token in "Authorization: Bearer" and no cookies, so a
+  # cross-origin NEXT_PUBLIC_API_BASE_URL works; the API's FRONTEND_ORIGIN must list this service's URL
+  # (CORS). Without the two Supabase values the web app shows a configuration error page instead.
   - type: web
     name: botforge-web
     runtime: node
@@ -121,7 +135,9 @@ services:
         value: "0"
       - key: NEXT_PUBLIC_API_BASE_URL    # the botforge-api public URL, no trailing slash
         sync: false
-      - key: NEXT_PUBLIC_SUPABASE_URL    # https://<project-ref>.supabase.co
+      - key: NEXT_PUBLIC_AUTH_PROVIDER   # the API's AUTH_PROVIDER
+        value: "supabase"
+      - key: NEXT_PUBLIC_SUPABASE_URL    # https://<project-ref>.supabase.co (the API's SUPABASE_URL)
         sync: false
       - key: NEXT_PUBLIC_SUPABASE_ANON_KEY   # anon/publishable key (public); never the service-role key
         sync: false

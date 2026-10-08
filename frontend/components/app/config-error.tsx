@@ -2,7 +2,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 
 /**
  * Shown instead of the app when real mode (NEXT_PUBLIC_MOCK is not "1") is missing required
- * variables. Meant for the operator of the deployment, not the bot owner.
+ * variables, or has unusable ones (lib/config.ts, MISSING_CONFIG). Meant for the operator of the
+ * deployment, not the bot owner.
  */
 export function ConfigError({ missing }: { missing: string[] }) {
   return (
@@ -11,8 +12,8 @@ export function ConfigError({ missing }: { missing: string[] }) {
         <CardHeader>
           <CardTitle className="text-lg">پیکربندی بات‌فورج کامل نیست</CardTitle>
           <CardDescription className="leading-7">
-            این نسخه برای اتصال به سرور واقعی ساخته شده، اما متغیرهای محیطی زیر خالی هستند. بدون آن‌ها ورود به
-            حساب ممکن نیست.
+            این نسخه برای اتصال به سرور واقعی ساخته شده، اما متغیرهای محیطی زیر خالی یا نامعتبر هستند. بدون آن‌ها
+            ورود به حساب ممکن نیست.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4 text-sm leading-7">
@@ -24,9 +25,10 @@ export function ConfigError({ missing }: { missing: string[] }) {
             ))}
           </ul>
           <p className="text-muted-foreground">
-            این متغیرها را در تنظیمات محیطی میزبان (مثلاً Netlify یا Vercel) وارد کنید و دوباره بسازید و منتشر کنید؛
-            مقدارهای NEXT_PUBLIC هنگام ساخت در برنامه قرار می‌گیرند. برای اجرای نمایشی با دادهٔ آزمایشی،
-            NEXT_PUBLIC_MOCK=1 را تنظیم کنید.
+            این متغیرها را در تنظیمات محیطی میزبان (مثلاً Render) درست وارد کنید و دوباره بسازید و منتشر کنید؛
+            مقدارهای NEXT_PUBLIC هنگام ساخت در برنامه قرار می‌گیرند. NEXT_PUBLIC_AUTH_PROVIDER فقط local یا supabase
+            است و نشانی Supabase باید با https شروع شود. برای اجرای نمایشی با دادهٔ آزمایشی، NEXT_PUBLIC_MOCK=1 را
+            تنظیم کنید.
           </p>
         </CardContent>
       </Card>

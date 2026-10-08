@@ -14,6 +14,11 @@ sent (403 ``csrf_failed``), checked before anything else. Signup and login are r
 address, login also per email (429 ``rate_limited`` with ``Retry-After``; see
 ``app/security/rate_limit.py``). The session cookie the request carried, if any, is deleted when a
 signup or login replaces it.
+
+These routes are the own login (``AUTH_PROVIDER=local``). With ``AUTH_PROVIDER=supabase`` the web app
+signs in through Supabase Auth, so all three answer 404 ``local_auth_disabled`` before any other check
+(no CSRF, rate limit or database work), and no session cookie is ever issued. ``GET /me``
+(``app/api/bots.py``) works in both modes.
 """
 
 import uuid
@@ -46,7 +51,22 @@ from app.security.sessions import (
     set_session_cookie,
 )
 
-router = APIRouter(prefix="/auth", tags=["auth"], dependencies=[Depends(require_csrf)])
+LOCAL_AUTH_DISABLED = (
+    "local_auth_disabled",
+    "ورود و ثبت‌نام در این سرویس از طریق برنامهٔ وب و با Supabase انجام می‌شود.",
+)
+
+
+async def require_local_auth() -> None:
+    """404 ``local_auth_disabled`` unless the own login is the configured provider (module docstring).
+    The router's first dependency, so it runs before the CSRF check and everything else."""
+    if get_settings().AUTH_PROVIDER != "local":
+        raise http_error(404, LOCAL_AUTH_DISABLED)
+
+
+router = APIRouter(
+    prefix="/auth", tags=["auth"], dependencies=[Depends(require_local_auth), Depends(require_csrf)]
+)
 
 _FA_DIGITS = str.maketrans("0123456789", "۰۱۲۳۴۵۶۷۸۹")
 

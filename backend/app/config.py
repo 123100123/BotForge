@@ -1,13 +1,14 @@
 """Application settings read from the environment (names match ``.env.example``)."""
 
 from functools import lru_cache
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import make_url
 
 TelegramMode = Literal["webhook", "polling"]
+AuthProvider = Literal["local", "supabase"]
 
 
 class Settings(BaseSettings):
@@ -29,6 +30,28 @@ class Settings(BaseSettings):
     # backend fetches them with getUpdates (outbound only; app/integrations/telegram/poller.py), for
     # servers Telegram cannot reach. Polling needs exactly one backend process.
     TELEGRAM_MODE: TelegramMode = "webhook"
+
+    # Who signs owners in (app/api/deps.py). The same code serves both deployments:
+    # "local" (default; the self-hosted Docker stack in deploy/): this backend's own email + password
+    #   login, the session in the HttpOnly bf_session cookie plus the CSRF header. The cookie is
+    #   SameSite=Lax and sent "same-origin", so the web app must reach the API on its own origin
+    #   (Caddy proxies /api/*). The AUTH_* settings below apply to this mode only.
+    # "supabase" (the hosted Render deployment, web app and API on two origins): the web app signs in
+    #   with Supabase Auth and sends the access token as "Authorization: Bearer <jwt>"; the backend
+    #   verifies it with the SUPABASE_* settings below (app/security/supabase_auth.py), ignores
+    #   cookies, and answers 404 on /auth/signup, /auth/login and /auth/logout. Whether new accounts
+    #   may sign up is then set in the Supabase dashboard, not by AUTH_ALLOW_SIGNUP.
+    # The web app's NEXT_PUBLIC_AUTH_PROVIDER must name the same provider.
+    AUTH_PROVIDER: AuthProvider = "local"
+
+    # Supabase Auth (AUTH_PROVIDER=supabase only). SUPABASE_URL (https://<ref>.supabase.co) also pins
+    # the token issuer to <SUPABASE_URL>/auth/v1. Verification keys: SUPABASE_JWKS_URL
+    # (<SUPABASE_URL>/auth/v1/.well-known/jwks.json; the project's ES256/RS256 signing keys) or, for a
+    # project still on the legacy shared secret, SUPABASE_JWT_SECRET (HS256). JWKS wins when both are
+    # set. With neither, the service fails closed: 401 without a token, 503 with one.
+    SUPABASE_URL: str | None = None
+    SUPABASE_JWKS_URL: str | None = None
+    SUPABASE_JWT_SECRET: str | None = None
 
     # Owner accounts and login sessions (app/security/). The session cookie is Secure unless
     # AUTH_COOKIE_SECURE is false, which is meant only for plain-http local development. A session ends
@@ -74,6 +97,16 @@ class Settings(BaseSettings):
     # Manager Copilot (app/copilot/): questions per owner account per rolling 24 hours (cost control,
     # counted like AGENT_DAILY_RUN_CAP).
     COPILOT_DAILY_CAP: int = Field(default=50, ge=0)
+
+    @field_validator("AUTH_PROVIDER", mode="before")
+    @classmethod
+    def _auth_provider(cls, value: Any) -> Any:
+        """Case and surrounding spaces do not matter, and empty means the default ("local"). Any other
+        value is a configuration error that stops the process at startup: it never falls back."""
+        if isinstance(value, str):
+            value = value.strip().lower()
+            return value or "local"
+        return value
 
     @property
     def frontend_origins(self) -> list[str]:
