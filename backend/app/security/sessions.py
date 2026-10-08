@@ -196,13 +196,16 @@ class SessionCookieRefresh:
     """Adds the renewed session cookie to the response of a request whose session was renewed.
 
     A middleware rather than a header set by the dependency, because FastAPI drops a dependency's
-    headers when the endpoint returns a ``Response`` itself (204 deletes, the SSE stream)."""
+    headers when the endpoint returns a ``Response`` itself (204 deletes, the SSE stream).
+
+    With ``AUTH_PROVIDER=supabase`` there are no cookie sessions, and this passes every response
+    through untouched."""
 
     def __init__(self, app: ASGIApp) -> None:
         self.app = app
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http":
+        if scope["type"] != "http" or get_settings().AUTH_PROVIDER != "local":
             await self.app(scope, receive, send)
             return
 

@@ -2,11 +2,15 @@ r"""CORS policy (roadmap: Security, "CORS: only the frontend origin").
 
 The web app calls this API from its own origins: the production site, a custom domain, deploy
 previews. CORS decides which of them a browser lets read the API's answers. It is not
-authentication (a client outside a browser ignores it). Authentication is the HttpOnly session
-cookie (``app.security.sessions``, ``SameSite=Lax``), so CORS allows credentials; it never allows
-``*``. State-changing requests also pass the CSRF check (``app.security.csrf``), which admits only
-the origins *listed* in ``FRONTEND_ORIGIN`` and ``PUBLIC_BASE_URL``, never one matched only by
-``FRONTEND_ORIGIN_REGEX``.
+authentication (a client outside a browser ignores it). With ``AUTH_PROVIDER=local``,
+authentication is the HttpOnly session cookie (``app.security.sessions``, ``SameSite=Lax``), so CORS
+allows credentials; it never allows ``*``. State-changing requests also pass the CSRF check
+(``app.security.csrf``), which admits only the origins *listed* in ``FRONTEND_ORIGIN`` and
+``PUBLIC_BASE_URL``, never one matched only by ``FRONTEND_ORIGIN_REGEX``. With
+``AUTH_PROVIDER=supabase`` (web app and API on different origins) the web app sends the Supabase
+access token in ``Authorization`` and no cookie, so that header must pass the preflight:
+``ALLOWED_REQUEST_HEADERS`` names it (the ``*`` wildcard of ``Access-Control-Allow-Headers`` never
+covers ``Authorization`` in the Fetch standard).
 
 ``FRONTEND_ORIGIN`` is a comma-separated list. Each entry is normalized to the form a browser sends
 in its ``Origin`` header (lowercase, no trailing slash, no default port). An entry that is not an
@@ -31,6 +35,12 @@ import logging
 import re
 
 log = logging.getLogger(__name__)
+
+# The request headers the web app sets on its API calls, by name (Starlette adds the CORS-safelisted
+# Accept, Accept-Language, Content-Language and Content-Type itself): the bearer token
+# (AUTH_PROVIDER=supabase), JSON and upload bodies, the CSRF header (sent in both modes) and the
+# agent event stream's resume point. A preflight asking for any other header is refused.
+ALLOWED_REQUEST_HEADERS = ("Authorization", "Content-Type", "X-BotForge-CSRF", "Last-Event-ID")
 
 # scheme://host[:port] in lowercase; the host is a DNS name, an IPv4 address or a bracketed IPv6 one.
 _ORIGIN = re.compile(

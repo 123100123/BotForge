@@ -13,6 +13,9 @@ dependencies = [
     "alembic",
     "pydantic-settings",
     "cryptography>=44.0.1",
+    # app/security/supabase_auth.py (AUTH_PROVIDER=supabase): Supabase access-token verification.
+    # 2.10.1 or newer: 2.10.0 accepted an issuer that is only a substring of the expected one.
+    "pyjwt[crypto]>=2.10.1",
     "anthropic>=1.11.0",
     "argon2-cffi>=23.1.0",
     # app/integrations/telegram/client.py. The [socks] extras are needed when ALL_PROXY=socks5h://...
