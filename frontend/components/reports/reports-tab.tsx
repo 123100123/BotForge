@@ -26,7 +26,7 @@ function RowLabel({ row }: { row: ReportRow }) {
     <>
       {row.cap.name}
       {row.multi && (
-        <span dir="ltr" className="ms-1.5 text-xs text-muted-foreground">
+        <span dir="ltr" className="ms-1.5 text-caption text-muted-foreground">
           {row.key}
         </span>
       )}
@@ -43,7 +43,7 @@ function ReportBody({ botId, capKey, period }: { botId: string; capKey: string; 
   }
   return (
     <div className="flex flex-col gap-4">
-      <p className="text-xs text-muted-foreground">
+      <p className="text-caption text-muted-foreground">
         از {formatDate(data.since)} تا {formatDate(data.until)}
       </p>
       <MetricGrid metrics={data.metrics} />
@@ -98,7 +98,7 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
                   aria-current={active ? "true" : undefined}
                   onClick={() => setSelected({ botId: bot.id, key: r.key })}
                   className={cn(
-                    "w-full rounded-md border px-3 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                    "w-full rounded-sm border px-3 py-2 text-start text-sm transition-colors",
                     active
                       ? "border-primary/40 bg-accent font-medium text-accent-foreground"
                       : "bg-card text-muted-foreground hover:text-foreground",
@@ -113,7 +113,7 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
       </nav>
       <div className="flex min-w-0 flex-col gap-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <h2 className="text-base font-semibold">
+          <h2 className="text-h3">
             <RowLabel row={current} />
           </h2>
           <PeriodSelect value={period} onChange={setPeriod} />

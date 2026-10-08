@@ -45,7 +45,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
   return (
     <Card className="border-warning/40">
       <CardHeader className="flex-row items-center gap-2">
-        <CircleHelp className="size-5 text-warning" />
+        <CircleHelp className="size-5 text-warning-text" />
         <CardTitle>{single ? "یک پرسش" : "چند پرسش"}</CardTitle>
         {answered && <Badge variant="success">پاسخ داده شد</Badge>}
       </CardHeader>
@@ -53,7 +53,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
         {questions.map((q) => (
           <div key={q.id} className="flex flex-col gap-2">
             <div className="text-sm leading-7 font-medium">{q.text}</div>
-            <p className="text-xs leading-6 text-muted-foreground">{q.why}</p>
+            <p className="text-caption leading-6 text-muted-foreground">{q.why}</p>
             {q.options && q.options.length > 0 ? (
               <div className="flex flex-wrap gap-2">
                 {q.options.map((option) => (
@@ -85,7 +85,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
         ))}
 
         {answered ? (
-          <div className="rounded-lg bg-muted p-3 text-sm whitespace-pre-wrap">
+          <div className="rounded-md bg-muted p-3 text-sm whitespace-pre-wrap">
             <span className="text-muted-foreground">پاسخ شما: </span>
             {answer}
           </div>
@@ -96,7 +96,7 @@ export function QuestionsCard({ questions, answer, disabled, onAnswer }: Questio
                 ارسال پاسخ‌ها
               </Button>
             )}
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               {disabled ? "این پرسش دیگر فعال نیست." : "می‌توانید پاسخ خود را با کلمات خودتان هم در کادر پیام بنویسید."}
             </p>
           </>

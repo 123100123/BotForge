@@ -11,13 +11,13 @@ export function WorkspaceSidebar() {
   return (
     <TabsList
       aria-label="بخش‌های ربات"
-      className="gap-1 md:sticky md:top-4 md:w-52 md:shrink-0 md:flex-col md:items-stretch md:gap-0.5 md:self-start md:overflow-visible md:rounded-xl md:border md:bg-card md:p-2"
+      className="gap-1 md:sticky md:top-4 md:w-52 md:shrink-0 md:flex-col md:items-stretch md:gap-0.5 md:self-start md:overflow-visible md:rounded-md md:border md:bg-card md:p-2"
     >
       {WORKSPACE_TABS.map(({ value, label, icon: Icon }) => (
         <TabsTrigger
           key={value}
           value={value}
-          className="md:mb-0 md:justify-start md:rounded-md md:border-b-0 md:px-3 md:data-[state=active]:bg-accent md:data-[state=active]:text-accent-foreground"
+          className="md:mb-0 md:justify-start md:rounded-sm md:border-b-0 md:px-3 md:data-[state=active]:bg-accent md:data-[state=active]:text-accent-foreground"
         >
           <Icon className="size-4" aria-hidden />
           {label}

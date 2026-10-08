@@ -4,14 +4,14 @@ import type { SpecChange } from "@/lib/types";
 
 const ICONS: Record<SpecChange["kind"], typeof Plus> = { added: Plus, removed: Minus, changed: Pencil };
 const STYLES: Record<SpecChange["kind"], string> = {
-  added: "border-success/30 bg-success/10",
-  removed: "border-destructive/30 bg-destructive/10",
-  changed: "border-warning/30 bg-warning/15",
+  added: "border-success/30 bg-success-soft",
+  removed: "border-destructive/30 bg-danger-soft",
+  changed: "border-warning/30 bg-warning-soft",
 };
 const ICON_STYLES: Record<SpecChange["kind"], string> = {
-  added: "text-success",
-  removed: "text-destructive",
-  changed: "text-warning",
+  added: "text-success-text",
+  removed: "text-danger-text",
+  changed: "text-warning-text",
 };
 const KIND_LABELS: Record<SpecChange["kind"], string> = { added: "افزوده شد", removed: "حذف شد", changed: "تغییر کرد" };
 
@@ -30,7 +30,7 @@ function splitChange(label: string): { head: string; oldValue: string; newValue:
 export function SpecDiff({ diff, isFirst }: { diff: SpecChange[]; isFirst: boolean }) {
   if (diff.length === 0) {
     return (
-      <p className="rounded-lg border border-dashed p-4 text-sm leading-7 text-muted-foreground">
+      <p className="rounded-md border border-dashed p-4 text-sm leading-7 text-muted-foreground">
         {isFirst ? "این اولین نسخهٔ ربات است و نسخهٔ قبلی برای مقایسه وجود ندارد." : "این نسخه نسبت به نسخهٔ قبل تغییری در مشخصات ندارد."}
       </p>
     );
@@ -41,7 +41,7 @@ export function SpecDiff({ diff, isFirst }: { diff: SpecChange[]; isFirst: boole
         const Icon = ICONS[c.kind];
         const parts = c.kind === "changed" ? splitChange(c.label_fa) : null;
         return (
-          <li key={i} className={cn("flex items-start gap-2 rounded-lg border px-3 py-2 text-sm leading-7", STYLES[c.kind])}>
+          <li key={i} className={cn("flex items-start gap-2 rounded-md border px-3 py-2 text-sm leading-7", STYLES[c.kind])}>
             <Icon className={cn("mt-1.5 size-4 shrink-0", ICON_STYLES[c.kind])} aria-label={KIND_LABELS[c.kind]} />
             {parts ? (
               <span>

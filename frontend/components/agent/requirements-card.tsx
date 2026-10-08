@@ -8,7 +8,7 @@ import { REQUIREMENT_KIND_LABELS } from "./labels";
 function RequirementRow({ item }: { item: Requirement }) {
   return (
     <li className="flex items-start gap-2 text-sm leading-7">
-      <span dir="ltr" className="mt-1.5 inline-block shrink-0 rounded bg-muted px-1.5 font-mono text-[11px] leading-5 text-muted-foreground">
+      <span dir="ltr" className="mt-1.5 inline-block shrink-0 rounded-xs bg-muted px-1.5 font-mono text-caption leading-5 text-muted-foreground">
         {item.id}
       </span>
       <span className="flex-1">{item.statement}</span>
@@ -46,13 +46,13 @@ export function RequirementsCard({ requirements }: { requirements: Requirements 
         )}
 
         {assumed.length > 0 && (
-          <section className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+          <section className="rounded-md border border-warning/30 bg-warning-soft p-3">
             <h4 className="mb-1 flex items-center gap-2 text-sm font-semibold">
-              <Lightbulb className="size-4 text-warning" />
+              <Lightbulb className="size-4 text-warning-text" />
               فرض‌شده
               <Badge variant="warning">{fa(assumed.length)}</Badge>
             </h4>
-            <p className="mb-2 text-xs text-muted-foreground">
+            <p className="mb-2 text-caption text-muted-foreground">
               این موارد را خودم فرض کرده‌ام. اگر درست نیست، در گفتگو بگویید.
             </p>
             <ul className="flex flex-col gap-1.5">
@@ -64,9 +64,9 @@ export function RequirementsCard({ requirements }: { requirements: Requirements 
         )}
 
         {requirements.unsupported.length > 0 && (
-          <section className="rounded-lg border border-destructive/30 bg-destructive/5 p-3">
+          <section className="rounded-md border border-destructive/30 bg-danger-soft p-3">
             <h4 className="mb-2 flex items-center gap-2 text-sm font-semibold">
-              <TriangleAlert className="size-4 text-destructive" />
+              <TriangleAlert className="size-4 text-danger-text" />
               پشتیبانی نمی‌شود
               <Badge variant="destructive">{fa(requirements.unsupported.length)}</Badge>
             </h4>

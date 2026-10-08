@@ -39,7 +39,7 @@ export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, de
           aria-describedby={describedBy}
           onClick={() => setOpen((o) => !o)}
           className={cn(
-            "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-md border border-input bg-card px-3 text-start text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/30 data-[invalid=true]:border-destructive",
+            "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-sm border border-input bg-card px-3 text-start text-sm focus-visible:border-ring data-[invalid=true]:border-destructive",
             !value && "text-muted-foreground",
           )}
         >

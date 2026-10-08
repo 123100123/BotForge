@@ -102,7 +102,7 @@ function AnalystScreen({ botId }: { botId: string }) {
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-bold">تحلیل‌گر داده</h2>
+        <h2 className="text-h2">تحلیل‌گر داده</h2>
         <p className="text-sm leading-7 text-muted-foreground">
           فایل اکسل یا CSV را بارگذاری کنید؛ دستیار ساختار آن را می‌فهمد و یک پروفایل تحلیل قابل‌استفادهٔ مجدد می‌سازد.
         </p>
@@ -141,7 +141,7 @@ function AnalystScreen({ botId }: { botId: string }) {
       )}
 
       <section aria-label="پروفایل‌های تحلیل" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
+        <h3 className="text-h3">
           پروفایل‌های تحلیل{profiles.length > 0 && <span className="ms-1 text-muted-foreground">({fa(profiles.length)})</span>}
         </h3>
         {profiles.length === 0 ? (
@@ -174,7 +174,7 @@ function AnalystScreen({ botId }: { botId: string }) {
       )}
 
       <section aria-label="سابقهٔ اجراها" className="flex flex-col gap-3">
-        <h3 className="text-base font-semibold">
+        <h3 className="text-h3">
           سابقهٔ اجراها{runs.length > 0 && <span className="ms-1 text-muted-foreground">({fa(runs.length)})</span>}
         </h3>
         {runs.length === 0 ? (
@@ -192,7 +192,7 @@ function AnalystScreen({ botId }: { botId: string }) {
                     onClick={() => setActiveRunId(r.id)}
                     aria-pressed={selected}
                     className={cn(
-                      "flex w-full flex-wrap items-center justify-between gap-2 rounded-lg border bg-card px-3 py-2.5 text-start transition-colors outline-none hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      "flex w-full flex-wrap items-center justify-between gap-2 rounded-md border bg-card px-3 py-2.5 text-start transition-colors hover:bg-muted",
                       selected && "border-primary bg-accent/30",
                     )}
                   >
@@ -200,7 +200,7 @@ function AnalystScreen({ botId }: { botId: string }) {
                       <span className="truncate text-sm font-medium">
                         <bdi>{r.filename ?? "فایل حذف‌شده"}</bdi>
                       </span>
-                      <span className="text-xs text-muted-foreground">
+                      <span className="text-caption text-muted-foreground">
                         {profileOf(r)?.name ?? "پروفایل حذف‌شده"} · {formatDateTime(r.created_at)}
                       </span>
                     </span>

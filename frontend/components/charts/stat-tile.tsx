@@ -35,17 +35,17 @@ export function StatTile({
   return (
     <Card className={cn("gap-2 py-4", className)}>
       <CardContent className="flex flex-col gap-1.5">
-        <span className="text-xs text-muted-foreground">{label}</span>
+        <span className="text-caption text-muted-foreground">{label}</span>
         <span className="text-2xl leading-tight font-bold">
           {value === null ? "-" : formatNumber(value)}
-          {unit && <span className="ms-1 text-xs font-normal text-muted-foreground">{unit}</span>}
+          {unit && <span className="ms-1 text-caption font-normal text-muted-foreground">{unit}</span>}
         </span>
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-xs",
-              delta.direction === "up" && "text-success",
-              delta.direction === "down" && "text-destructive",
+              "inline-flex items-center gap-1 text-caption",
+              delta.direction === "up" && "text-success-text",
+              delta.direction === "down" && "text-danger-text",
               delta.direction === "flat" && "text-muted-foreground",
             )}
           >

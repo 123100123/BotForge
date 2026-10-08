@@ -35,14 +35,14 @@ export function PhoneFrame({ botName, personaLabel, items, busy, onPress, onSend
   }
 
   return (
-    <div className="mx-auto flex h-[34rem] w-full max-w-sm flex-col overflow-hidden rounded-[1.75rem] border-4 border-foreground/80 bg-card shadow-md">
+    <div className="mx-auto flex h-[34rem] w-full max-w-sm flex-col overflow-hidden rounded-[1.75rem] border-4 border-foreground/80 bg-card">
       <div className="flex items-center gap-3 border-b bg-card px-4 py-3">
         <span className="grid size-9 place-items-center rounded-full bg-primary text-primary-foreground">
           <BotIcon className="size-5" />
         </span>
         <div className="min-w-0">
           <div className="truncate text-sm font-semibold">{botName}</div>
-          <div className="text-xs text-muted-foreground">در نقش {personaLabel}</div>
+          <div className="text-caption text-muted-foreground">در نقش {personaLabel}</div>
         </div>
       </div>
 
@@ -57,7 +57,7 @@ export function PhoneFrame({ botName, personaLabel, items, busy, onPress, onSend
             <div
               dir="auto"
               className={cn(
-                "max-w-[85%] rounded-2xl px-3 py-2 text-sm leading-7 whitespace-pre-wrap",
+                "max-w-[85%] rounded-lg px-3 py-2 text-sm leading-7 whitespace-pre-wrap",
                 item.from === "me"
                   ? "rounded-ee-sm bg-primary text-primary-foreground"
                   : "rounded-es-sm border bg-card",
@@ -75,7 +75,7 @@ export function PhoneFrame({ botName, personaLabel, items, busy, onPress, onSend
                         type="button"
                         disabled={busy}
                         onClick={() => onPress(item, b)}
-                        className="min-w-0 flex-1 rounded-lg bg-accent px-2 py-1.5 text-sm text-accent-foreground transition-colors outline-none hover:bg-accent/70 focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-60"
+                        className="min-w-0 flex-1 rounded-md bg-accent px-2 py-1.5 text-sm text-accent-foreground transition-colors hover:bg-accent/70 disabled:opacity-60"
                       >
                         {b.label}
                       </button>
@@ -94,7 +94,7 @@ export function PhoneFrame({ botName, personaLabel, items, busy, onPress, onSend
           type="submit"
           disabled={busy || text.trim() === ""}
           aria-label="ارسال"
-          className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-50"
+          className="grid size-9 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground disabled:opacity-50"
         >
           <SendHorizontal className="size-4 rtl:-scale-x-100" />
         </button>

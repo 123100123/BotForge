@@ -17,11 +17,11 @@ export function ChatMessage({ from, text }: { from: "owner" | "agent"; text: str
     <div className={cn("flex", isOwner ? "justify-start" : "justify-end")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-2xl px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap",
+          "max-w-[85%] rounded-lg px-4 py-2.5 text-sm leading-7 whitespace-pre-wrap",
           isOwner ? "bg-primary text-primary-foreground" : "border bg-card",
         )}
       >
-        <div className={cn("mb-0.5 text-xs", isOwner ? "text-primary-foreground/70" : "text-muted-foreground")}>
+        <div className={cn("mb-0.5 text-caption", isOwner ? "text-primary-foreground/70" : "text-muted-foreground")}>
           {isOwner ? "شما" : "ایجنت"}
         </div>
         {text}

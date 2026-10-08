@@ -30,7 +30,7 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
     <nav aria-label="مجموعه‌های داده" className="flex flex-col gap-4 md:w-56 md:shrink-0">
       {groups.map((g) => (
         <div key={g.kind} className="flex flex-col gap-1">
-          <h3 className="px-2 text-xs font-medium text-muted-foreground">{KIND_TITLES[g.kind]}</h3>
+          <h3 className="px-2 text-caption font-medium text-muted-foreground">{KIND_TITLES[g.kind]}</h3>
           <ul className="flex flex-row flex-wrap gap-1 md:flex-col">
             {g.items.map((c) => {
               const active = c.key === selected;
@@ -41,7 +41,7 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
                     onClick={() => onSelect(c.key)}
                     aria-current={active ? "true" : undefined}
                     className={cn(
-                      "flex w-full items-center justify-between gap-3 rounded-md px-3 py-2 text-start text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                      "flex w-full items-center justify-between gap-3 rounded-sm px-3 py-2 text-start text-sm transition-colors",
                       active ? "bg-accent font-medium text-accent-foreground" : "hover:bg-muted",
                     )}
                   >
@@ -53,7 +53,7 @@ export function CollectionNav({ collections, selected, counts, onSelect }: Colle
                         </Badge>
                       )}
                       {counts[c.key] !== undefined && (
-                        <span className="rounded-full bg-muted px-2 text-xs text-muted-foreground">{fa(counts[c.key])}</span>
+                        <span className="rounded-xs bg-muted px-2 text-caption text-muted-foreground">{fa(counts[c.key])}</span>
                       )}
                     </span>
                   </button>

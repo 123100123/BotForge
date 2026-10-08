@@ -34,7 +34,7 @@ export function ScenarioDetail({ scenario, result, requirements }: ScenarioDetai
         </div>
         <CardTitle className="text-base leading-7">{scenario.title}</CardTitle>
         {scenario.capacity_override !== null && (
-          <p className="text-xs text-muted-foreground">این سناریو با ظرفیت آزمایشی {fa(scenario.capacity_override)} نفر اجرا می‌شود تا کوتاه بماند.</p>
+          <p className="text-caption text-muted-foreground">این سناریو با ظرفیت آزمایشی {fa(scenario.capacity_override)} نفر اجرا می‌شود تا کوتاه بماند.</p>
         )}
       </CardHeader>
       <CardContent className="flex flex-col gap-5">
@@ -63,21 +63,21 @@ export function ScenarioDetail({ scenario, result, requirements }: ScenarioDetai
                   key={s.index}
                   aria-current={!s.passed ? "step" : undefined}
                   className={cn(
-                    "flex items-start gap-2 rounded-md border px-3 py-2 text-sm leading-7",
-                    s.passed ? "border-transparent" : "border-destructive/40 bg-destructive/5",
+                    "flex items-start gap-2 rounded-sm border px-3 py-2 text-sm leading-7",
+                    s.passed ? "border-transparent" : "border-destructive/40 bg-danger-soft",
                   )}
                 >
                   {s.passed ? (
-                    <CircleCheck className="mt-1.5 size-4 shrink-0 text-success" />
+                    <CircleCheck className="mt-1.5 size-4 shrink-0 text-success-text" />
                   ) : (
-                    <CircleX className="mt-1.5 size-4 shrink-0 text-destructive" />
+                    <CircleX className="mt-1.5 size-4 shrink-0 text-danger-text" />
                   )}
                   <div className="min-w-0">
                     <div>
                       {s.index >= 0 && <span className="text-muted-foreground">{fa(s.index + 1)}. </span>}
                       {s.narrative}
                     </div>
-                    {s.message && <div className="font-medium text-destructive">{s.message}</div>}
+                    {s.message && <div className="font-medium text-danger-text">{s.message}</div>}
                   </div>
                 </li>
               ))}
@@ -86,7 +86,7 @@ export function ScenarioDetail({ scenario, result, requirements }: ScenarioDetai
             <p className="text-sm text-muted-foreground">این سناریو هنوز اجرا نشده است.</p>
           )}
           {result && result.steps.length < scenario.steps.length && !result.passed && (
-            <p className="text-xs text-muted-foreground">
+            <p className="text-caption text-muted-foreground">
               بعد از مرحلهٔ ناموفق، {fa(scenario.steps.length - result.steps.length)} مرحلهٔ دیگر اجرا نشد.
             </p>
           )}
@@ -102,16 +102,16 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
   return (
     <section aria-label="گفتگوها" className="flex flex-col gap-2">
       <h4 className="text-sm font-semibold">گفتگوی کاربران با ربات</h4>
-      <ul className="flex flex-col gap-2 rounded-lg bg-muted/60 p-3">
+      <ul className="flex flex-col gap-2 rounded-md bg-muted/60 p-3">
         {entries.map((e, i) => (
           <li key={i} className={cn("flex flex-col gap-1", e.direction === "in" ? "items-end" : "items-start")}>
-            <span className="text-xs text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {e.direction === "in" ? `${actorName(e.actor)} می‌گوید` : `ربات به ${actorName(e.actor)}`}
             </span>
             <div
               dir="auto"
               className={cn(
-                "max-w-[90%] rounded-2xl px-3 py-1.5 text-sm leading-7 whitespace-pre-wrap",
+                "max-w-[90%] rounded-lg px-3 py-1.5 text-sm leading-7 whitespace-pre-wrap",
                 e.direction === "in" ? "bg-primary text-primary-foreground" : "border bg-card",
               )}
             >
@@ -120,7 +120,7 @@ function Transcript({ entries }: { entries: TranscriptEntry[] }) {
             {e.buttons.length > 0 && (
               <div className="flex max-w-[90%] flex-wrap gap-1">
                 {e.buttons.map((b, j) => (
-                  <span key={j} className="rounded-md bg-accent px-2 py-0.5 text-xs text-accent-foreground">
+                  <span key={j} className="rounded-sm bg-accent px-2 py-0.5 text-caption text-accent-foreground">
                     {b}
                   </span>
                 ))}

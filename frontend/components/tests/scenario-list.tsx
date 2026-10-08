@@ -30,11 +30,11 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
             <div className="px-2">
               <h3 className="flex items-center justify-between gap-2 text-sm font-semibold">
                 {g.title}
-                <span className="text-xs font-normal text-muted-foreground">
+                <span className="text-caption font-normal text-muted-foreground">
                   {fa(passed)} از {fa(items.length)}
                 </span>
               </h3>
-              <p className="text-xs text-muted-foreground">{g.hint}</p>
+              <p className="text-caption text-muted-foreground">{g.hint}</p>
             </div>
             <ul className="flex flex-col gap-0.5">
               {items.map((s) => {
@@ -47,16 +47,16 @@ export function ScenarioList({ scenarios, results, selectedId, onSelect }: Scena
                       onClick={() => onSelect(s.id)}
                       aria-current={active ? "true" : undefined}
                       className={cn(
-                        "flex w-full items-start gap-2 rounded-md px-2 py-2 text-start text-sm leading-6 transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                        "flex w-full items-start gap-2 rounded-sm px-2 py-2 text-start text-sm leading-6 transition-colors",
                         active ? "bg-accent text-accent-foreground" : "hover:bg-muted",
                       )}
                     >
                       {!r ? (
                         <CircleDashed aria-label="اجرا نشده" className="mt-1 size-4 shrink-0 text-muted-foreground" />
                       ) : r.passed ? (
-                        <CircleCheck aria-label="موفق" className="mt-1 size-4 shrink-0 text-success" />
+                        <CircleCheck aria-label="موفق" className="mt-1 size-4 shrink-0 text-success-text" />
                       ) : (
-                        <CircleX aria-label="ناموفق" className="mt-1 size-4 shrink-0 text-destructive" />
+                        <CircleX aria-label="ناموفق" className="mt-1 size-4 shrink-0 text-danger-text" />
                       )}
                       <span>{s.title}</span>
                     </button>

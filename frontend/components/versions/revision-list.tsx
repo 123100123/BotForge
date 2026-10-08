@@ -25,7 +25,7 @@ export function RevisionList({ revisions, selectedId, onSelect }: RevisionListPr
               onClick={() => onSelect(r.id)}
               aria-current={active ? "true" : undefined}
               className={cn(
-                "flex w-full flex-col gap-1.5 rounded-xl border bg-card p-3 text-start transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+                "flex w-full flex-col gap-1.5 rounded-md border bg-card p-3 text-start transition-colors",
                 active ? "border-primary/60 bg-accent/50" : "hover:bg-muted/60",
               )}
             >
@@ -34,10 +34,10 @@ export function RevisionList({ revisions, selectedId, onSelect }: RevisionListPr
                 <Badge variant={REVISION_STATUS_VARIANTS[r.status]}>{REVISION_STATUS_LABELS[r.status]}</Badge>
               </span>
               <span className="line-clamp-2 text-sm leading-6 text-muted-foreground">{r.change_request ?? "بدون شرح"}</span>
-              <span className="flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+              <span className="flex flex-wrap items-center justify-between gap-2 text-caption text-muted-foreground">
                 <span>{formatDateTime(r.created_at)}</span>
                 {r.tests ? (
-                  <span className={r.tests.failed > 0 ? "font-medium text-destructive" : undefined}>
+                  <span className={r.tests.failed > 0 ? "font-medium text-danger-text" : undefined}>
                     {fa(r.tests.passed)} از {fa(r.tests.total)} آزمون موفق
                   </span>
                 ) : (

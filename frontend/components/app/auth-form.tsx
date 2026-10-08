@@ -68,7 +68,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   return (
     <Card className="w-full max-w-sm">
       <CardHeader>
-        <CardTitle className="text-lg">{isLogin ? "ورود به بات‌فورج" : "ساخت حساب کاربری"}</CardTitle>
+        <CardTitle className="text-h2">{isLogin ? "ورود به بات‌فورج" : "ساخت حساب کاربری"}</CardTitle>
         <CardDescription>
           {isLogin
             ? "برای مدیریت مرکز کنترل کسب‌وکارتان وارد شوید."
@@ -91,7 +91,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
               className="text-start"
             />
             {errors.email && (
-              <p id="email-error" className="text-xs text-destructive">
+              <p id="email-error" className="text-caption text-danger-text">
                 {errors.email}
               </p>
             )}
@@ -110,14 +110,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
               className="text-start"
             />
             {errors.password && (
-              <p id="password-error" className="text-xs text-destructive">
+              <p id="password-error" className="text-caption text-danger-text">
                 {errors.password}
               </p>
             )}
           </div>
 
           {formError && (
-            <p role="alert" className="rounded-md bg-destructive/10 p-2.5 text-sm text-destructive">
+            <p role="alert" className="rounded-sm bg-danger-soft p-2.5 text-sm text-danger-text">
               {formError}
             </p>
           )}
@@ -127,14 +127,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
           </Button>
 
           {IS_MOCK && (
-            <p className="text-xs leading-6 text-muted-foreground">
+            <p className="text-caption leading-6 text-muted-foreground">
               حالت نمایشی: با هر ایمیل و گذرواژه‌ای می‌توانید وارد شوید و همه‌چیز با دادهٔ آزمایشی اجرا می‌شود.
             </p>
           )}
 
           <p className="text-center text-sm text-muted-foreground">
             {isLogin ? "حساب کاربری ندارید؟ " : "قبلاً ثبت‌نام کرده‌اید؟ "}
-            <Link href={isLogin ? "/signup" : "/login"} className="font-medium text-primary hover:underline">
+            <Link href={isLogin ? "/signup" : "/login"} className="font-medium text-brand-text hover:underline">
               {isLogin ? "ثبت‌نام" : "ورود"}
             </Link>
           </p>

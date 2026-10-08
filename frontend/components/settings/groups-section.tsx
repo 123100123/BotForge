@@ -57,19 +57,19 @@ export function GroupsSection({ botId }: { botId: string }) {
       <CardContent className="flex flex-col gap-3">
         {error && <ErrorNote>{error}</ErrorNote>}
         {!groups ? (
-          !error && <div role="status" aria-label="در حال بارگذاری" className="h-20 animate-pulse rounded-xl bg-muted" />
+          !error && <div role="status" aria-label="در حال بارگذاری" className="h-20 animate-pulse rounded-md bg-border" />
         ) : groups.length === 0 ? (
           <p className="text-sm leading-7 text-muted-foreground">
             هنوز ربات در هیچ گروهی نیست. در تلگرام وارد گروه یا کانال خود شوید، ربات را از بخش افزودن عضو اضافه کنید (برای کانال، ربات باید
             مدیر باشد) و بعد این صفحه را دوباره باز کنید.
           </p>
         ) : (
-          <ul className="flex flex-col divide-y rounded-md border">
+          <ul className="flex flex-col divide-y rounded-sm border">
             {groups.map((g) => (
               <li key={g.chat_id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3">
                 <div className="flex min-w-0 flex-1 flex-col gap-1">
                   <span className="truncate text-sm font-medium">{g.title}</span>
-                  <span className="text-xs text-muted-foreground">
+                  <span className="text-caption text-muted-foreground">
                     {KIND_LABELS[g.kind]} · اضافه‌شده در {formatDate(g.added_at)}
                   </span>
                 </div>
@@ -217,7 +217,7 @@ function PublishDialog({
               {recordError ? (
                 <ErrorNote>{recordError}</ErrorNote>
               ) : !items ? (
-                <div className="h-9 animate-pulse rounded-md bg-muted" role="status" aria-label="در حال بارگذاری" />
+                <div className="h-9 animate-pulse rounded-sm bg-border" role="status" aria-label="در حال بارگذاری" />
               ) : items.length === 0 ? (
                 <p className="text-sm leading-7 text-muted-foreground">این مجموعه هنوز رکوردی ندارد.</p>
               ) : (

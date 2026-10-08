@@ -72,7 +72,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
                 <>
                   <dt className="text-muted-foreground">پیوند ربات</dt>
                   <dd>
-                    <a href={status.bot_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                    <a href={status.bot_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-brand-text hover:underline">
                       <span dir="ltr">{status.bot_link}</span>
                       <ExternalLink className="size-3.5" />
                     </a>
@@ -81,7 +81,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
               )}
             </dl>
             {!hasActiveRevision && (
-              <p className="rounded-md bg-warning/15 p-3 text-sm leading-7 text-warning">
+              <p className="rounded-sm bg-warning-soft p-3 text-sm leading-7 text-warning-text">
                 ربات هنوز نسخهٔ فعالی ندارد و به مشتری‌ها «آماده نیست» را نشان می‌دهد. نسخهٔ ربات را در تب ایجنت تأیید کنید.
               </p>
             )}

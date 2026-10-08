@@ -34,7 +34,7 @@ export default function BotsPage() {
   return (
     <div className="flex flex-col gap-6">
       <div className="flex items-center justify-between gap-3">
-        <h1 className="text-xl font-bold">ربات‌های من</h1>
+        <h1 className="text-h1">ربات‌های من</h1>
         {bots && bots.length > 0 && (
           <NewBotDialog>
             <Button>
@@ -46,7 +46,7 @@ export default function BotsPage() {
       </div>
 
       {error && (
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-sm bg-danger-soft p-3 text-sm text-danger-text">
           {error}
         </p>
       )}
@@ -54,7 +54,7 @@ export default function BotsPage() {
       {!bots && !error && (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3" role="status" aria-label="در حال بارگذاری">
           {[0, 1, 2].map((i) => (
-            <div key={i} className="h-28 animate-pulse rounded-xl border bg-muted" />
+            <div key={i} className="h-28 animate-pulse rounded-md border bg-border" />
           ))}
         </div>
       )}
@@ -63,7 +63,7 @@ export default function BotsPage() {
         <Card>
           <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
             <BotIcon className="size-10 text-muted-foreground" />
-            <h2 className="text-base font-semibold">هنوز رباتی نساخته‌اید</h2>
+            <h2 className="text-h3">هنوز رباتی نساخته‌اید</h2>
             <p className="max-w-sm text-sm leading-7 text-muted-foreground">
               کسب‌وکارتان را توضیح دهید؛ دستیار، سیستم‌عامل تلگرامی آن را می‌سازد و نگهداری می‌کند.
             </p>
@@ -83,12 +83,12 @@ export default function BotsPage() {
             <li key={bot.id}>
               <Link
                 href={`/bots/${bot.id}`}
-                className="block rounded-xl outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                className="block rounded-md"
               >
                 <Card className="h-full gap-3 transition-colors hover:border-primary/40">
                   <CardContent className="flex flex-col gap-3">
                     <div className="flex items-start justify-between gap-2">
-                      <h2 className="text-base font-semibold">{bot.name}</h2>
+                      <h2 className="text-h3">{bot.name}</h2>
                       <BotStatusChip status={bot.status} />
                     </div>
                     <div className="flex flex-col gap-1 text-sm text-muted-foreground">

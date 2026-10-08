@@ -41,9 +41,9 @@ const RISK_VARIANT: Record<RiskLevel, "success" | "warning" | "destructive"> = {
 
 const CHANGE_ICON: Record<DiffChange["kind"], typeof Plus> = { added: Plus, removed: Minus, changed: Pencil };
 const CHANGE_STYLE: Record<DiffChange["kind"], string> = {
-  added: "bg-success/10 text-success",
-  removed: "bg-destructive/10 text-destructive",
-  changed: "bg-warning/15 text-warning",
+  added: "bg-success-soft text-success-text",
+  removed: "bg-danger-soft text-danger-text",
+  changed: "bg-warning-soft text-warning-text",
 };
 
 function asList(group: TestGroup): { count: number; items: TestRef[] } {
@@ -53,7 +53,7 @@ function asList(group: TestGroup): { count: number; items: TestRef[] } {
 function TestGroupBlock({ title, group, tone }: { title: string; group: TestGroup; tone: "neutral" | "success" | "warning" }) {
   const { count, items } = asList(group);
   return (
-    <div className="rounded-lg border p-3">
+    <div className="rounded-md border p-3">
       <div className="mb-1 flex items-center gap-2 text-sm font-medium">
         {title}
         <Badge variant={tone === "neutral" ? "secondary" : tone}>{fa(count)}</Badge>
@@ -61,7 +61,7 @@ function TestGroupBlock({ title, group, tone }: { title: string; group: TestGrou
       {items.length > 0 && (
         <ul className="flex flex-col gap-2">
           {items.map((t, i) => (
-            <li key={i} className="text-xs leading-6">
+            <li key={i} className="text-caption leading-6">
               <div className="text-sm">{t.title}</div>
               {t.reason && <div className="text-muted-foreground">{t.reason}</div>}
             </li>
@@ -119,8 +119,8 @@ export function ReviewCard({
                   {diff.changes.map((c, i) => {
                     const Icon = CHANGE_ICON[c.kind];
                     return (
-                      <li key={i} className="flex items-center gap-2 rounded-md border p-2 text-sm">
-                        <span className={`flex size-5 shrink-0 items-center justify-center rounded ${CHANGE_STYLE[c.kind]}`}>
+                      <li key={i} className="flex items-center gap-2 rounded-sm border p-2 text-sm">
+                        <span className={`flex size-5 shrink-0 items-center justify-center rounded-xs ${CHANGE_STYLE[c.kind]}`}>
                           <Icon className="size-3.5" />
                         </span>
                         <span>{c.label_fa}</span>
@@ -140,7 +140,7 @@ export function ReviewCard({
                   {diff.affected_capabilities.map((key) => (
                     <Badge key={key} variant="accent" className="gap-2">
                       {capabilityTitle(key, outline)}
-                      <span dir="ltr" className="font-mono text-[10px] opacity-70">
+                      <span dir="ltr" className="font-mono text-caption opacity-70">
                         {key}
                       </span>
                     </Badge>
@@ -157,16 +157,16 @@ export function ReviewCard({
                 <TestGroupBlock title="کنار گذاشته‌شده" group={diff.tests.superseded} tone="warning" />
               </div>
               {report && (
-                <p className="mt-2 text-xs text-muted-foreground">
+                <p className="mt-2 text-caption text-muted-foreground">
                   نتیجهٔ نهایی: {fa(report.passed)} از {fa(report.total)} آزمون موفق
                 </p>
               )}
             </section>
 
             {diff.warnings.length > 0 && (
-              <section className="rounded-lg border border-warning/30 bg-warning/5 p-3">
+              <section className="rounded-md border border-warning/30 bg-warning-soft p-3">
                 <h4 className="mb-1.5 flex items-center gap-2 text-sm font-semibold">
-                  <TriangleAlert className="size-4 text-warning" />
+                  <TriangleAlert className="size-4 text-warning-text" />
                   هشدارها
                 </h4>
                 <ul className="flex flex-col gap-1 text-sm leading-7">
@@ -182,8 +182,8 @@ export function ReviewCard({
         )}
 
         {blockedReason && pending && (
-          <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm leading-7">
-            <TriangleAlert className="mt-1 size-4 shrink-0 text-destructive" />
+          <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/30 bg-danger-soft p-3 text-sm leading-7">
+            <TriangleAlert className="mt-1 size-4 shrink-0 text-danger-text" />
             <div>
               <div className="font-medium">تأیید ممکن نیست</div>
               <div>{blockedReason}</div>
@@ -220,34 +220,34 @@ function RequirementsDelta({ delta }: { delta: NonNullable<EventPayloads["diff"]
       <h4 className="mb-2 text-sm font-semibold">چه چیزی در نیازمندی‌ها تغییر کرد</h4>
       <ul className="flex flex-col gap-1.5">
         {added.map((r) => (
-          <li key={`a-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.added}`}>
+          <li key={`a-${r.id}`} className={`flex items-start gap-2 rounded-sm border p-2 text-sm leading-7 ${CHANGE_STYLE.added}`}>
             <Plus className="mt-1.5 size-3.5 shrink-0" aria-label="افزوده شد" />
             <span>
-              <span className="text-xs opacity-70">{idLabel(r.id)}</span> {r.statement}
+              <span className="text-caption opacity-70">{idLabel(r.id)}</span> {r.statement}
             </span>
           </li>
         ))}
         {changed.map((r) => (
-          <li key={`c-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.changed}`}>
+          <li key={`c-${r.id}`} className={`flex items-start gap-2 rounded-sm border p-2 text-sm leading-7 ${CHANGE_STYLE.changed}`}>
             <Pencil className="mt-1.5 size-3.5 shrink-0" aria-label="تغییر کرد" />
             <span className="flex flex-col">
-              <span className="text-xs opacity-70">{idLabel(r.id)}</span>
+              <span className="text-caption opacity-70">{idLabel(r.id)}</span>
               <span>
-                <span className="text-xs">قبل: </span>
+                <span className="text-caption">قبل: </span>
                 <del className="opacity-80">{r.before}</del>
               </span>
               <span>
-                <span className="text-xs">بعد: </span>
+                <span className="text-caption">بعد: </span>
                 {r.after}
               </span>
             </span>
           </li>
         ))}
         {removed.map((r) => (
-          <li key={`r-${r.id}`} className={`flex items-start gap-2 rounded-md border p-2 text-sm leading-7 ${CHANGE_STYLE.removed}`}>
+          <li key={`r-${r.id}`} className={`flex items-start gap-2 rounded-sm border p-2 text-sm leading-7 ${CHANGE_STYLE.removed}`}>
             <Minus className="mt-1.5 size-3.5 shrink-0" aria-label="حذف شد" />
             <span>
-              <span className="text-xs opacity-70">{idLabel(r.id)}</span> <del>{r.statement}</del>
+              <span className="text-caption opacity-70">{idLabel(r.id)}</span> <del>{r.statement}</del>
             </span>
           </li>
         ))}
@@ -290,7 +290,7 @@ function CreateSummary({
               </li>
             ))}
           </ul>
-          <p className="mt-2 text-xs text-muted-foreground">
+          <p className="mt-2 text-caption text-muted-foreground">
             منوی ربات: {outline.menu.map((m) => m.label).join("، ")}
           </p>
         </section>
@@ -303,7 +303,7 @@ function CreateSummary({
           </p>
         </section>
       )}
-      <p className="text-xs leading-6 text-muted-foreground">
+      <p className="text-caption leading-6 text-muted-foreground">
         پیش از تأیید می‌توانید ربات را در تب «شبیه‌ساز» امتحان کنید. با تأیید، این نسخه فعال می‌شود.
       </p>
     </div>

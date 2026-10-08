@@ -73,7 +73,7 @@ export function NewBotDialog({ children }: { children: ReactNode }) {
               aria-describedby={error ? "bot-name-error" : undefined}
             />
             {error && (
-              <p id="bot-name-error" role="alert" className="text-xs text-destructive">
+              <p id="bot-name-error" role="alert" className="text-caption text-danger-text">
                 {error}
               </p>
             )}

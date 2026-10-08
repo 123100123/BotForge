@@ -47,7 +47,7 @@ function MetricTable({ rows }: { rows: Record<string, unknown>[] }) {
         </tbody>
       </table>
       {rows.length > shown.length && (
-        <p className="pt-2 text-xs text-muted-foreground">فقط {formatNumber(shown.length)} ردیف اول از {formatNumber(rows.length)} نمایش داده شد.</p>
+        <p className="pt-2 text-caption text-muted-foreground">فقط {formatNumber(shown.length)} ردیف اول از {formatNumber(rows.length)} نمایش داده شد.</p>
       )}
     </div>
   );

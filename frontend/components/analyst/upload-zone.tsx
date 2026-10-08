@@ -65,14 +65,14 @@ export function UploadZone({
         }}
         aria-busy={busy}
         className={cn(
-          "flex flex-col items-center gap-3 rounded-xl border-2 border-dashed bg-card px-4 text-center transition-colors",
+          "flex flex-col items-center gap-3 rounded-md border-2 border-dashed bg-card px-4 text-center transition-colors",
           compact ? "py-4" : "py-8",
           dragging ? "border-primary bg-accent/40" : "border-border",
           busy && "opacity-70",
         )}
       >
         {busy ? (
-          <FileSpreadsheet className="size-7 animate-pulse text-primary" aria-hidden />
+          <FileSpreadsheet className="size-7 animate-pulse text-brand-text" aria-hidden />
         ) : (
           <Upload className="size-7 text-muted-foreground" aria-hidden />
         )}
@@ -80,7 +80,7 @@ export function UploadZone({
           <p className="text-sm font-medium">
             {busy ? "در حال بارگذاری و بررسی فایل…" : "فایل را اینجا رها کنید یا از دکمهٔ زیر انتخاب کنید"}
           </p>
-          <p className="text-xs text-muted-foreground">فایل xlsx یا CSV، حداکثر {fa(5)} مگابایت</p>
+          <p className="text-caption text-muted-foreground">فایل xlsx یا CSV، حداکثر {fa(5)} مگابایت</p>
         </div>
         <input
           ref={input}

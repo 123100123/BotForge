@@ -48,7 +48,7 @@ function RunPanel({
   }
 
   return (
-    <div className="flex flex-col gap-3 rounded-lg bg-muted/40 p-3">
+    <div className="flex flex-col gap-3 rounded-md bg-muted/40 p-3">
       {uploads.length > 0 && (
         <div className="flex flex-col gap-1.5">
           <Label htmlFor={`run-upload-${profile.id}`}>فایل برای تحلیل</Label>
@@ -67,7 +67,7 @@ function RunPanel({
         </div>
       )}
       <div className="flex flex-col gap-1.5">
-        <span className="text-xs text-muted-foreground">
+        <span className="text-caption text-muted-foreground">
           {uploads.length > 0 ? "یا فایل تازه‌ای بارگذاری کنید:" : "برای اجرا ابتدا یک فایل بارگذاری کنید:"}
         </span>
         <UploadZone

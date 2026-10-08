@@ -47,7 +47,7 @@ export function ProfileCreateForm({
   }
 
   return (
-    <form onSubmit={create} className="flex flex-col gap-3 rounded-lg bg-muted/40 p-4">
+    <form onSubmit={create} className="flex flex-col gap-3 rounded-md bg-muted/40 p-4">
       <p className="text-sm leading-7 text-muted-foreground">
         از ساختار این فایل یک پروفایل تحلیل قابل‌استفادهٔ مجدد بسازید؛ بعداً هر فایل هم‌ساختار را با یک کلیک تحلیل کنید.
       </p>

@@ -35,7 +35,7 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
     <div className="flex flex-col gap-5">
       <header className="flex flex-wrap items-center justify-between gap-3">
         <div className="flex flex-col gap-1">
-          <h2 className="text-lg font-bold">نمای کلی کسب‌وکار</h2>
+          <h2 className="text-h2">نمای کلی کسب‌وکار</h2>
           <p className="text-sm text-muted-foreground">شاخص‌های کلیدی، قابلیت‌های فعال و آخرین رویدادها</p>
         </div>
         <PeriodSelect value={period} onChange={setPeriod} />
@@ -85,7 +85,7 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
                           className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1 py-2.5 text-sm"
                         >
                           <span>{a.text}</span>
-                          <span className="text-xs text-muted-foreground">{relativeTime(a.at)}</span>
+                          <span className="text-caption text-muted-foreground">{relativeTime(a.at)}</span>
                         </li>
                       ))}
                     </ul>
@@ -114,10 +114,10 @@ export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wo
                       <button
                         type="button"
                         onClick={() => open("capabilities")}
-                        className="rounded-full outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40"
+                        className="rounded-xs"
                       >
                         <Badge variant="accent" className="cursor-pointer hover:bg-accent/70">
-                          <span aria-hidden className="text-success">
+                          <span aria-hidden className="text-success-text">
                             ●
                           </span>
                           {nameById.get(id) ?? id}

@@ -42,7 +42,7 @@ function EmptyState({ live, onPick }: { live: boolean; onPick: (text: string) =>
   const example = live ? GOLDEN_MODIFY_PROMPT : GOLDEN_CREATE_PROMPT;
   return (
     <div className="flex flex-1 flex-col items-center justify-center gap-3 py-10 text-center">
-      <h3 className="text-base font-semibold">{live ? "چه تغییری در ربات می‌خواهید؟" : "ربات‌تان را برای من توضیح دهید"}</h3>
+      <h3 className="text-h3">{live ? "چه تغییری در ربات می‌خواهید؟" : "ربات‌تان را برای من توضیح دهید"}</h3>
       <p className="max-w-md text-sm leading-7 text-muted-foreground">
         {live
           ? "تغییر را به زبان ساده بنویسید. ایجنت آن را روی یک نسخهٔ پیش‌نویس اعمال و آزمایش می‌کند و فقط با تأیید شما فعال می‌شود."
@@ -111,7 +111,7 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
         return <DeployedState number={item.number} onOpenTab={onOpenTab} />;
       case "error":
         return (
-          <div role="alert" className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm leading-7">
+          <div role="alert" className="rounded-md border border-destructive/30 bg-danger-soft p-3 text-sm leading-7">
             <div className="font-medium">خطا در اجرای ایجنت</div>
             <div>{item.message}</div>
           </div>
@@ -134,15 +134,15 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
     <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="flex min-w-0 flex-col gap-3">
         {agent.connection === "reconnecting" && (
-          <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning/5 p-2.5 text-sm">
-            <WifiOff className="size-4 text-warning" />
+          <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning-soft p-2.5 text-sm">
+            <WifiOff className="size-4 text-warning-text" />
             ارتباط قطع شد؛ در حال اتصال دوباره…
           </div>
         )}
         {agent.error && (
-          <div role="alert" className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-2.5 text-sm">
+          <div role="alert" className="flex items-start gap-2 rounded-md border border-destructive/30 bg-danger-soft p-2.5 text-sm">
             <span className="flex-1 leading-7">{agent.error}</span>
-            <button onClick={agent.clearError} aria-label="بستن پیام خطا" className="rounded p-1 text-muted-foreground hover:text-foreground">
+            <button onClick={agent.clearError} aria-label="بستن پیام خطا" className="rounded-xs p-1 text-muted-foreground hover:text-foreground">
               <X className="size-4" />
             </button>
           </div>

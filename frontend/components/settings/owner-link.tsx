@@ -71,7 +71,7 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
           // No link while an owner is linked: the code was used, and a code never replaces a linked
           // owner. Disconnecting unlinks the owner; the next connect returns a fresh link (shown below).
           <div className="flex flex-col gap-3">
-            <p role="status" className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm leading-7 text-success">
+            <p role="status" className="flex items-start gap-2 rounded-sm bg-success-soft p-3 text-sm leading-7 text-success-text">
               <Check className="mt-1.5 size-4 shrink-0" />
               حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
             </p>
@@ -87,7 +87,7 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
           </p>
         ) : (
           <>
-            <div className="rounded-md border bg-muted/40 p-3 text-sm break-all" dir="ltr">
+            <div className="rounded-sm border bg-muted/40 p-3 text-sm break-all" dir="ltr">
               {status.owner_link}
             </div>
             <div className="flex flex-wrap gap-2">
@@ -106,7 +106,7 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
                 بررسی وضعیت
               </Button>
             </div>
-            {copied === "no" && <p role="status" className="text-sm text-destructive">کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.</p>}
+            {copied === "no" && <p role="status" className="text-sm text-danger-text">کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.</p>}
             <p className="text-sm leading-7 text-muted-foreground">
               پیوند را فقط خودتان باز کنید: نخستین حسابی که آن را باز کند مدیر ربات می‌شود و اعلان‌ها را دریافت می‌کند. پیوند فقط یک بار
               کار می‌کند.

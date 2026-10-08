@@ -61,9 +61,9 @@ export function OrdersTable({ collection, records, statusChip, rowActions }: Ord
   const tz = collection.timezone;
 
   return (
-    <div className="relative overflow-x-auto rounded-lg border">
+    <div className="relative overflow-x-auto rounded-md border">
       <table className="w-full min-w-max text-sm">
-        <thead className="bg-muted/60 text-xs text-muted-foreground">
+        <thead className="bg-muted/60 text-caption text-muted-foreground">
           <tr>
             <th className="px-3 py-2 text-start font-medium">شماره</th>
             <th className="px-3 py-2 text-start font-medium">وضعیت</th>
@@ -113,7 +113,7 @@ export function OrdersTable({ collection, records, statusChip, rowActions }: Ord
                     <td colSpan={7} className="px-4 py-3">
                       <div className="flex flex-col gap-3 text-sm md:flex-row md:gap-8">
                         <div className="flex min-w-0 flex-1 flex-col gap-1.5">
-                          <h4 className="text-xs font-medium text-muted-foreground">اقلام سفارش</h4>
+                          <h4 className="text-caption font-medium text-muted-foreground">اقلام سفارش</h4>
                           {lines.length === 0 ? (
                             <p className="text-muted-foreground">اقلامی ثبت نشده است.</p>
                           ) : (

@@ -5,7 +5,7 @@ import type { SeriesPoint } from "@/lib/types";
 /** Vertical bar chart as inline SVG (right-to-left: the oldest point is at the right). Hover a bar for its exact value. */
 export function BarChart({ points, label, unit }: { points: SeriesPoint[]; label: string; unit?: string | null }) {
   const n = points.length;
-  if (n === 0) return <p className="text-sm text-muted-foreground">داده‌ای برای نمایش نیست.</p>;
+  if (n === 0) return <p className="text-small text-fg-muted">داده‌ای برای نمایش نیست.</p>;
   const top = niceMax(Math.max(...points.map((p) => p.value)));
   const ticks = [0, top / 2, top];
   const step = (PLOT.right - PLOT.left) / n;
@@ -23,8 +23,8 @@ export function BarChart({ points, label, unit }: { points: SeriesPoint[]; label
       <title>{label}</title>
       {ticks.map((t) => (
         <g key={t}>
-          <line x1={PLOT.left} x2={PLOT.right} y1={yFor(t, top)} y2={yFor(t, top)} className="stroke-border" strokeWidth={1} />
-          <text x={PLOT.right + 6} y={yFor(t, top) + 4} className="fill-muted-foreground" fontSize={11}>
+          <line x1={PLOT.left} x2={PLOT.right} y1={yFor(t, top)} y2={yFor(t, top)} className="stroke-chart-grid" strokeWidth={1} />
+          <text x={PLOT.right + 6} y={yFor(t, top) + 4} className="fill-chart-label" fontSize={12.5}>
             {formatNumber(t)}
           </text>
         </g>
@@ -43,10 +43,10 @@ export function BarChart({ points, label, unit }: { points: SeriesPoint[]; label
               width={barW}
               height={h}
               rx={3}
-              className="fill-primary transition-opacity group-hover:opacity-75"
+              className="fill-chart-1 transition-opacity duration-fast group-hover:opacity-75"
             />
             {i % every === 0 && (
-              <text x={cx} y={CHART_H - 10} textAnchor="middle" className="fill-muted-foreground" fontSize={11}>
+              <text x={cx} y={CHART_H - 10} textAnchor="middle" className="fill-chart-label" fontSize={12.5}>
                 {p.label}
               </text>
             )}

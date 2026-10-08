@@ -20,7 +20,7 @@ export function CapabilityCard({
   const needs = [
     ...(cap.requires.length > 0 ? [namesOf(cap.requires, byId)] : []),
     ...(cap.requires_any.length > 0 ? [`یکی از ${namesOf(cap.requires_any, byId)}`] : []),
-  ].join(" و ");
+  ].join(" و");
 
   return (
     <button
@@ -28,7 +28,7 @@ export function CapabilityCard({
       onClick={onOpen}
       aria-label={`${cap.name}، ${soon ? "به‌زودی" : cap.enabled ? "فعال" : "غیرفعال"}`}
       className={cn(
-        "flex h-full flex-col gap-3 rounded-xl border bg-card p-4 text-start shadow-xs transition-colors outline-none hover:border-primary/50 focus-visible:ring-[3px] focus-visible:ring-ring/40",
+        "flex h-full flex-col gap-3 rounded-md border bg-card p-4 text-start transition-colors hover:border-primary/50",
         cap.enabled && "border-success/40",
       )}
     >
@@ -39,7 +39,7 @@ export function CapabilityCard({
         ) : (
           <span
             aria-hidden
-            className={cn("shrink-0 text-xs whitespace-nowrap", cap.enabled ? "text-success" : "text-muted-foreground")}
+            className={cn("shrink-0 text-caption whitespace-nowrap", cap.enabled ? "text-success-text" : "text-muted-foreground")}
           >
             {cap.enabled ? "● فعال" : "○ غیرفعال"}
           </span>
@@ -60,7 +60,7 @@ export function CapabilityCard({
           )}
         </ul>
       )}
-      {needs && <p className="mt-auto text-xs leading-6 text-muted-foreground">نیاز دارد به {needs}</p>}
+      {needs && <p className="mt-auto text-caption leading-6 text-muted-foreground">نیاز دارد به {needs}</p>}
     </button>
   );
 }

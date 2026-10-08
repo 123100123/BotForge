@@ -140,11 +140,11 @@ function RevisionHistory({
                   </Button>
                 )}
               </CardTitle>
-              <p className="text-xs text-muted-foreground">
+              <p className="text-caption text-muted-foreground">
                 ساخته‌شده در {formatDateTime(shown.created_at)}
                 {shown.activated_at && ` - فعال‌شده در ${formatDateTime(shown.activated_at)}`}
               </p>
-              {shown.change_request && <p className="rounded-md bg-muted/60 p-3 text-sm leading-7">{shown.change_request}</p>}
+              {shown.change_request && <p className="rounded-sm bg-muted/60 p-3 text-sm leading-7">{shown.change_request}</p>}
             </CardHeader>
             <CardContent className="flex flex-col gap-3">
               <h4 className="text-sm font-semibold">تغییرات نسبت به نسخهٔ قبل</h4>

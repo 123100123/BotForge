@@ -56,10 +56,10 @@ export default function BotWorkspacePage() {
   if (error && !bot) {
     return (
       <div className="flex flex-col items-start gap-3">
-        <p role="alert" className="rounded-md bg-destructive/10 p-3 text-sm text-destructive">
+        <p role="alert" className="rounded-sm bg-danger-soft p-3 text-sm text-danger-text">
           {error}
         </p>
-        <Link href="/bots" className="text-sm text-primary hover:underline">
+        <Link href="/bots" className="text-sm text-brand-text hover:underline">
           بازگشت به ربات‌ها
         </Link>
       </div>
@@ -69,8 +69,8 @@ export default function BotWorkspacePage() {
   if (!bot) {
     return (
       <div className="flex flex-col gap-4" role="status" aria-label="در حال بارگذاری">
-        <div className="h-8 w-56 animate-pulse rounded bg-muted" />
-        <div className="h-64 animate-pulse rounded-xl bg-muted" />
+        <div className="h-8 w-56 animate-pulse rounded-xs bg-border" />
+        <div className="h-64 animate-pulse rounded-md bg-border" />
       </div>
     );
   }
@@ -83,7 +83,7 @@ export default function BotWorkspacePage() {
           همهٔ ربات‌ها
         </Link>
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
-          <h1 className="text-xl font-bold">{bot.name}</h1>
+          <h1 className="text-h1">{bot.name}</h1>
           <BotStatusChip status={bot.status} />
           {bot.tg_username && (
             <Badge variant="outline">

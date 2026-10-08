@@ -137,7 +137,7 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             <CardContent className="flex items-center gap-2 text-lg font-semibold">
               {report ? (
                 <>
-                  {allPassed ? <CircleCheck className="size-5 text-success" /> : <CircleX className="size-5 text-destructive" />}
+                  {allPassed ? <CircleCheck className="size-5 text-success-text" /> : <CircleX className="size-5 text-danger-text" />}
                   <span>
                     {fa(report.passed)} از {fa(report.total)} سناریو موفق
                   </span>

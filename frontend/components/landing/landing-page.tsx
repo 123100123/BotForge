@@ -1,4 +1,6 @@
 import { Blocks, ChartColumn, Headset, Store, Users, Workflow, type LucideIcon } from "lucide-react";
+import { Logo } from "@/components/app/logo";
+import { ThemeMenu } from "@/components/app/theme-menu";
 import { WORKSPACE_TABS } from "@/components/app/workspace";
 import { Card, CardContent } from "@/components/ui/card";
 import { CtaButtons, HeaderCta } from "./cta-buttons";
@@ -32,18 +34,21 @@ const SECTION_NOTES: Record<string, string> = {
 export function LandingPage() {
   return (
     <div className="flex min-h-dvh flex-col">
-      <header className="border-b bg-card">
+      <header className="border-b bg-surface">
         <div className="mx-auto flex h-14 w-full max-w-6xl items-center justify-between gap-3 px-4">
-          <span className="text-base font-bold text-primary">بات‌فورج</span>
-          <HeaderCta />
+          <Logo size={26} />
+          <div className="flex items-center gap-2">
+            <ThemeMenu />
+            <HeaderCta />
+          </div>
         </div>
       </header>
 
       <main className="flex-1">
         <section className="mx-auto flex w-full max-w-4xl flex-col items-center gap-6 px-4 py-14 text-center md:py-24">
-          <p className="rounded-full bg-accent px-3 py-1 text-xs font-medium text-accent-foreground">مرکز کنترل کسب‌وکار در تلگرام</p>
-          <h1 className="text-3xl leading-snug font-bold text-balance md:text-5xl md:leading-snug">کسب‌وکارتان را از تلگرام اداره کنید.</h1>
-          <p className="text-lg font-medium text-primary">یک ربات. تمام کسب‌وکار شما. ساخته و نگهداری‌شده با هوش مصنوعی.</p>
+          <p className="rounded-xs bg-accent px-3 py-1 text-caption font-medium text-accent-foreground">مرکز کنترل کسب‌وکار در تلگرام</p>
+          <h1 className="text-display">کسب‌وکارتان را از تلگرام اداره کنید.</h1>
+          <p className="text-lg font-medium text-brand-text">یک ربات. تمام کسب‌وکار شما. ساخته و نگهداری‌شده با هوش مصنوعی.</p>
           <p className="max-w-2xl text-base leading-8 text-muted-foreground">
             به BotForge بگویید کسب‌وکارتان چگونه کار می‌کند. ایجنت هوش مصنوعی آن یک سیستم‌عامل کسب‌وکار اختصاصی در تلگرام می‌سازد و نگهداری
             می‌کند: برای مشتریان، کارکنان، عملیات، فروش و گزارش‌گیری.
@@ -54,22 +59,22 @@ export function LandingPage() {
           <CtaButtons className="justify-center" />
         </section>
 
-        <section aria-labelledby="how-title" className="border-y bg-card">
+        <section aria-labelledby="how-title" className="border-y bg-surface">
           <div className="mx-auto w-full max-w-6xl px-4 py-12">
-            <h2 id="how-title" className="mb-6 text-center text-xl font-bold">
+            <h2 id="how-title" className="mb-6 text-center text-h2">
               چگونه کار می‌کند
             </h2>
             <ol className="grid gap-4 md:grid-cols-3">
               {STEPS.map((step, i) => (
-                <li key={step.title} className="flex gap-3 rounded-xl border bg-background p-4">
+                <li key={step.title} className="flex gap-3 rounded-md border bg-background p-4">
                   <span
                     aria-hidden
-                    className="flex size-8 shrink-0 items-center justify-center rounded-full bg-primary text-sm font-bold text-primary-foreground"
+                    className="flex size-8 shrink-0 items-center justify-center rounded-sm bg-primary text-sm font-bold text-primary-foreground"
                   >
                     {"۱۲۳"[i]}
                   </span>
                   <div className="flex flex-col gap-1">
-                    <h3 className="text-base font-semibold">{step.title}</h3>
+                    <h3 className="text-h3">{step.title}</h3>
                     <p className="text-sm leading-7 text-muted-foreground">{step.text}</p>
                   </div>
                 </li>
@@ -80,8 +85,8 @@ export function LandingPage() {
 
         <section aria-labelledby="cap-title" className="mx-auto w-full max-w-6xl px-4 py-12">
           <div className="mb-6 flex flex-col items-center gap-1 text-center">
-            <h2 id="cap-title" className="flex items-center gap-2 text-xl font-bold">
-              <Blocks className="size-5 text-primary" aria-hidden />
+            <h2 id="cap-title" className="flex items-center gap-2 text-h2">
+              <Blocks className="size-5 text-brand-text" aria-hidden />
               قابلیت‌هایی که روشن می‌کنید
             </h2>
             <p className="text-sm text-muted-foreground">نمونه‌هایی از هر دسته؛ هر ربات فقط قابلیت‌هایی را دارد که برایش فعال شده است.</p>
@@ -92,8 +97,8 @@ export function LandingPage() {
                 <Card className="h-full gap-3">
                   <CardContent className="flex flex-col gap-3">
                     <div className="flex items-center gap-2">
-                      <Icon className="size-5 text-primary" aria-hidden />
-                      <h3 className="text-base font-semibold">{title}</h3>
+                      <Icon className="size-5 text-brand-text" aria-hidden />
+                      <h3 className="text-h3">{title}</h3>
                     </div>
                     <ul className="flex flex-col gap-1 text-sm text-muted-foreground">
                       {examples.map((e) => (
@@ -107,9 +112,9 @@ export function LandingPage() {
           </ul>
         </section>
 
-        <section aria-labelledby="center-title" className="border-t bg-card">
+        <section aria-labelledby="center-title" className="border-t bg-surface">
           <div className="mx-auto w-full max-w-6xl px-4 py-12">
-            <h2 id="center-title" className="mb-2 text-center text-xl font-bold">
+            <h2 id="center-title" className="mb-2 text-center text-h2">
               مرکز کنترل کسب‌وکار
             </h2>
             <p className="mx-auto mb-6 max-w-xl text-center text-sm leading-7 text-muted-foreground">
@@ -117,11 +122,11 @@ export function LandingPage() {
             </p>
             <ul className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {WORKSPACE_TABS.map(({ value, label, icon: Icon }) => (
-                <li key={value} className="flex items-start gap-3 rounded-xl border bg-background p-3">
-                  <Icon className="mt-0.5 size-5 shrink-0 text-primary" aria-hidden />
+                <li key={value} className="flex items-start gap-3 rounded-md border bg-background p-3">
+                  <Icon className="mt-0.5 size-5 shrink-0 text-brand-text" aria-hidden />
                   <div className="flex flex-col">
                     <span className="text-sm font-semibold">{label}</span>
-                    <span className="text-xs leading-6 text-muted-foreground">{SECTION_NOTES[value]}</span>
+                    <span className="text-caption leading-6 text-muted-foreground">{SECTION_NOTES[value]}</span>
                   </div>
                 </li>
               ))}
@@ -130,12 +135,12 @@ export function LandingPage() {
         </section>
 
         <section className="mx-auto flex w-full max-w-4xl flex-col items-center gap-4 px-4 py-14 text-center">
-          <h2 className="text-xl font-bold">کسب‌وکارتان را توضیح دهید و شروع کنید.</h2>
+          <h2 className="text-h2">کسب‌وکارتان را توضیح دهید و شروع کنید.</h2>
           <CtaButtons className="justify-center" />
         </section>
       </main>
 
-      <footer className="border-t py-6 text-center text-xs text-muted-foreground">بات‌فورج (BotForge)</footer>
+      <footer className="border-t py-6 text-center text-caption text-muted-foreground">بات‌فورج (BotForge)</footer>
     </div>
   );
 }

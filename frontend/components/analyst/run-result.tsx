@@ -24,9 +24,9 @@ function MetricTable({ rows }: { rows: Record<string, unknown>[] }) {
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">داده‌ای برای نمایش نیست.</p>;
   const headers = Object.keys(rows[0]);
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-max text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-muted/50 text-caption text-muted-foreground">
           <tr>
             {headers.map((h) => (
               <th key={h} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -74,10 +74,10 @@ function AnomalyRow({ a }: { a: AnalysisAnomaly }) {
   if (a.value !== null) parts.push(`مقدار ${formatNumber(a.value)}`);
   if (a.expected !== null) parts.push(`انتظار ${formatNumber(a.expected)}`);
   return (
-    <li className="flex flex-col gap-1.5 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between">
+    <li className="flex flex-col gap-1.5 rounded-md border p-3 sm:flex-row sm:items-center sm:justify-between">
       <div className="flex flex-col gap-0.5">
         <span className="text-sm font-medium">{a.label}</span>
-        <span className="text-xs text-muted-foreground">
+        <span className="text-caption text-muted-foreground">
           ستون <bdi>{a.field}</bdi>
           {a.group && (
             <>
@@ -151,7 +151,7 @@ export function RunResult({
           <CardTitle className="text-base">
             نتیجهٔ تحلیل «{profileName}»
           </CardTitle>
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             {run.filename && (
               <>
                 <bdi>{run.filename}</bdi>
@@ -166,7 +166,7 @@ export function RunResult({
       <CardContent className="flex flex-col gap-4">
         {run.status === "ok" && (
           <>
-            {run.narrative && <p className="rounded-lg bg-accent/40 p-3 text-sm leading-8">{run.narrative}</p>}
+            {run.narrative && <p className="rounded-md bg-accent/40 p-3 text-sm leading-8">{run.narrative}</p>}
             {metrics.length === 0 ? (
               <p className="text-sm text-muted-foreground">این اجرا شاخصی نداشت.</p>
             ) : (
@@ -194,7 +194,7 @@ export function RunResult({
         )}
 
         {run.status === "schema_changed" && (
-          <div className="flex flex-col gap-4 rounded-lg border border-warning/40 bg-warning/10 p-4">
+          <div className="flex flex-col gap-4 rounded-md border border-warning/40 bg-warning-soft p-4">
             <p className="text-sm leading-7 font-medium">
               این فایل با پروفایل «{profileName}» مطابقت ندارد
             </p>
@@ -216,7 +216,7 @@ export function RunResult({
               >
                 {updating ? "در حال ساخت…" : "به‌روزرسانی پروفایل"}
               </Button>
-              {!run.upload_id && <p className="text-xs text-muted-foreground">فایل این اجرا دیگر در دسترس نیست.</p>}
+              {!run.upload_id && <p className="text-caption text-muted-foreground">فایل این اجرا دیگر در دسترس نیست.</p>}
             </div>
           </div>
         )}

@@ -84,7 +84,7 @@ export function CapabilitiesTab({
   return (
     <div className="flex flex-col gap-6">
       <header className="flex flex-col gap-1">
-        <h2 className="text-lg font-bold">مرکز قابلیت‌ها</h2>
+        <h2 className="text-h2">مرکز قابلیت‌ها</h2>
         <p className="text-sm leading-7 text-muted-foreground">
           <span className="font-semibold text-foreground">
             {fa(enabledCount)} قابلیت فعال از {fa(all.length)}
@@ -111,7 +111,7 @@ export function CapabilitiesTab({
 
       {categories.map((category) => (
         <section key={category.id} aria-label={category.name} className="flex flex-col gap-3">
-          <h3 className="text-base font-semibold">{category.name}</h3>
+          <h3 className="text-h3">{category.name}</h3>
           <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
             {category.capabilities.map((c) => (
               <CapabilityCard key={c.id} cap={c} byId={byId} onOpen={() => setSelectedId(c.id)} />

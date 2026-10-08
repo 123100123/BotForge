@@ -96,10 +96,10 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
         <CardDescription>خلاصهٔ کسب‌وکار را در ساعت دلخواه به‌صورت خودکار در تلگرام دریافت کنید.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
-        <p className="rounded-md bg-muted/50 p-3 text-sm leading-7 text-muted-foreground">
+        <p className="rounded-sm bg-muted/50 p-3 text-sm leading-7 text-muted-foreground">
           ارسال گزارش‌ها فقط وقتی انجام می‌شود که قابلیت «گزارش زمان‌بندی‌شده» فعال باشد.{" "}
           {onOpenTab ? (
-            <button type="button" className="text-primary underline-offset-4 hover:underline" onClick={() => onOpenTab("capabilities")}>
+            <button type="button" className="text-brand-text underline-offset-4 hover:underline" onClick={() => onOpenTab("capabilities")}>
               رفتن به تب قابلیت‌ها
             </button>
           ) : (
@@ -109,7 +109,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
 
         {loadError && <ErrorNote>{loadError}</ErrorNote>}
         {!saved ? (
-          !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-muted" />
+          !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-md bg-border" />
         ) : draft.length === 0 ? (
           <p className="text-sm leading-7 text-muted-foreground">زمان‌بندی‌ای تعریف نشده است.</p>
         ) : (
@@ -117,7 +117,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
             {draft.map((s) => {
               const timeBad = !TIME_RE.test(s.time);
               return (
-                <li key={s.id} className="flex flex-col gap-3 rounded-md border p-3">
+                <li key={s.id} className="flex flex-col gap-3 rounded-sm border p-3">
                   <div className="flex items-center gap-3">
                     <Switch
                       id={`schedule-${s.id}`}
@@ -165,7 +165,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
                   </div>
                   {s.metrics.length > 0 && (
                     <div className="flex flex-wrap items-center gap-2">
-                      <span className="text-xs text-muted-foreground">شامل:</span>
+                      <span className="text-caption text-muted-foreground">شامل:</span>
                       {s.metrics.map((m) => (
                         <Badge key={m} variant="outline">
                           {METRIC_LABELS[m] ?? m}
@@ -186,7 +186,7 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
             <Button onClick={save} disabled={!dirty || invalid || saving}>
               {saving ? "در حال ذخیره…" : "ذخیرهٔ زمان‌بندی"}
             </Button>
-            {invalid && <span className="text-sm text-destructive">ساعت و روز هفته را کامل وارد کنید.</span>}
+            {invalid && <span className="text-sm text-danger-text">ساعت و روز هفته را کامل وارد کنید.</span>}
           </div>
         )}
       </CardContent>

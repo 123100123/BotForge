@@ -17,13 +17,13 @@ function StateIcon({ state }: { state: PhaseState }) {
   }
   if (state === "done") {
     return (
-      <span className="flex size-5 items-center justify-center rounded-full bg-success text-white" role="img" aria-label="انجام شد">
+      <span className="flex size-5 items-center justify-center rounded-full bg-success text-on-brand" role="img" aria-label="انجام شد">
         <Check className="size-3.5" />
       </span>
     );
   }
   return (
-    <span className="flex size-5 items-center justify-center rounded-full bg-destructive text-white" role="img" aria-label="ناموفق">
+    <span className="flex size-5 items-center justify-center rounded-full bg-danger text-on-brand" role="img" aria-label="ناموفق">
       <X className="size-3.5" />
     </span>
   );
@@ -36,7 +36,7 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
         <span className="mt-1.5 size-1.5 shrink-0 rounded-full bg-muted-foreground/50" aria-hidden />
         <div className="min-w-0">
           <span className="whitespace-pre-line">{tool.summary}</span>{" "}
-          <span dir="ltr" className="inline-block rounded bg-muted px-1.5 py-0.5 font-mono text-[11px] text-muted-foreground">
+          <span dir="ltr" className="inline-block rounded-xs bg-muted px-1.5 py-0.5 font-mono text-caption text-muted-foreground">
             {tool.name}
           </span>
         </div>
@@ -44,15 +44,15 @@ function ToolRow({ tool }: { tool: ToolEntry }) {
       {tool.result ? (
         <div
           className={cn(
-            "ms-3.5 flex items-start gap-1.5 text-xs",
-            tool.result.ok ? "text-success" : "text-destructive",
+            "ms-3.5 flex items-start gap-1.5 text-caption",
+            tool.result.ok ? "text-success-text" : "text-danger-text",
           )}
         >
           {tool.result.ok ? <Check className="mt-0.5 size-3 shrink-0" /> : <CircleAlert className="mt-0.5 size-3 shrink-0" />}
           <span className="whitespace-pre-line">{tool.result.summary}</span>
         </div>
       ) : (
-        <div className="ms-3.5 flex items-center gap-1.5 text-xs text-muted-foreground">
+        <div className="ms-3.5 flex items-center gap-1.5 text-caption text-muted-foreground">
           <Loader2 className="size-3 animate-spin" />
           <span>در حال اجرا…</span>
         </div>
@@ -71,11 +71,11 @@ function PhaseRow({ entry, last }: { entry: PhaseEntry; last: boolean }) {
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-baseline gap-x-2 text-sm font-medium">
           <span>{phaseLabel(entry.phase)}</span>
-          {entry.attempt > 1 && <span className="text-xs font-normal text-muted-foreground">(تلاش {fa(entry.attempt)})</span>}
+          {entry.attempt > 1 && <span className="text-caption font-normal text-muted-foreground">(تلاش {fa(entry.attempt)})</span>}
         </div>
-        {entry.summary && <p className="mt-0.5 text-xs text-muted-foreground">{entry.summary}</p>}
+        {entry.summary && <p className="mt-0.5 text-caption text-muted-foreground">{entry.summary}</p>}
         {entry.tools.length > 0 && (
-          <ul className="mt-2 flex flex-col gap-2 rounded-lg bg-muted/60 p-2.5">
+          <ul className="mt-2 flex flex-col gap-2 rounded-md bg-muted/60 p-2.5">
             {entry.tools.map((tool) => (
               <ToolRow key={tool.id} tool={tool} />
             ))}
@@ -121,7 +121,7 @@ export function ActivityTimeline({ phases, status, usage }: ActivityTimelineProp
           </ol>
         )}
         {usage && (
-          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-3 text-xs text-muted-foreground">
+          <dl className="mt-4 grid grid-cols-2 gap-x-3 gap-y-1 border-t pt-3 text-caption text-muted-foreground">
             <dt>توکن ورودی</dt>
             <dd className="text-end">{formatNumber(usage.input_tokens)}</dd>
             <dt>توکن خروجی</dt>

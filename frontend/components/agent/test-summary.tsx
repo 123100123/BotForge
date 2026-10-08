@@ -41,7 +41,7 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
           </p>
         )}
         {generated?.notes && generated.notes.length > 0 && (
-          <ul aria-label="نکته‌های ساخت آزمون" className="flex flex-col gap-1 rounded-lg bg-muted/60 p-3 text-sm leading-7">
+          <ul aria-label="نکته‌های ساخت آزمون" className="flex flex-col gap-1 rounded-md bg-muted/60 p-3 text-sm leading-7">
             {generated.notes.map((n, i) => (
               <li key={i} className="whitespace-pre-line">
                 {n}
@@ -54,9 +54,9 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
           <>
             <div className="flex items-center gap-2 text-lg font-semibold">
               {allPassed ? (
-                <CircleCheck className="size-5 text-success" />
+                <CircleCheck className="size-5 text-success-text" />
               ) : (
-                <CircleX className="size-5 text-destructive" />
+                <CircleX className="size-5 text-danger-text" />
               )}
               <span>
                 {fa(latest.passed)} از {fa(latest.total)} آزمون موفق
@@ -66,7 +66,7 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
             {latest.failures.length > 0 && (
               <ul className="flex flex-col gap-2">
                 {latest.failures.map((f) => (
-                  <li key={f.id} className="rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm leading-7">
+                  <li key={f.id} className="rounded-md border border-destructive/30 bg-danger-soft p-3 text-sm leading-7">
                     <div className="font-medium">{f.title}</div>
                     <div className="text-muted-foreground">{f.message}</div>
                   </li>
@@ -75,7 +75,7 @@ export function TestSummary({ generated, reports }: TestSummaryProps) {
             )}
 
             {earlier.length > 0 && (
-              <div className="border-t pt-3 text-xs text-muted-foreground">
+              <div className="border-t pt-3 text-caption text-muted-foreground">
                 <div className="mb-1 font-medium">تلاش‌های قبلی</div>
                 <ul className="flex flex-col gap-0.5">
                   {earlier.map((r, i) => (

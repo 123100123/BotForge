@@ -127,7 +127,7 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
               onChange={(e) => setText(e.target.value)}
               placeholder="مثلاً: فردا ساعت ۱۰ فروشگاه دیرتر باز می‌شود."
             />
-            <span className="text-xs text-muted-foreground">
+            <span className="text-caption text-muted-foreground">
               {fa(text.length)} از {fa(MAX_TEXT)} نویسه
             </span>
           </div>
@@ -188,17 +188,17 @@ export function AnnouncementsSection({ botId }: { botId: string }) {
           <h3 className="text-sm font-semibold">تاریخچه</h3>
           {loadError && <ErrorNote>{loadError}</ErrorNote>}
           {!history ? (
-            !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-16 animate-pulse rounded-xl bg-muted" />
+            !loadError && <div role="status" aria-label="در حال بارگذاری" className="h-16 animate-pulse rounded-md bg-border" />
           ) : history.length === 0 ? (
             <p className="text-sm leading-7 text-muted-foreground">هنوز اعلانی نفرستاده‌اید.</p>
           ) : (
-            <ul className="flex flex-col divide-y rounded-md border">
+            <ul className="flex flex-col divide-y rounded-sm border">
               {history.map((a) => {
                 const st = STATUS[a.status] ?? { label: a.status, variant: "secondary" as const };
                 return (
                   <li key={a.id} className="flex flex-col gap-1.5 px-3 py-3">
                     <p className="text-sm leading-7 break-words">{excerpt(a.text)}</p>
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <div className="flex flex-wrap items-center gap-2 text-caption text-muted-foreground">
                       <Badge variant="outline">{audienceLabel(a.audience)}</Badge>
                       <span>{fa(a.recipients)} گیرنده</span>
                       <Badge variant={st.variant}>{st.label}</Badge>

@@ -217,8 +217,8 @@ export function CapabilityDialog({
                   {verb}‌کردن {cap.name} در حال حاضر ممکن نیست؛ این قابلیت‌ها مانع هستند: {namesOf(plan.blocked_by, byId)}
                 </ErrorNote>
               ) : plan.needs_agent ? (
-                <div className="flex flex-col gap-2 rounded-md bg-warning/15 p-3 text-sm leading-7">
-                  <p className="font-semibold text-warning">این قابلیت نیاز به پیکربندی دارد</p>
+                <div className="flex flex-col gap-2 rounded-sm bg-warning-soft p-3 text-sm leading-7">
+                  <p className="font-semibold text-warning-text">این قابلیت نیاز به پیکربندی دارد</p>
                   <p>برای فعال‌کردن {cap.name} باید چند چیز مشخص شود. دستیار هوشمند از شما می‌پرسد و آن را راه‌اندازی می‌کند.</p>
                 </div>
               ) : (
@@ -233,14 +233,14 @@ export function CapabilityDialog({
                 </p>
               )}
               {plan.compat_warnings.length > 0 && (
-                <ul className="flex flex-col gap-1 rounded-md bg-warning/15 p-3 text-sm leading-7 text-warning">
+                <ul className="flex flex-col gap-1 rounded-sm bg-warning-soft p-3 text-sm leading-7 text-warning-text">
                   {plan.compat_warnings.map((w) => (
                     <li key={w}>{w}</li>
                   ))}
                 </ul>
               )}
               {plan.blocked_by.length === 0 && !plan.needs_agent && (
-                <p className="text-xs leading-6 text-muted-foreground">
+                <p className="text-caption leading-6 text-muted-foreground">
                   {cap.kind === "spec"
                     ? "این تغییر یک نسخهٔ جدید از ربات می‌سازد؛ فقط اگر آزمون‌ها موفق باشند فعال می‌شود و از بخش نسخه‌ها قابل بازگشت است."
                     : "این تغییر بلافاصله اعمال می‌شود."}

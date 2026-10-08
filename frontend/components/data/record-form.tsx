@@ -225,7 +225,7 @@ function FieldInput({
       </Label>
       {control}
       {error && (
-        <p id={errId} role="alert" className="text-sm text-destructive">
+        <p id={errId} role="alert" className="text-sm text-danger-text">
           {error}
         </p>
       )}

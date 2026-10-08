@@ -184,7 +184,7 @@ function CollectionPanel({ botId, collection, tick, onChanged }: PanelProps) {
         {error && <ErrorNote>{error}</ErrorNote>}
         {!loaded && !error && <LoadingBlock />}
         {loaded && loaded.total === 0 && (
-          <p className="rounded-lg border border-dashed p-8 text-center text-sm leading-7 text-muted-foreground">
+          <p className="rounded-md border border-dashed p-8 text-center text-sm leading-7 text-muted-foreground">
             {writable
               ? `هنوز ${collection.label} اضافه نشده است. با دکمهٔ «افزودن ${collection.label}» شروع کنید.`
               : "هنوز موردی ثبت نشده است. وقتی مشتری‌ها از ربات استفاده کنند، اینجا نمایش داده می‌شود."}

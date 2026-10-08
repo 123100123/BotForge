@@ -1,4 +1,4 @@
-import { Badge } from "@/components/ui/badge";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { BotStatus } from "@/lib/types";
 
 const LABELS: Record<BotStatus, string> = {
@@ -7,12 +7,16 @@ const LABELS: Record<BotStatus, string> = {
   paused: "متوقف",
 };
 
-const VARIANTS: Record<BotStatus, "secondary" | "success" | "warning"> = {
-  draft: "secondary",
+const TONES: Record<BotStatus, "neutral" | "success" | "warning"> = {
+  draft: "neutral",
   live: "success",
   paused: "warning",
 };
 
 export function BotStatusChip({ status }: { status: BotStatus }) {
-  return <Badge variant={VARIANTS[status]}>{LABELS[status]}</Badge>;
+  return (
+    <StatusBadge tone={TONES[status]} marker>
+      {LABELS[status]}
+    </StatusBadge>
+  );
 }

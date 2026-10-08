@@ -118,14 +118,14 @@ export function TeamSection({ botId }: { botId: string }) {
       <CardContent className="flex flex-col gap-5">
         {error && <ErrorNote>{error}</ErrorNote>}
         {!team ? (
-          !error && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-muted" />
+          !error && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-md bg-border" />
         ) : (
           <>
             <div className="flex flex-col gap-3">
               <h3 className="text-sm font-semibold">پیوند دعوت همکار</h3>
               {team.staff_link ? (
                 <>
-                  <div className="rounded-md border bg-muted/40 p-3 text-sm break-all" dir="ltr">
+                  <div className="rounded-sm border bg-muted/40 p-3 text-sm break-all" dir="ltr">
                     {team.staff_link}
                   </div>
                   <div className="flex flex-wrap gap-2">
@@ -137,13 +137,13 @@ export function TeamSection({ botId }: { botId: string }) {
                       <RefreshCw className={busy === "rotate" ? "animate-spin" : undefined} />
                       ساخت/تعویض لینک
                     </Button>
-                    <Button variant="ghost" className="text-destructive" onClick={() => setConfirmRevoke(true)} disabled={busy !== null}>
+                    <Button variant="ghost" className="text-danger-text" onClick={() => setConfirmRevoke(true)} disabled={busy !== null}>
                       <Link2Off />
                       لغو لینک
                     </Button>
                   </div>
                   {copied === "no" && (
-                    <p role="status" className="text-sm text-destructive">
+                    <p role="status" className="text-sm text-danger-text">
                       کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.
                     </p>
                   )}
@@ -180,7 +180,7 @@ export function TeamSection({ botId }: { botId: string }) {
                   هنوز عضوی ثبت نشده است. پس از اینکه کسی ربات را در تلگرام شروع کند، اینجا نمایش داده می‌شود.
                 </p>
               ) : (
-                <div className="overflow-x-auto rounded-md border">
+                <div className="overflow-x-auto rounded-sm border">
                   <table className="w-full min-w-[30rem] text-sm">
                     <thead className="bg-muted/50 text-muted-foreground">
                       <tr>

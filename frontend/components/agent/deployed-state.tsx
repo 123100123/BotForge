@@ -11,9 +11,9 @@ interface DeployedStateProps {
 /** Shown once a revision is active: what to do next. */
 export function DeployedState({ number, onOpenTab }: DeployedStateProps) {
   return (
-    <Card className="border-success/40 bg-success/5">
+    <Card className="border-success/40 bg-success-soft">
       <CardContent className="flex flex-col gap-3">
-        <div className="flex items-center gap-2 text-base font-semibold text-success">
+        <div className="flex items-center gap-2 text-base font-semibold text-success-text">
           <CircleCheck className="size-5" />
           نسخهٔ {fa(number)} فعال شد
         </div>

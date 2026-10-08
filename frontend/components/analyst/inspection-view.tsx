@@ -16,9 +16,9 @@ function cell(value: unknown) {
 function ColumnTable({ columns }: { columns: ColumnProfile[] }) {
   if (columns.length === 0) return <p className="text-sm text-muted-foreground">این برگه ستونی ندارد.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-[40rem] text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-muted/50 text-caption text-muted-foreground">
           <tr>
             {["ستون", "نوع", "غیرخالی", "یکتا", "کمترین", "بیشترین", "میانگین", "نمونه"].map((h) => (
               <th key={h} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -61,9 +61,9 @@ function SampleRows({ sheet }: { sheet: SheetProfile }) {
   const rows = sheet.sample_rows ?? [];
   if (rows.length === 0) return <p className="text-sm text-muted-foreground">ردیف نمونه‌ای وجود ندارد.</p>;
   return (
-    <div className="overflow-x-auto rounded-lg border">
+    <div className="overflow-x-auto rounded-md border">
       <table className="w-full min-w-max text-start text-sm">
-        <thead className="bg-muted/50 text-xs text-muted-foreground">
+        <thead className="bg-muted/50 text-caption text-muted-foreground">
           <tr>
             {sheet.columns.map((c) => (
               <th key={c.name} scope="col" className="px-3 py-2 text-start font-medium whitespace-nowrap">
@@ -100,7 +100,7 @@ export function InspectionView({ upload, children }: { upload: UploadOut; childr
         <CardTitle className="text-base">
           بررسی فایل <bdi>{upload.filename}</bdi>
         </CardTitle>
-        <p className="text-xs text-muted-foreground">
+        <p className="text-caption text-muted-foreground">
           {fileSizeText(upload.size)} · {fa(sheets.length)} برگه
         </p>
       </CardHeader>
@@ -116,7 +116,7 @@ export function InspectionView({ upload, children }: { upload: UploadOut; childr
               {sheets.map((s) => (
                 <TabsTrigger key={s.name} value={s.name}>
                   <bdi>{s.name}</bdi>
-                  <span className="text-xs text-muted-foreground">{fa(s.rows)} ردیف</span>
+                  <span className="text-caption text-muted-foreground">{fa(s.rows)} ردیف</span>
                 </TabsTrigger>
               ))}
             </TabsList>

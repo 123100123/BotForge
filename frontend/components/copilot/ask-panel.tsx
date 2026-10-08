@@ -69,7 +69,7 @@ function ToolChip({ call }: { call: ToolCallOut }) {
         aria-expanded={open}
         disabled={args.length === 0}
         onClick={() => setOpen((o) => !o)}
-        className="inline-flex max-w-full items-center gap-1.5 self-start rounded-full border bg-card px-2.5 py-1 text-start text-xs text-muted-foreground outline-none transition-colors hover:text-foreground focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:pointer-events-none"
+        className="inline-flex max-w-full items-center gap-1.5 self-start rounded-sm border bg-card px-2.5 py-1 text-start text-caption text-muted-foreground transition-colors hover:text-foreground disabled:pointer-events-none"
       >
         <Wrench className="size-3 shrink-0" aria-hidden />
         <span className="min-w-0">{toFaDigits(call.summary)}</span>
@@ -78,7 +78,7 @@ function ToolChip({ call }: { call: ToolCallOut }) {
         )}
       </button>
       {open && args.length > 0 && (
-        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-md bg-card/60 px-3 py-2 text-xs">
+        <dl className="grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-0.5 rounded-sm bg-card/60 px-3 py-2 text-caption">
           {args.map(([k, v]) => (
             <div key={k} className="contents">
               <dt className="text-muted-foreground" dir="ltr">
@@ -99,7 +99,7 @@ function UsageFooter({ usage }: { usage: Record<string, unknown> }) {
   const cost = num("cost_usd") || num("cost");
   if (tokens <= 0 && cost <= 0) return null;
   return (
-    <p className="mt-2 text-[11px] text-muted-foreground">
+    <p className="mt-2 text-caption text-muted-foreground">
       {tokens > 0 && <span>{formatNumber(tokens)} توکن</span>}
       {tokens > 0 && cost > 0 && " · "}
       {cost > 0 && (
@@ -165,7 +165,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
       <CardContent className="flex flex-col gap-4">
         {turns.length === 0 ? (
           <div className="flex flex-col items-center gap-3 py-4 text-center">
-            <h3 className="text-base font-semibold">از کسب‌وکارتان بپرسید</h3>
+            <h3 className="text-h3">از کسب‌وکارتان بپرسید</h3>
             <p className="max-w-md text-sm leading-7 text-muted-foreground">
               دستیار از داده‌های ربات پاسخ می‌دهد و چیزی را تغییر نمی‌دهد. یکی از پرسش‌های زیر را امتحان کنید یا سؤال خودتان را بنویسید.
             </p>
@@ -176,7 +176,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
                     type="button"
                     disabled={busy}
                     onClick={() => ask(s)}
-                    className="rounded-full border bg-card px-3 py-1.5 text-sm outline-none transition-colors hover:bg-muted focus-visible:ring-[3px] focus-visible:ring-ring/40 disabled:opacity-50"
+                    className="rounded-sm border bg-card px-3 py-1.5 text-sm transition-colors hover:bg-muted disabled:opacity-50"
                   >
                     {s}
                   </button>
@@ -190,7 +190,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
               <li
                 key={i}
                 className={cn(
-                  "flex max-w-[90%] flex-col rounded-lg p-3 text-sm leading-7 sm:max-w-[85%]",
+                  "flex max-w-[90%] flex-col rounded-md p-3 text-sm leading-7 sm:max-w-[85%]",
                   t.role === "user" ? "self-start bg-primary/10" : "self-end bg-muted",
                 )}
               >
@@ -206,7 +206,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
               </li>
             ))}
             {busy && (
-              <li className="flex items-center gap-2 self-end rounded-lg bg-muted p-3 text-sm text-muted-foreground" role="status">
+              <li className="flex items-center gap-2 self-end rounded-md bg-muted p-3 text-sm text-muted-foreground" role="status">
                 <Loader2 className="size-4 animate-spin" aria-hidden />
                 در حال فکر کردن…
               </li>
@@ -253,7 +253,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
           </Button>
         </form>
         {turns.length > 0 && (
-          <p className="text-xs text-muted-foreground">
+          <p className="text-caption text-muted-foreground">
             {fa(Math.min(turns.length, HISTORY_LIMIT))} پیام آخر گفتگو برای دستیار ارسال می‌شود.
           </p>
         )}

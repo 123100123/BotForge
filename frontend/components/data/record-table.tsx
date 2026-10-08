@@ -65,7 +65,7 @@ export function RecordTable({
             <Pencil />
             ویرایش
           </Button>
-          <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={() => onDelete(r)} aria-label={`حذف مورد ${fa(r.id)}`}>
+          <Button variant="ghost" size="sm" className="text-danger-text hover:text-danger-text" onClick={() => onDelete(r)} aria-label={`حذف مورد ${fa(r.id)}`}>
             <Trash2 />
             حذف
           </Button>
@@ -100,9 +100,9 @@ export function RecordTable({
       {isOrders ? (
         <OrdersTable collection={collection} records={records} statusChip={statusChip} rowActions={rowActions} />
       ) : (
-      <div className="relative overflow-x-auto rounded-lg border">
+      <div className="relative overflow-x-auto rounded-md border">
         <table className="w-full min-w-max text-sm">
-          <thead className="bg-muted/60 text-xs text-muted-foreground">
+          <thead className="bg-muted/60 text-caption text-muted-foreground">
             <tr>
               {!isResource && hasItem && <th className="px-3 py-2 text-start font-medium">مورد</th>}
               {!isResource && <th className="px-3 py-2 text-start font-medium">مشتری</th>}

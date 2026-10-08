@@ -113,7 +113,7 @@ export function ProfileEditDialog({
             <fieldset className="grid gap-3">
               <legend className="mb-1 text-sm font-semibold">شاخص‌ها</legend>
               {metrics.map((m, i) => (
-                <div key={m.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_7rem]">
+                <div key={m.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_7rem]">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor={`pe-m-${m.id}`}>
                       {MEASURE_LABELS[m.measure] ?? m.measure}
@@ -153,7 +153,7 @@ export function ProfileEditDialog({
             <fieldset className="grid gap-3">
               <legend className="mb-1 text-sm font-semibold">بررسی‌ها</legend>
               {checks.map((c, i) => (
-                <div key={c.id} className="grid gap-2 rounded-lg border p-3 sm:grid-cols-[1fr_7rem]">
+                <div key={c.id} className="grid gap-2 rounded-md border p-3 sm:grid-cols-[1fr_7rem]">
                   <div className="flex flex-col gap-1.5">
                     <Label htmlFor={`pe-c-${c.id}`}>
                       {CHECK_LABELS[c.kind] ?? c.kind}
