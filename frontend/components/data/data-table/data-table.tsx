@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, type ReactNode } from "react";
+import { useMemo, useRef, useState, type ReactNode } from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown, EllipsisVertical, Search } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
@@ -403,18 +403,40 @@ function RowActions({ actions }: { actions: RowAction[] }) {
   );
 }
 
-/** The «اقدام‌ها» menu of a row, for views that draw their own rows. */
+/**
+ * The «اقدام‌ها» menu of a row, for views that draw their own rows. A chosen action runs after the menu has closed
+ * and focus is back on the trigger, so a drawer or dialog it opens remembers the trigger (not the menu item, which
+ * unmounts) as its return target.
+ */
 export function RowActionsMenu({ actions }: { actions: RowAction[] }) {
+  const trigger = useRef<HTMLButtonElement>(null);
+  const chosen = useRef<(() => void) | null>(null);
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="ghost" size="icon" aria-label="اقدام‌ها" className="max-sm:size-11">
+        <Button ref={trigger} variant="ghost" size="icon" aria-label="اقدام‌ها" className="max-sm:size-11">
           <EllipsisVertical aria-hidden strokeWidth={1.75} />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent>
+      <DropdownMenuContent
+        onCloseAutoFocus={(event) => {
+          const run = chosen.current;
+          if (!run) return;
+          chosen.current = null;
+          event.preventDefault();
+          trigger.current?.focus();
+          run();
+        }}
+      >
         {actions.map((a) => (
-          <DropdownMenuItem key={a.key} variant={a.danger ? "danger" : undefined} disabled={a.disabled} onSelect={a.onSelect}>
+          <DropdownMenuItem
+            key={a.key}
+            variant={a.danger ? "danger" : undefined}
+            disabled={a.disabled}
+            onSelect={() => {
+              chosen.current = a.onSelect;
+            }}
+          >
             {a.icon}
             {a.label}
           </DropdownMenuItem>

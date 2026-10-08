@@ -2,9 +2,9 @@
 
 import { useRef, useState, type FormEvent } from "react";
 import { FlaskConical, Play, RotateCcw, SendHorizontal } from "lucide-react";
-import { defaultRevision, REVISION_STATUS_LABELS, revisionOptionLabel } from "@/components/app/revision-labels";
+import { defaultRevision, isTestable, REVISION_STATUS_LABELS, revisionOptionLabel } from "@/components/app/revision-labels";
 import { useOpenSection } from "@/components/app/shell/use-open-section";
-import { ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
+import { ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
@@ -39,10 +39,16 @@ export function SimulatorTab({ bot, initialRevisionId = null }: { bot: Bot; init
   const nextId = () => (counter.current += 1);
 
   // Only a draft or the active revision can be tried. Default: the linked one, else the draft under review, else the active one.
-  const selectable = (revisions ?? []).filter((r) => r.status === "draft" || r.status === "active");
+  const selectable = (revisions ?? []).filter(isTestable);
   const linked = initialRevisionId ? selectable.find((r) => r.id === initialRevisionId) : undefined;
   const revisionId = pickedId ?? linked?.id ?? defaultRevision(selectable)?.id ?? null;
   const revision = selectable.find((r) => r.id === revisionId) ?? null;
+  // A linked version that cannot be tried: say so instead of silently testing another one.
+  const unlinked = !!initialRevisionId && !!revisions && !linked && pickedId === null ? (revisions.find((r) => r.id === initialRevisionId) ?? null) : undefined;
+  const skippedNotice =
+    unlinked === undefined
+      ? null
+      : `${unlinked ? `نسخهٔ ${fa(unlinked.number)}` : "نسخهٔ درخواستی"} را نمی‌توان آزمایش کرد؛ ${revision?.status === "draft" ? "پیش‌نویس" : "نسخهٔ فعال"} انتخاب شد.`;
 
   if (loadError) return <ErrorNote>{loadError}</ErrorNote>;
   if (!revisions) return <LoadingBlock />;
@@ -51,6 +57,7 @@ export function SimulatorTab({ bot, initialRevisionId = null }: { bot: Bot; init
       <div className="rounded-md border border-border bg-surface">
         <EmptyState
           icon={<FlaskConical strokeWidth={1.75} />}
+          as="h2"
           title="هنوز چیزی برای امتحان کردن نیست"
           description="ابتدا در «تغییرات» ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید."
           action={
@@ -157,6 +164,7 @@ export function SimulatorTab({ bot, initialRevisionId = null }: { bot: Bot; init
               </option>
             ))}
           </Select>
+          {skippedNotice && <InfoNote tone="warning">{skippedNotice}</InfoNote>}
         </div>
         <div className="flex flex-col gap-3 border-t border-border p-5">
           <div className="flex flex-wrap gap-2">

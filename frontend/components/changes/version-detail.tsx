@@ -5,6 +5,7 @@ import Link from "next/link";
 import { FlaskConical, Play, Undo2 } from "lucide-react";
 import { DeployedState } from "@/components/agent/deployed-state";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { isTestable } from "@/components/app/revision-labels";
 import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { ScenarioBrowser } from "@/components/tests/scenario-browser";
 import { Button } from "@/components/ui/button";
@@ -116,12 +117,14 @@ export function VersionDetail({ botId, revisionId, activeNumber, justActivated =
               {detail.status === "draft" ? "فعال‌سازی این نسخه" : "بازگشت به این نسخه"}
             </Button>
           )}
-          <Button asChild variant={canActivate ? "secondary" : "primary"}>
-            <Link href={simulatorHref}>
-              <FlaskConical strokeWidth={1.75} />
-              آزمایش ربات
-            </Link>
-          </Button>
+          {isTestable(detail) && (
+            <Button asChild variant={canActivate ? "secondary" : "primary"}>
+              <Link href={simulatorHref}>
+                <FlaskConical strokeWidth={1.75} />
+                آزمایش ربات
+              </Link>
+            </Button>
+          )}
         </div>
       </header>
 
