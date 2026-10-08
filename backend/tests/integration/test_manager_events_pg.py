@@ -50,13 +50,21 @@ async def test_group_chats_and_outbox_are_live_only(
         buttons = [[Button(label="مشاهده", data=f"{CAP}:item:1")]]
         assert await live.enqueue_outbox([1001, 1002, 1001], "سلام", buttons) is True
         assert await sandbox.enqueue_outbox([1003], "سلام") is False
+        card = [[Button(label="شرکت می‌کنم", data=f"{CAP}:book:7")]]
+        assert await live.enqueue_card(-100555, "کارت", card) is True
+        assert await live.enqueue_card(-100555, "کارت با شمارش تازه", card) is False  # still queued
+        assert await live.enqueue_card(-100666, "کارت", card) is True  # another group
+        assert await sandbox.enqueue_card(-100555, "کارت", card) is None  # not live: nothing queued
         await session.commit()
     async with session_factory() as session:
         rows = (
             await session.execute(select(OutboundMessageRow).where(OutboundMessageRow.bot_id == bot_id))
         ).scalars()
         got = sorted((r.env, r.chat_id, r.text, r.status, r.buttons) for r in rows)
+    card_button = [{"label": "شرکت می‌کنم", "data": f"{CAP}:book:7"}]
     assert got == [
+        ("live", -100666, "کارت", "queued", [card_button]),
+        ("live", -100555, "کارت", "queued", [card_button]),
         ("live", 1001, "سلام", "queued", [[{"label": "مشاهده", "data": f"{CAP}:item:1"}]]),
         ("live", 1002, "سلام", "queued", [[{"label": "مشاهده", "data": f"{CAP}:item:1"}]]),
     ]

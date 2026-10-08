@@ -59,7 +59,8 @@ with ``enqueue_outbox`` (``PgStore`` in live) queues one outbox message per reci
 transaction; any other store (simulator, tests) sends them as ``announcement`` notices.
 
 Optional store services (not in the frozen ``Store`` protocol; detected with ``getattr``):
-``display_names(actor_ids)``, ``group_chats()`` and ``enqueue_outbox(chat_ids, text, buttons)``.
+``display_names(actor_ids)``, ``group_chats()``, ``enqueue_outbox(chat_ids, text, buttons)`` and
+``enqueue_card(chat_id, text, buttons)`` (True queued, False the card is already queued, None not live).
 Without them names fall back to the booking's ``name`` value or the actor id, and group publishing
 is not offered.
 """
@@ -261,6 +262,15 @@ async def _enqueue(ctx: Ctx, chat_ids: list[int], text: str, buttons: Rows | Non
     if service is None:
         return False
     return bool(await service(chat_ids, text, buttons))
+
+
+async def _enqueue_card(ctx: Ctx, chat_id: int, text: str, buttons: Rows) -> bool | None:
+    """Queue an event card for a group: True queued, False the same card is still queued (nothing
+    added), None when the store has no outbox (the caller delivers it another way)."""
+    service = getattr(ctx.store, "enqueue_card", None)
+    if service is None:
+        return True if await _enqueue(ctx, [chat_id], text, buttons) else None
+    return await service(chat_id, text, buttons)
 
 
 # --- creation steps ------------------------------------------------------------------------------
@@ -1188,9 +1198,11 @@ async def _publish_card(ctx: Ctx, ev: Events, record: Record, chat_arg: str | No
         _not_found(ctx, ev)
         return
     text, buttons = card
-    if not await _enqueue(ctx, [group[0]], text, buttons):
+    queued = await _enqueue_card(ctx, group[0], text, buttons)
+    if queued is None:
         ctx.notify(str(group[0]), "announcement", text, buttons)
-    _reply(ctx, _fill(tx.GROUP_QUEUED, title=title, group=group[1]), [*back, [_list_button(ev)]])
+    done = tx.GROUP_ALREADY_QUEUED if queued is False else tx.GROUP_QUEUED
+    _reply(ctx, _fill(done, title=title, group=group[1]), [*back, [_list_button(ev)]])
 
 
 # --- route resolvers -----------------------------------------------------------------------------

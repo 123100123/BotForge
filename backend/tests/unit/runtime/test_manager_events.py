@@ -106,6 +106,14 @@ class OutboxStore(MemoryStore):
         self.queued.append((list(chat_ids), text, buttons))
         return True
 
+    async def enqueue_card(self, chat_id: int, text: str, buttons: list[list[Button]]) -> bool | None:
+        data = [b.data for row in buttons for b in row]
+        for chats, _, queued in self.queued:
+            if chats == [chat_id] and data == [b.data for row in queued or [] for b in row]:
+                return False  # the same card is still waiting
+        self.queued.append(([chat_id], text, buttons))
+        return True
+
 
 def harness(store: MemoryStore | None = None, **cap_over: Any) -> Harness:
     return Harness(spec_of(events_data(**cap_over)), store)
@@ -566,6 +574,11 @@ async def test_group_publish_is_offered_only_when_the_bot_is_in_a_group() -> Non
     assert chats == [-1001234567890] and card.startswith(f"📅 {TITLE}")
     assert [b.data for row in card_buttons or [] for b in row] == [f"{CAP}:book:{event.id}"]
     assert "گروه کافه" in text(r)
+    assert text(r) == tx.GROUP_QUEUED.format(group="گروه کافه") and "تا چند لحظهٔ دیگر" in text(r)
+    assert HOME in button_data(r) and f"nav:go:mgr.evt.{event.id}" in button_data(r)
+    r = await tap(h, f"nav:go:mgr.evt.pub.{event.id}.n1001234567890")  # pressed again: still queued
+    assert tx.GROUP_ALREADY_QUEUED.format(group="گروه کافه") in text(r) and "همین حالا" in text(r)
+    assert len(store.queued) == 1 and HOME in button_data(r)
     r = await tap(h, f"nav:go:mgr.evt.pub.{event.id}.n42")  # not one of the bot's groups
     assert tx.GROUP_GONE in text(r) and len(store.queued) == 1
 

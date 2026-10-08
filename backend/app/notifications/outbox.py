@@ -21,6 +21,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any, Literal
 
 from sqlalchemy import func, select
+from sqlalchemy import text as sql_text
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -111,6 +112,41 @@ async def enqueue(
     bot (whatever its status). The caller commits."""
     message = Message(chat_id, text, buttons, dedupe_key, not_before)
     return await enqueue_many(session, bot_id=bot_id, env=env, messages=[message]) == 1
+
+
+async def enqueue_unless_queued(
+    session: AsyncSession,
+    *,
+    bot_id: uuid.UUID,
+    env: Env,
+    chat_id: int,
+    text: str,
+    buttons: ButtonRows,
+) -> bool:
+    """Queue a message unless an identical one is still waiting to be sent: same bot, env, chat and
+    buttons (an event card is identified by its ``book:<item id>`` button, whatever its count says).
+    ``False`` when one is queued. Once it is sent (or failed) the same card can be queued again, which
+    a ``dedupe_key`` could not allow. Two requests at once are serialized per bot and chat with a
+    transaction-scoped advisory lock. The caller commits."""
+    wanted = buttons_json(buttons)
+    await session.execute(
+        sql_text("SELECT pg_advisory_xact_lock(hashtextextended(:key, 0))"),
+        {"key": f"outbox-card:{bot_id}:{chat_id}"},
+    )
+    waiting = await session.scalar(
+        select(OutboundMessageRow.id)
+        .where(
+            OutboundMessageRow.bot_id == bot_id,
+            OutboundMessageRow.env == env,
+            OutboundMessageRow.chat_id == int(chat_id),
+            OutboundMessageRow.status == QUEUED,
+            OutboundMessageRow.buttons == wanted,
+        )
+        .limit(1)
+    )
+    if waiting is not None:
+        return False
+    return await enqueue(session, bot_id=bot_id, env=env, chat_id=chat_id, text=text, buttons=buttons)
 
 
 async def claim_due(

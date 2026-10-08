@@ -179,6 +179,8 @@ curl.exe -c jar.txt -H "X-BotForge-CSRF: 1" -H "Content-Type: application/json" 
 curl.exe -b jar.txt http://localhost:8000/me          # your user id
 ```
 
+Locally, set `NOTIFICATIONS_TICKER=true` before starting the API: group event cards, announcements, reminders and scheduled reports are only queued in the outbox, and nothing is sent to Telegram until the ticker runs.
+
 `uv run python scripts/create_user.py --email me@example.com` creates an account (password prompt) or,
 with `--reset-password`, sets a new password and signs the account out everywhere.
 

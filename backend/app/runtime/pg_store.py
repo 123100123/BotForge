@@ -269,6 +269,18 @@ class PgStore:
             await enqueue_many(self._session, bot_id=self._bot_id, env="live", messages=messages)
         return True
 
+    async def enqueue_card(self, chat_id: int, text: str, buttons: list[list[Button]]) -> bool | None:
+        """Queue an event card for one group unless the same card (same ``book:`` button) is still
+        waiting in the outbox. True when queued, False when one already was, None outside ``live``
+        (nothing queued; the caller delivers some other way)."""
+        if self._env != "live":
+            return None
+        from app.notifications.outbox import enqueue_unless_queued
+
+        return await enqueue_unless_queued(
+            self._session, bot_id=self._bot_id, env="live", chat_id=chat_id, text=text, buttons=buttons
+        )
+
     async def team_overview(self) -> "TeamOut | None":
         """The live bot's team as the Team API shows it (``roles.service.team_of``): staff link,
         members, role counts. None when the bot row is gone."""

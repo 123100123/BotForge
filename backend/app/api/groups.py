@@ -5,7 +5,8 @@ The groups are the chats the bot was added to, recorded from Telegram's ``my_cha
 (``app.api.webhook``); this router never creates one. Publishing posts the card of one event (an item
 of an enabled booking capability with the events preset, rendered by ``services/group_cards.py``
 from the live data) to one of those groups: the card is queued in the notification outbox (env live,
-no dedupe key, so publishing again posts again) and the notification ticker sends it.
+no dedupe key: publishing again posts again once the first card is sent, but not while an identical
+card is still queued, see ``outbox.enqueue_unless_queued``) and the notification ticker sends it.
 
 SECURITY: both routes resolve the bot through ``get_owned_bot`` (session cookie, CSRF for the POST,
 ownership; another owner's bot is the 404 of a missing one). A message can only go to a chat that is
@@ -24,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_owned_bot, http_error
 from app.db.models import Bot, BotChatRow
 from app.db.session import get_session
-from app.notifications.outbox import enqueue
+from app.notifications.outbox import enqueue_unless_queued
 from app.runtime.ctx import MAX_RECORD_ID
 from app.runtime.pg_store import PgStore
 from app.schemas.business import GroupOut, PublishIn, PublishOut
@@ -40,6 +41,7 @@ GROUP_NOT_FOUND = ("group_not_found", "این گروه پیدا نشد. ربات
 GROUP_INACTIVE = ("group_inactive", "ربات دیگر عضو این گروه نیست یا اجازهٔ ارسال پیام ندارد.")
 EVENT_NOT_FOUND = ("event_not_found", "رویداد پیدا نشد.")
 PUBLISH_QUEUED = "کارت رویداد در صف ارسال قرار گرفت"
+PUBLISH_ALREADY_QUEUED = "این رویداد همین حالا در صف ارسال به این گروه است."
 
 
 def _out(row: BotChatRow) -> GroupOut:
@@ -89,5 +91,9 @@ async def publish_to_group(
     if card is None:
         raise http_error(404, EVENT_NOT_FOUND)
     text, buttons = card
-    await enqueue(session, bot_id=bot.id, env="live", chat_id=chat.chat_id, text=text, buttons=buttons)
+    queued = await enqueue_unless_queued(
+        session, bot_id=bot.id, env="live", chat_id=chat.chat_id, text=text, buttons=buttons
+    )
+    if not queued:
+        return PublishOut(queued=False, message=PUBLISH_ALREADY_QUEUED)
     return PublishOut(queued=True, message=PUBLISH_QUEUED)

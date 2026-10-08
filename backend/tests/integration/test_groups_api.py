@@ -10,6 +10,7 @@
 """
 
 import itertools
+import re
 import sys
 import types
 import uuid
@@ -23,7 +24,7 @@ import pytest
 from sqlalchemy import select
 
 from app.api import uploads as uploads_api
-from app.api.groups import PUBLISH_QUEUED
+from app.api.groups import PUBLISH_ALREADY_QUEUED, PUBLISH_QUEUED
 from app.api.webhook import DOCUMENT_MODULE_OFF, DOCUMENT_NOT_ALLOWED
 from app.botspec.records import to_utc_iso
 from app.config import get_settings
@@ -355,6 +356,70 @@ async def test_group_rsvp_is_a_toast_plus_an_edited_card_and_nothing_private(
     assert len(toasts(fake_tg)) == 4
 
 
+async def booking_rows(session_factory: SessionFactory, bot: LiveBot) -> list[Any]:
+    return [r for r in await rows(session_factory, RecordRow, bot) if r.collection == CAP]
+
+
+async def test_the_published_card_is_rsvped_from_the_group_end_to_end(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    item = await add_event(session_factory, bot, title="کارگاه شنبه", capacity=2)
+    tg = Telegram(tg_client, bot, fake_tg)
+    await tg.member("administrator")
+    published = await tg_client.post(
+        f"/bots/{bot.id}/groups/{GROUP}/publish",
+        json={"collection": "event", "record_id": item},
+        headers=ALICE,
+    )
+    assert published.json()["queued"] is True
+    [card] = await rows(session_factory, OutboundMessageRow, bot)
+    [[button]] = card.buttons  # what the ticker sends: the member presses exactly this
+    assert button["label"] == "شرکت می‌کنم" and button["data"] == f"{CAP}:book:{item}"
+
+    query = await tg.press_in_group(601, button["data"])
+    [toast] = toasts(fake_tg)
+    assert toast["callback_query_id"] == query and 0 < len(toast["text"]) < 120 and not toast["show_alert"]
+    [edit] = fake_tg.calls_to("editMessageText")
+    assert (edit["chat_id"], edit["message_id"]) == (GROUP, CARD)  # the SAME group message
+    assert edit["text"].startswith("📅 کارگاه شنبه") and edit["text"].endswith("۱ / ۲")
+    assert [r.status for r in await booking_rows(session_factory, bot)] == ["confirmed"]
+
+    # the same member again: no second booking, a short "already registered" toast, no edit
+    await tg.press_in_group(601, button["data"])
+    assert "قبلاً" in toasts(fake_tg)[-1]["text"] and "کارگاه شنبه" in toasts(fake_tg)[-1]["text"]
+    assert len(fake_tg.calls_to("editMessageText")) == 1
+    assert [(r.actor_id, r.status) for r in await booking_rows(session_factory, bot)] == [
+        ("601", "confirmed")
+    ]
+
+    await tg.press_in_group(602, button["data"])
+    await tg.press_in_group(603, button["data"])  # full: waitlisted, the count stays 2 / 2
+    assert "فهرست انتظار" in toasts(fake_tg)[-1]["text"]
+    assert fake_tg.calls_to("editMessageText")[-1]["text"].endswith("۲ / ۲")
+    assert sorted((r.actor_id, r.status) for r in await booking_rows(session_factory, bot)) == [
+        ("601", "confirmed"),
+        ("602", "confirmed"),
+        ("603", "waitlisted"),
+    ]
+    assert {c["message_id"] for c in fake_tg.calls_to("editMessageText")} == {CARD}
+
+
+async def test_a_press_on_the_card_of_a_deleted_event_answers_and_leaves_the_card(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    item = await add_event(session_factory, bot)
+    async with session_factory() as session:
+        await PgStore(session, bot.id, "live").delete_record("event", item)
+        await session.commit()
+    tg = Telegram(tg_client, bot, fake_tg)
+    await tg.press_in_group(601, f"{CAP}:book:{item}")
+    [toast] = toasts(fake_tg)
+    assert toast["text"]  # answered (not an endless spinner), whatever the wording
+    assert fake_tg.calls_to("editMessageText") == [] and fake_tg.calls_to("sendMessage") == []
+    assert await booking_rows(session_factory, bot) == []
+    assert await last_error(session_factory, bot) is None
+
+
 async def test_card_not_modified_is_no_error_and_a_failed_edit_is_recorded(
     tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
 ) -> None:
@@ -628,16 +693,64 @@ async def test_publish_queues_the_event_card_for_the_group(
     assert response.json() == {"queued": True, "message": PUBLISH_QUEUED}
     [row] = await rows(session_factory, OutboundMessageRow, bot)
     assert (row.env, row.chat_id, row.status, row.dedupe_key) == ("live", GROUP, "queued", None)
-    assert row.text.split("\n")[0] == "📅 کنسرت پاییزی" and row.text.split("\n")[-1].endswith("۰ / ۵۰")
+    lines = row.text.split("\n")
+    assert lines[0] == "📅 کنسرت پاییزی" and lines[-1].endswith("۰ / ۵۰")
+    assert re.fullmatch(r"🗓 .*۱۴۰\d.* ۰?[۰-۹]{1,2}:[۰-۹]{2}", lines[1]), lines[1]  # Jalali date and time
     assert row.buttons == [[{"label": "شرکت می‌کنم", "data": f"{CAP}:book:{item}"}]]
     assert fake_tg.calls == []  # the ticker sends it, not the request
 
+    # pressed again while the first card is still queued: no second row, a clear answer
     again = await tg_client.post(
         f"/bots/{bot.id}/groups/{GROUP}/publish",
         json={"collection": "event", "record_id": item},
         headers=ALICE,
     )
-    assert again.status_code == 200 and len(await rows(session_factory, OutboundMessageRow, bot)) == 2
+    assert again.status_code == 200
+    assert again.json() == {"queued": False, "message": PUBLISH_ALREADY_QUEUED}
+    assert len(await rows(session_factory, OutboundMessageRow, bot)) == 1
+
+
+async def test_publish_again_is_allowed_once_the_card_is_sent_or_for_another_event_or_group(
+    tg_client: httpx.AsyncClient, bot: LiveBot, fake_tg: FakeTelegramClient, session_factory: SessionFactory
+) -> None:
+    first = await add_event(session_factory, bot, title="اول")
+    second = await add_event(session_factory, bot, title="دوم")
+    tg = Telegram(tg_client, bot, fake_tg)
+    await tg.member("administrator")
+    await tg.member("administrator", chat_id=-777, title="گروه دیگر")
+
+    async def publish(chat: int, item: int) -> dict[str, Any]:
+        response = await tg_client.post(
+            f"/bots/{bot.id}/groups/{chat}/publish",
+            json={"collection": "event", "record_id": item},
+            headers=ALICE,
+        )
+        assert response.status_code == 200, response.text
+        return response.json()
+
+    assert (await publish(GROUP, first))["queued"] is True
+    assert (await publish(GROUP, second))["queued"] is True  # another event
+    assert (await publish(-777, first))["queued"] is True  # another group
+    assert (await publish(GROUP, first))["queued"] is False
+    assert len(await rows(session_factory, OutboundMessageRow, bot)) == 3
+
+    async with session_factory() as session:  # the ticker sent the first card
+        row = (
+            (
+                await session.execute(
+                    select(OutboundMessageRow)
+                    .where(OutboundMessageRow.bot_id == bot.id)
+                    .order_by(OutboundMessageRow.id)
+                )
+            )
+            .scalars()
+            .first()
+        )
+        assert row is not None
+        row.status = "sent"
+        await session.commit()
+    assert (await publish(GROUP, first))["queued"] is True  # a deliberate re-post works
+    assert len(await rows(session_factory, OutboundMessageRow, bot)) == 4
 
 
 async def test_publish_refusals_queue_nothing(

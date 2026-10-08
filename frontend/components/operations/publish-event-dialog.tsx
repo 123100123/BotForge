@@ -69,7 +69,7 @@ function PublishBody({ botId, resourceKey, eventId, eventTitle, onClose }: { bot
     setError(null);
     try {
       const out = await api.publishToGroup(botId, group.chat_id, { collection: resourceKey, record_id: eventId });
-      toast({ title: out.message || "کارت رویداد در صف ارسال قرار گرفت.", description: `گروه: ${group.title}`, tone: "success" });
+      toast({ title: out.message || "کارت رویداد در صف ارسال قرار گرفت.", description: `گروه: ${group.title}`, tone: out.queued ? "success" : "neutral" });
       onClose();
     } catch (err) {
       setError(errorMessage(err));
