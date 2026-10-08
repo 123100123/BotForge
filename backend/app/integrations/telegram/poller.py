@@ -9,8 +9,10 @@ Supervisor: every ``interval`` seconds it reads the bots with a stored token and
 poll task per bot and token. A bot that was disconnected, or whose stored token changed (every
 connect re-encrypts, so a reconnect counts as a change), has its task stopped; the new token gets a
 new task. A task that stopped on purpose (token revoked, token unreadable, parked) is not restarted until
-the stored token changes (a parked one also when the owner retries, which clears the conflict error);
-one that crashed is restarted on the next pass. The same loop deletes ``tg_updates`` rows older than
+the stored token changes (a parked one also when the owner retries, which clears the stored error to
+NULL); one that crashed is restarted on the next pass. A parked task stays parked while any error is
+stored: only the retry (error cleared), a token change or a process restart ends the park, never a
+different error that overwrote the conflict one. The same loop deletes ``tg_updates`` rows older than
 ``UPDATES_KEEP`` once per ``PRUNE_INTERVAL``.
 
 Per bot: ``deleteWebhook(drop_pending_updates=False)`` once (a leftover webhook makes getUpdates
@@ -33,8 +35,12 @@ an ordinary backoff step); 401 and 404 (token revoked or invalid) are recorded i
 
 409 is told apart by Telegram's description. "Terminated by other getUpdates request" means another
 consumer (typically a second BotForge server holding the same token) is polling: the two would take
-turns serving updates, each against its own spec. The bot's task counts consecutive conflicts
-(``PARK_AFTER`` within ``PARK_WINDOW`` seconds, reset by any successful poll); at the limit it parks:
+turns serving updates, each against its own spec. The bot's task keeps the times of its recent
+conflicts and parks at ``PARK_AFTER`` of them within ``PARK_WINDOW`` seconds (a sliding window, not
+reset by successful polls: two competing servers each often get a good poll between two conflicts,
+so a reset would let them keep splitting the updates; a successful poll only drops timestamps older
+than the window, and a single stray 409, e.g. a previous process's long poll still open after a
+restart, never parks). At the limit it parks:
 it records ``tg_last_error = POLLING_CONFLICT: ...`` (Persian text, stable prefix the web app matches),
 stops, and is not restarted until the stored token changes or the owner retries
 (``POST /bots/{id}/telegram/retry`` clears the error; the next pass respawns the task). It never
@@ -96,10 +102,10 @@ REVOKED = (401, 404)  # Telegram's answers for an invalid or revoked token
 # through the proxy), and asking again after 5 minutes costs one request, which just gets a new 429.
 RETRY_AFTER_MIN = 1.0
 RETRY_AFTER_CAP = 300.0
-# Competing consumers: this many "terminated by other getUpdates request" 409s in a row within
-# PARK_WINDOW seconds park the bot (see the module docstring).
+# Competing consumers: this many "terminated by other getUpdates request" 409s within PARK_WINDOW
+# seconds park the bot, whatever successful polls happen in between (see the module docstring).
 PARK_AFTER = 3
-PARK_WINDOW = 30.0
+PARK_WINDOW = 60.0
 # tg_updates is the webhook/poller dedupe record: Telegram never redelivers an update that old.
 UPDATES_KEEP = timedelta(days=3)
 PRUNE_INTERVAL = 3600.0
@@ -225,7 +231,9 @@ class TelegramPoller:
         await self._stop_runs(changed)
         for bot_id, (token_enc, last_error) in connected.items():
             run = self._runs.get(bot_id)
-            retried = run is not None and run.parked and not _is_conflict_error(last_error)
+            # Only the owner's retry (error cleared) unparks: another error that overwrote the conflict
+            # one must not (the parked task does not poll, so nothing would re-record the conflict).
+            retried = run is not None and run.parked and last_error is None
             if run is not None and (run.crashed or retried):
                 del self._runs[bot_id]
                 run = None
@@ -328,7 +336,8 @@ class TelegramPoller:
             else:
                 if batch is None:  # asked to stop during the long poll
                     return
-                conflicts.clear()
+                if conflicts:  # never reset by success: only conflicts older than the window go
+                    self._prune_conflicts(conflicts, self._clock())
                 if not cleared:  # polling works: a conflict error left by an earlier run is stale
                     cleared = True
                     await self._clear_conflict(bot_id, token_enc)
@@ -454,8 +463,7 @@ class TelegramPoller:
         if exc.error_code == 409 and COMPETING_POLLER in exc.description.lower():
             now = self._clock()
             conflicts.append(now)
-            while conflicts and now - conflicts[0] > PARK_WINDOW:
-                conflicts.popleft()
+            self._prune_conflicts(conflicts, now)
             if len(conflicts) >= PARK_AFTER:
                 log.warning("bot %s: another consumer polls this token; parking the bot", bot_id)
                 await self._record_error(bot_id, token_enc, texts.POLLING_CONFLICT)
@@ -476,6 +484,12 @@ class TelegramPoller:
         delay = backoff.next()  # also a 429 without a usable retry_after
         log.warning("bot %s: getUpdates failed (%s); retrying in %.1fs", bot_id, exc.description, delay)
         return delay
+
+    @staticmethod
+    def _prune_conflicts(conflicts: deque[float], now: float) -> None:
+        """Drop the conflict times older than ``PARK_WINDOW`` (the window slides; success never resets it)."""
+        while conflicts and now - conflicts[0] > PARK_WINDOW:
+            conflicts.popleft()
 
     async def _revoked(self, bot_id: uuid.UUID, token_enc: str, exc: TelegramError) -> None:
         log.warning(
@@ -530,10 +544,6 @@ class TelegramPoller:
                 task.cancel()
             await asyncio.gather(sleeper, waiter, return_exceptions=True)
         return stop.is_set()
-
-
-def _is_conflict_error(error: str | None) -> bool:
-    return error is not None and error.startswith(texts.POLLING_CONFLICT_PREFIX)
 
 
 def _update_id(tg_update: dict[str, Any]) -> int | None:

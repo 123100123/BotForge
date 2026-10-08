@@ -386,3 +386,20 @@ async def test_every_manager_payload_fits_telegram() -> None:
     ):
         assert route is None or len(nav.nav_data(route).encode()) <= MAX_CALLBACK_BYTES
     assert manager_orders.order_payload(spec, cap, huge, long_key) is not None  # falls back: no filter
+
+
+async def test_every_manager_orders_and_team_screen_ends_with_the_manager_home() -> None:
+    h, ids = await seeded(TeamStore())
+    for data in (
+        "nav:go:mgr.ord",
+        "nav:go:mgr.ord.l.new",
+        f"nav:go:mgr.ord.o.{ids['o1']}.new",
+        f"nav:go:mgr.ord.o.{ids['done']}",
+        f"nav:go:mgr.ord.a.{ids['o1']}.send",
+        f"nav:go:mgr.ord.a.{ids['done']}.send",  # stale action
+        "nav:go:mgr.ord.a.99999.send",  # order gone
+        "nav:go:mgr.team",
+    ):
+        r = await h.tap(OWNER, data)
+        mine = [m for m in r.messages if m.to_actor_id == "owner"]
+        assert mine and all(m.buttons[-1][-1].data == "nav:go:mgr" for m in mine), data

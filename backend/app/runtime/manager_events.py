@@ -193,6 +193,21 @@ def _title(ctx: Ctx, ev: Events, record: Record) -> str:
     return listing.record_title(ctx, ev.resource, record)
 
 
+def _home_button() -> Button:
+    """«🧭 مدیریت» -> the manager home."""
+    return nav.nav_button(tx.MANAGER_BUTTON, nav.MGR)
+
+
+def _reply(ctx: Ctx, text: str, rows: Rows | None = None, *, edit: bool | None = None) -> None:
+    """``ctx.reply`` for every screen of this module: each ends with the Home button (the manager home,
+    next to the screen's own Back), unless a row already has it."""
+    rows = list(rows or [])
+    home = _home_button()
+    if not any(button.data == home.data for row in rows for button in row):
+        rows.append([home])
+    ctx.reply(text, rows, edit=edit)
+
+
 def _list_button(ev: Events) -> Button:
     return ev.button(_fill(tx.EVENTS_BUTTON, plural=ev.plural), R_LIST)
 
@@ -209,7 +224,7 @@ async def _get_event(ctx: Ctx, ev: Events, record_id: int | None) -> Record | No
 
 def _not_found(ctx: Ctx, ev: Events) -> None:
     """A link to an event (or booking) that no longer exists: a NEW message, the old one stays."""
-    ctx.reply(_fill(tx.NOT_FOUND, label=ev.label), [[_list_button(ev)]], edit=False)
+    _reply(ctx, _fill(tx.NOT_FOUND, label=ev.label), [[_list_button(ev)]], edit=False)
 
 
 async def _counts(ctx: Ctx, ev: Events, record_id: int) -> tuple[int, int]:
@@ -417,9 +432,13 @@ def _step_rows(ctx: Ctx, ev: Events, steps: list[Step], step: Step, values: dict
         rows.append([_ans(ev, tx.YES, "o0"), _ans(ev, tx.NO, "o1")])
     elif step.role == "capacity":
         rows.append([_ans(ev, _num(n), f"n{n}") for n in CAPACITY_SHORTCUTS])
+    has_value = step.key in values
     if not field.required and step.kind != "time":
-        rows.append([Ctx.button(tx.UNLIMITED if step.role == "capacity" else tx.SKIP, ev.cap, ACT_SKIP)])
-    if step.key in values:
+        # «رد کردن» means "leave it empty": offered only while there is nothing to keep. With a value
+        # the choices are «✔ بدون تغییر» and «پاک کردن مقدار» (the same action, honestly named).
+        label = tx.UNLIMITED if step.role == "capacity" else (tx.CLEAR if has_value else tx.SKIP)
+        rows.append([Ctx.button(label, ev.cap, ACT_SKIP)])
+    if has_value:
         rows.append([_ans(ev, tx.KEEP, "k")])
     rows.append(_nav_row(ev, steps, step))
     return rows
@@ -459,7 +478,7 @@ def _ask(
     lines.append(question)
     if step.key in values:
         lines.append(_fill(tx.CURRENT_VALUE, value=_shown_value(ctx, step, values)))
-    ctx.reply("\n".join(lines), _step_rows(ctx, ev, steps, step, values), edit=edit)
+    _reply(ctx, "\n".join(lines), _step_rows(ctx, ev, steps, step, values), edit=edit)
 
 
 def _ask_typed_date(ctx: Ctx, ev: Events, steps: list[Step], step: Step) -> None:
@@ -474,7 +493,7 @@ def _ask_typed_date(ctx: Ctx, ev: Events, steps: list[Step], step: Step) -> None
         "",
         tx.ASK_DATE_TYPED,
     ]
-    ctx.reply("\n".join(lines), [[_ans(ev, tx.BACK, "dd"), Ctx.button(tx.CANCEL, ev.cap, ACT_STOP)]])
+    _reply(ctx, "\n".join(lines), [[_ans(ev, tx.BACK, "dd"), Ctx.button(tx.CANCEL, ev.cap, ACT_STOP)]])
 
 
 def _preview_lines(ctx: Ctx, ev: Events, steps: list[Step], values: dict[str, Any]) -> list[str]:
@@ -514,7 +533,7 @@ def _preview(
         [_ans(ev, tx.EDIT, "edit")],
         [_ans(ev, tx.BACK, "b"), Ctx.button(tx.CANCEL, ev.cap, ACT_STOP)],
     ]
-    ctx.reply("\n".join(lines), rows, edit=edit)
+    _reply(ctx, "\n".join(lines), rows, edit=edit)
 
 
 # --- creation flow -------------------------------------------------------------------------------
@@ -641,10 +660,7 @@ async def _new_callback(
     values: dict[str, Any] = v["values"]
     if action == ACT_STOP:
         await ctx.clear_session()
-        ctx.reply(
-            _fill(tx.CANCELLED, label=ev.label),
-            [[_list_button(ev)], [nav.nav_button(tx.MANAGER_BUTTON, nav.MGR)]],
-        )
+        _reply(ctx, _fill(tx.CANCELLED, label=ev.label), [[_list_button(ev)]])
         return
     stage = v.get("stage")
     if stage == PREVIEW:
@@ -787,7 +803,7 @@ async def _publish(ctx: Ctx, ev: Events, session: dict[str, Any], steps: list[St
         rows.append([ev.button(tx.PUBLISH_IN_GROUP, R_PUB, record.id)])
     rows.append([_event_button(ev, record.id, _fill(tx.VIEW_EVENT, label=ev.label))])
     rows.append([_list_button(ev)])
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 # --- announcement flow ---------------------------------------------------------------------------
@@ -806,7 +822,7 @@ async def _ann_ask(
         lines += [prefix, ""]
     lines.append(_fill(tx.ANNOUNCE_ASK, count=_num(count)))
     rows: Rows = [[_event_button(ev, record.id), Ctx.button(tx.CANCEL, ev.cap, ACT_STOP)]]
-    ctx.reply("\n".join(lines), rows, edit=edit)
+    _reply(ctx, "\n".join(lines), rows, edit=edit)
 
 
 async def _ann_text(ctx: Ctx, ev: Events, session: dict[str, Any], text: str) -> None:
@@ -838,7 +854,7 @@ async def _ann_text(ctx: Ctx, ev: Events, session: dict[str, Any], text: str) ->
         [_ans(ev, tx.ANNOUNCE_REWRITE, "re")],
         [_event_button(ev, record.id), Ctx.button(tx.CANCEL, ev.cap, ACT_STOP)],
     ]
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 async def _ann_callback(ctx: Ctx, ev: Events, session: dict[str, Any], action: str, arg: str) -> None:
@@ -851,7 +867,7 @@ async def _ann_callback(ctx: Ctx, ev: Events, session: dict[str, Any], action: s
     back = [[_event_button(ev, record.id)], [_list_button(ev)]]
     if action == ACT_STOP:
         await ctx.clear_session()
-        ctx.reply(tx.ANNOUNCE_CANCELLED, back)
+        _reply(ctx, tx.ANNOUNCE_CANCELLED, back)
         return
     recipients = await _recipients(ctx, ev, record.id)
     if action == ACT_ANS and arg == "re":
@@ -870,14 +886,14 @@ async def _ann_callback(ctx: Ctx, ev: Events, session: dict[str, Any], action: s
     if not await _enqueue(ctx, chats, text, buttons):
         for actor_id in recipients:
             ctx.notify(actor_id, "announcement", text, buttons)
-    ctx.reply(_fill(tx.ANNOUNCE_SENT, count=_num(len(recipients))), back)
+    _reply(ctx, _fill(tx.ANNOUNCE_SENT, count=_num(len(recipients))), back)
 
 
 async def _start_announce(ctx: Ctx, ev: Events, record: Record) -> None:
     count = len(await _recipients(ctx, ev, record.id))
     if count == 0:
         lines = [_crumb(ev, _title(ctx, ev, record), tx.ANNOUNCE_TITLE), "", tx.ANNOUNCE_NOBODY]
-        ctx.reply("\n".join(lines), [[_event_button(ev, record.id)]])
+        _reply(ctx, "\n".join(lines), [[_event_button(ev, record.id)]])
         return
     await ctx.set_session(
         {
@@ -987,7 +1003,7 @@ async def _show_list(ctx: Ctx, ev: Events, *, past: bool, page: int) -> None:
         rows.append([ev.button(tx.UPCOMING_BUTTON, R_LIST)])
     elif start_field:
         rows.append([ev.button(tx.PAST_BUTTON, R_PAST)])
-    rows.append([nav.nav_button(tx.MANAGER_BUTTON, nav.MGR)])
+    rows.append([_home_button()])
 
     lines = [_crumb(ev, tx.PAST_TITLE if past else "")]
     if items:
@@ -997,7 +1013,7 @@ async def _show_list(ctx: Ctx, ev: Events, *, past: bool, page: int) -> None:
             lines.append(listing.page_indicator(page, pages))
     else:
         lines.append(_fill(tx.PAST_EMPTY if past else tx.UPCOMING_EMPTY, label=ev.label))
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 async def _show_detail(ctx: Ctx, ev: Events, record: Record) -> None:
@@ -1039,7 +1055,7 @@ async def _show_detail(ctx: Ctx, ev: Events, record: Record) -> None:
     if not is_past and await _group_chats(ctx):
         rows.append([ev.button(tx.PUBLISH_IN_GROUP, R_PUB, record.id)])
     rows.append([ev.button(_fill(tx.BACK_TO_LIST, plural=ev.plural), R_PAST if is_past else R_LIST)])
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 async def _show_attendees(
@@ -1078,7 +1094,7 @@ async def _show_attendees(
             paging.append(ev.button(common.NEXT, R_ATT, record.id, page + 1))
         rows.append(paging)
     rows.append([_event_button(ev, record.id)])
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 async def _active_booking(ctx: Ctx, ev: Events, booking_id: int | None) -> Record | None:
@@ -1092,7 +1108,7 @@ async def _confirm_cancel(ctx: Ctx, ev: Events, booking_id: int | None) -> None:
     booking = await _active_booking(ctx, ev, booking_id)
     record = await _get_event(ctx, ev, booking.item_id) if booking is not None else None
     if booking is None or record is None:
-        ctx.reply(tx.BOOKING_GONE, [[_list_button(ev)]], edit=False)
+        _reply(ctx, tx.BOOKING_GONE, [[_list_button(ev)]], edit=False)
         return
     name = _person(booking, await _names(ctx, [booking]))
     lines = [
@@ -1104,7 +1120,7 @@ async def _confirm_cancel(ctx: Ctx, ev: Events, booking_id: int | None) -> None:
         [ev.button(tx.CONFIRM_CANCEL_YES, R_CXY, booking.id)],
         [ev.button(tx.BACK_TO_ATTENDEES, R_ATT, record.id)],
     ]
-    ctx.reply("\n".join(lines), rows)
+    _reply(ctx, "\n".join(lines), rows)
 
 
 async def _do_cancel(ctx: Ctx, ev: Events, booking_id: int | None) -> None:
@@ -1113,7 +1129,7 @@ async def _do_cancel(ctx: Ctx, ev: Events, booking_id: int | None) -> None:
     booking = await _active_booking(ctx, ev, booking_id)
     record = await _get_event(ctx, ev, booking.item_id) if booking is not None else None
     if booking is None or record is None:
-        ctx.reply(tx.BOOKING_GONE, [[_list_button(ev)]], edit=False)
+        _reply(ctx, tx.BOOKING_GONE, [[_list_button(ev)]], edit=False)
         return
     if not can_run_owner_actions(ev.cap, ctx.actor):
         await nav.stale_home(ctx)
@@ -1144,7 +1160,7 @@ async def _publish_card(ctx: Ctx, ev: Events, record: Record, chat_arg: str | No
     back: Rows = [[_event_button(ev, record.id)]]
     title = _title(ctx, ev, record)
     if not groups:
-        ctx.reply(tx.NO_GROUPS, back)
+        _reply(ctx, tx.NO_GROUPS, back)
         return
     if chat_arg is None:
         rows: Rows = []
@@ -1157,13 +1173,13 @@ async def _publish_card(ctx: Ctx, ev: Events, record: Record, chat_arg: str | No
             except CallbackError:
                 continue
         lines = [_crumb(ev, title, tx.PUBLISH_IN_GROUP), "", _fill(tx.GROUPS_ASK, title=title)]
-        ctx.reply("\n".join(lines), rows + back)
+        _reply(ctx, "\n".join(lines), rows + back)
         return
     m = _CHAT_ARG.fullmatch(chat_arg)
     chat_id = (-int(m.group(2)) if m.group(1) == "n" else int(m.group(2))) if m is not None else None
     group = next((g for g in groups if g[0] == chat_id), None)
     if group is None:
-        ctx.reply(tx.GROUP_GONE, back, edit=False)
+        _reply(ctx, tx.GROUP_GONE, back, edit=False)
         return
     from app.services.group_cards import render_for_item  # the web publish's card (pure, store-only)
 
@@ -1174,7 +1190,7 @@ async def _publish_card(ctx: Ctx, ev: Events, record: Record, chat_arg: str | No
     text, buttons = card
     if not await _enqueue(ctx, [group[0]], text, buttons):
         ctx.notify(str(group[0]), "announcement", text, buttons)
-    ctx.reply(_fill(tx.GROUP_QUEUED, title=title, group=group[1]), [*back, [_list_button(ev)]])
+    _reply(ctx, _fill(tx.GROUP_QUEUED, title=title, group=group[1]), [*back, [_list_button(ev)]])
 
 
 # --- route resolvers -----------------------------------------------------------------------------

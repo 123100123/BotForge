@@ -26,6 +26,7 @@ MANAGER = Actor(id="mina", display_name="مینا", role="manager")
 
 CAP = "events"
 TITLE = "کارگاه پایتون"
+HOME = "nav:go:mgr"
 
 
 def events_data(**cap_over: Any) -> dict[str, Any]:
@@ -176,11 +177,11 @@ async def test_full_creation_flow_creates_one_event_in_utc() -> None:
 
     r = await tap(h, "nav:go:mgr.evt.new")
     assert r.messages[0].edit and "مرحلهٔ ۱ از ۷: عنوان" in text(r)
-    assert button_data(r) == ["nav:go:mgr.evt", f"{CAP}:stop:"]  # Back leaves the form
+    assert button_data(r) == ["nav:go:mgr.evt", f"{CAP}:stop:", HOME]  # Back leaves the form
 
     r = await send(h, TITLE)
     assert "مرحلهٔ ۲ از ۷: توضیحات" in text(r)
-    assert button_data(r) == [f"{CAP}:skip:", f"{CAP}:ans:b", f"{CAP}:stop:"]
+    assert button_data(r) == [f"{CAP}:skip:", f"{CAP}:ans:b", f"{CAP}:stop:", HOME]
 
     r = await tap(h, f"{CAP}:skip:")  # date: the next 14 days in Jalali
     days = [b for b in buttons(r) if b.data.startswith(f"{CAP}:ans:d2")]
@@ -210,7 +211,7 @@ async def test_full_creation_flow_creates_one_event_in_utc() -> None:
     preview = text(r)
     assert "زمان شروع: دوشنبه ۲۰ مهر ۱۴۰۵، ساعت ۱۸:۳۰" in preview
     assert f"عنوان: {TITLE}" in preview and "ظرفیت: ۲۰" in preview and "توضیحات: —" in preview
-    assert button_data(r) == [f"{CAP}:ans:pub", f"{CAP}:ans:edit", f"{CAP}:ans:b", f"{CAP}:stop:"]
+    assert button_data(r) == [f"{CAP}:ans:pub", f"{CAP}:ans:edit", f"{CAP}:ans:b", f"{CAP}:stop:", HOME]
 
     r = await tap(h, f"{CAP}:ans:pub")
     [event] = events(h)
@@ -224,7 +225,7 @@ async def test_full_creation_flow_creates_one_event_in_utc() -> None:
     }
     assert event.actor_id is None  # like a record created from the web data admin
     assert "رویداد ثبت شد و برای مشتریان نمایش داده می‌شود." in text(r)
-    assert button_data(r) == [f"nav:go:mgr.evt.{event.id}", "nav:go:mgr.evt"]  # no groups: no publish
+    assert button_data(r) == [f"nav:go:mgr.evt.{event.id}", "nav:go:mgr.evt", HOME]  # no groups: no publish
     assert [e.kind for e in r.effects] == ["record_created"]
     assert await session(h) is None
 
@@ -238,7 +239,7 @@ async def test_typed_jalali_date_and_time_and_invalid_input_reasks() -> None:
     await send(h, TITLE)
     await send(h, "یک دورهمی دوستانه")  # description typed
     r = await tap(h, f"{CAP}:ans:dx")
-    assert tx.ASK_DATE_TYPED in text(r) and button_data(r) == [f"{CAP}:ans:dd", f"{CAP}:stop:"]
+    assert tx.ASK_DATE_TYPED in text(r) and button_data(r) == [f"{CAP}:ans:dd", f"{CAP}:stop:", HOME]
     r = await send(h, "۱۴۰۵/۱۳/۰۱")
     assert "تاریخ معتبری نیست" in text(r) and await stage(h) == "date:starts_at"
     r = await send(h, "1405/7/1")  # 1 Mehr is before today (12 Mehr)
@@ -421,7 +422,7 @@ async def test_list_upcoming_sorted_with_counts_and_a_past_toggle() -> None:
     assert button_data(r)[1] == f"nav:go:mgr.evt.{past}" and "nav:go:mgr.evt" in button_data(r)
     r = await tap(h, f"nav:go:mgr.evt.{past}")
     assert tx.DETAIL_PAST.replace("{label}", "رویداد") in text(r)
-    assert button_data(r)[-1] == "nav:go:mgr.evt.past"
+    assert button_data(r)[-2:] == ["nav:go:mgr.evt.past", HOME]
 
 
 async def test_manager_detail_has_counts_and_no_rsvp_buttons() -> None:
@@ -444,6 +445,7 @@ async def test_manager_detail_has_counts_and_no_rsvp_buttons() -> None:
         f"nav:go:mgr.evt.att.{eid}",
         f"nav:go:mgr.evt.ann.{eid}",
         "nav:go:mgr.evt",
+        HOME,
     ]
     assert not [d for d in button_data(r) if d.startswith(f"{CAP}:")]  # no book/cancel for managers
     r = await tap(h, "nav:go:mgr.evt.999")
@@ -462,6 +464,7 @@ async def test_attendee_list_shows_confirmed_and_waitlisted_and_cancels_one() ->
         f"nav:go:mgr.evt.cx.{ali_booking.id}",
         f"nav:go:mgr.evt.cx.{ali_booking.id + 1}",
         f"nav:go:mgr.evt.{eid}",
+        HOME,
     ]
     r = await tap(h, f"nav:go:mgr.evt.cx.{ali_booking.id}")  # confirm first
     assert "«علی»" in text(r) and button_data(r)[0] == f"nav:go:mgr.evt.cxy.{ali_booking.id}"
@@ -643,3 +646,70 @@ def test_spec_fixture_matches_the_registry_preset() -> None:
     assert [f["key"] for f in resource["fields"]] == [
         f["key"] for f in events_data()["resources"][0]["fields"]
     ]
+
+
+# --- every screen: Back to its parent and Home -------------------------------------------------------
+
+
+def screens(r: Any) -> list[Any]:
+    return [m for m in r.messages if m.to_actor_id == OWNER.id]
+
+
+async def test_every_event_screen_ends_with_the_manager_home_button() -> None:
+    store = OutboxStore(groups=[(-1001234567890, "گروه کافه")])
+    h = harness(store)
+    eid = await seed_event(h, TITLE, "2026-10-12T15:00:00+00:00", 1)
+    old = await seed_event(h, "قدیمی", "2026-09-01T15:00:00+00:00", 1)
+    await tap(h, f"{CAP}:book:{eid}", ALI)
+    booking = next(b for b in h.store.all_records() if b.collection == CAP and b.actor_id == "ali")  # type: ignore[attr-defined]
+
+    taps = [
+        "nav:go:mgr.evt",
+        "nav:go:mgr.evt.past",
+        "nav:go:mgr.evt.999",  # not found
+        f"nav:go:mgr.evt.{eid}",
+        f"nav:go:mgr.evt.{old}",
+        f"nav:go:mgr.evt.att.{eid}",
+        f"nav:go:mgr.evt.cx.{booking.id}",
+        "nav:go:mgr.evt.cx.99999",  # booking gone
+        f"nav:go:mgr.evt.pub.{eid}",
+        f"nav:go:mgr.evt.pub.{eid}.n42",  # group gone
+        f"nav:go:mgr.evt.ann.{eid}",  # asks for the text
+    ]
+    for data in taps:
+        r = await tap(h, data)
+        assert HOME in [d for m in screens(r) for row in m.buttons for d in (b.data for b in row)], data
+    r = await send(h, "سلام")  # announcement preview
+    assert HOME in button_data(r) and f"nav:go:mgr.evt.{eid}" in button_data(r)
+    r = await tap(h, f"{CAP}:ans:send")  # sent
+    assert HOME in button_data(r)
+    await tap(h, f"nav:go:mgr.evt.ann.{eid}")
+    r = await tap(h, f"{CAP}:stop:")  # announcement cancelled
+    assert HOME in button_data(r)
+    r = await tap(h, f"nav:go:mgr.evt.pub.{eid}.n1001234567890")  # group queued
+    assert HOME in button_data(r)
+    r = await tap(h, f"nav:go:mgr.evt.cxy.{booking.id}")  # attendee cancelled
+    assert HOME in button_data(r)
+    await fill_form(h)
+    r = await tap(h, f"{CAP}:ans:pub")  # event created
+    assert HOME in button_data(r)
+    await tap(h, "nav:go:mgr.evt.new")
+    r = await tap(h, f"{CAP}:stop:")  # creation cancelled
+    assert HOME in button_data(r)
+
+
+async def test_an_optional_step_with_a_value_offers_keep_or_clear_never_skip() -> None:
+    h = harness()
+    await fill_form(h)
+    r = await tap(h, f"{CAP}:ans:edit")  # back to the first step with every value kept
+    await tap(h, f"{CAP}:ans:k")  # title kept -> description
+    assert await stage(h) == "text:description"
+    labels = [b.label for b in buttons(h.last)]  # type: ignore[arg-type]
+    assert tx.KEEP in labels and tx.CLEAR in labels and tx.SKIP not in labels
+    assert labels.count(tx.KEEP) == 1
+
+    fresh = harness()  # no value yet: only "skip"
+    await tap(fresh, "nav:go:mgr.evt.new")
+    r = await send(fresh, TITLE)
+    labels = [b.label for b in buttons(r)]
+    assert tx.SKIP in labels and tx.KEEP not in labels and tx.CLEAR not in labels

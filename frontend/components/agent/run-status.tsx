@@ -37,8 +37,11 @@ import { FAILURE_TITLES, retryReasonLabel } from "./labels";
 
 /** No event for this long while heartbeats still arrive: the server is alive and the model is thinking. */
 export const MODEL_QUIET_MS = 20_000;
-/** Bytes older than this mean the connection is dead (the stream watchdog reconnects at the same age). */
-export const BYTES_STALE_MS = 35_000;
+/**
+ * The server sends a heartbeat every 15 s, so bytes younger than this are proof the connection is alive;
+ * older bytes mean it is slow or stalled (the stream watchdog reconnects at 35 s, see lib/watchdog.ts).
+ */
+export const BYTES_FRESH_MS = 20_000;
 
 export interface RunStatusAgent {
   status: RunStatusValue | null;
@@ -55,7 +58,7 @@ export interface RunStatusAgent {
 }
 
 /** Re-renders every `everyMs` while `active`; the live region does not depend on it, so screen readers hear states, not ticks. */
-function useNow(active: boolean, everyMs = 5000): number {
+function useNow(active: boolean, everyMs = 2000): number {
   const [now, setNow] = useState(() => Date.now());
   useEffect(() => {
     if (!active) return;
@@ -248,14 +251,21 @@ function ConnectionLine({ agent, now }: { agent: RunStatusAgent; now: number }) 
       </p>
     );
   }
-  // Heartbeats keep arriving but no event: the server is alive and the model is working.
-  if (
-    status === "running" &&
-    lastEventAt !== null &&
-    lastBytesAt !== null &&
-    now - lastEventAt > MODEL_QUIET_MS &&
-    now - lastBytesAt < BYTES_STALE_MS
-  ) {
+  if (status !== "running" || lastBytesAt === null) return null;
+  const bytesAge = now - lastBytesAt;
+  // No bytes (not even a heartbeat) for longer than a heartbeat interval: nothing proves the connection is
+  // alive. Never say so; the watchdog reconnects at 35 s.
+  if (bytesAge >= BYTES_FRESH_MS) {
+    return (
+      <p className="flex items-start gap-2 rounded-sm bg-warning-soft p-3 text-small text-warning-text">
+        <WifiOff strokeWidth={1.75} aria-hidden className="mt-1 size-4 shrink-0" />
+        ارتباط کند شده است…
+      </p>
+    );
+  }
+  // A heartbeat arrived after the last event, recently, and no event for a while: the server is alive and
+  // the model is working.
+  if (lastEventAt !== null && lastBytesAt > lastEventAt && now - lastEventAt > MODEL_QUIET_MS) {
     return (
       <p className="flex items-start gap-2 rounded-sm bg-info-soft p-3 text-small text-info-text">
         <Info strokeWidth={1.75} aria-hidden className="mt-1 size-4 shrink-0" />

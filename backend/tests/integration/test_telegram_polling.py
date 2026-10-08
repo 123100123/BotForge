@@ -380,40 +380,105 @@ async def test_retry_leaves_other_errors_alone_and_belongs_to_the_owner(
     assert (await row(session_factory, bot.id)).tg_last_error == other
 
 
-async def test_a_successful_poll_resets_the_conflict_count(
+class ScriptedTelegram(FakeTelegramClient):
+    """getUpdates follows a script: ``"ok"`` returns one new update at once, ``"409"`` is a competing
+    consumer, and when the script is spent every poll is an ordinary empty long poll."""
+
+    def __init__(self, script: list[str]) -> None:
+        super().__init__()
+        self.poll_wait = 0.02
+        self.script = list(script)
+        self._next_id = 1000
+
+    async def get_updates(
+        self, *, offset: int | None, timeout: int, allowed_updates: list[str], limit: int | None = None
+    ) -> list[dict[str, Any]]:
+        step = self.script.pop(0) if self.script else None
+        if step == "409":
+            self._record("getUpdates", offset=offset, timeout=timeout, allowed_updates=allowed_updates)
+            raise COMPETITOR
+        if step == "ok":
+            self._next_id += 1
+            self.push_updates(message_update(self._next_id, 750, "/start"))
+        return await super().get_updates(
+            offset=offset, timeout=timeout, allowed_updates=allowed_updates, limit=limit
+        )
+
+
+async def test_alternating_success_and_competitor_conflicts_still_park_the_bot(
     bot: LiveBot,
-    telegram: Telegram,
     make_poller: Callable[..., TelegramPoller],
     session_factory: SessionFactory,
 ) -> None:
-    fake = telegram(bot.token)
-    fake.get_updates_errors.extend(conflicts(2))
-    poller = make_poller(bot.id)
+    # Two servers sharing a token: each long poll often succeeds (with an update) between conflicts,
+    # so "three in a row" would never be reached. The window counts them regardless.
+    fake = ScriptedTelegram(["ok", "409", "ok", "409", "ok", "409"])
+    poller = make_poller(bot.id, provider=lambda _token: fake, clock=lambda: 100.0)
     await poller.sync_once()
-    await eventually(lambda: len(polls(fake)) >= 5)  # two conflicts, then good (empty) polls
-    fake.get_updates_errors.extend(conflicts(2))  # two more: four in total, never three in a row
-    await eventually(lambda: len(polls(fake)) >= 10)
+    await eventually(lambda: parked_with_error(session_factory, bot.id))
+    await eventually(lambda: not poller.polling)
+    assert len(polls(fake)) == 6
+    assert (await row(session_factory, bot.id)).tg_last_error == texts.POLLING_CONFLICT
+    assert len(sent_texts(fake, 750)) == 3  # the updates between the conflicts were still served
+
+
+async def test_two_conflicts_with_successful_polls_between_do_not_park(
+    bot: LiveBot,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    fake = ScriptedTelegram(["409", "ok", "409", "ok", "ok"])
+    poller = make_poller(bot.id, provider=lambda _token: fake, clock=lambda: 100.0)
+    await poller.sync_once()
+    await eventually(lambda: len(polls(fake)) >= 8)
     assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
 
 
-async def test_conflicts_further_apart_than_the_window_do_not_park(
+async def test_conflicts_spread_wider_than_the_window_with_successes_between_do_not_park(
     bot: LiveBot,
-    telegram: Telegram,
     make_poller: Callable[..., TelegramPoller],
     session_factory: SessionFactory,
 ) -> None:
     clock = [0.0]
 
     def tick() -> float:
-        clock[0] += 20.0  # each reading is 20 s after the last: never three within 30 s
+        clock[0] += poller_module.PARK_WINDOW / 2 + 1  # any three readings span more than the window
         return clock[0]
 
-    fake = telegram(bot.token)
-    fake.get_updates_errors.extend(conflicts(5))
-    poller = make_poller(bot.id, clock=tick)
+    fake = ScriptedTelegram(["ok", "409", "ok", "409", "ok", "409", "ok", "409", "ok"])
+    poller = make_poller(bot.id, provider=lambda _token: fake, clock=tick)
     await poller.sync_once()
-    await eventually(lambda: len(polls(fake)) >= 7)
+    await eventually(lambda: len(polls(fake)) >= 12)
     assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
+
+
+async def test_a_parked_bot_stays_parked_when_another_error_overwrites_the_conflict(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    fake = telegram(bot.token)
+    fake.get_updates_errors.extend(conflicts(3))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: parked_with_error(session_factory, bot.id))
+    await eventually(lambda: not poller.polling)
+
+    other = "sendMessage: Forbidden: bot was blocked by the user"
+    async with session_factory() as session:  # some other code path wrote a different error
+        await session.execute(update(Bot).where(Bot.id == bot.id).values(tg_last_error=other))
+        await session.commit()
+    await poller.sync_once()
+    await asyncio.sleep(0.05)
+    assert not poller.polling and len(polls(fake)) == 3  # still parked: not a retry
+
+    async with session_factory() as session:  # the owner's retry clears the error
+        await session.execute(update(Bot).where(Bot.id == bot.id).values(tg_last_error=None))
+        await session.commit()
+    await poller.sync_once()
+    await eventually(lambda: len(polls(fake)) > 3)
+    assert bot.id in poller.polling
 
 
 async def test_a_webhook_is_active_conflict_still_deletes_the_webhook_and_never_parks(

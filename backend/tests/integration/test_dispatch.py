@@ -5,10 +5,11 @@ from datetime import UTC, datetime
 from typing import Any
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from app.botspec.models import BotSpec
 from app.db.models import Bot, RecordRow
+from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import TelegramOrigin
 from app.integrations.telegram.client import FakeTelegramClient
 from app.runtime.callbacks import make_callback
@@ -134,6 +135,23 @@ async def test_delivery_failure_is_recorded_not_raised_and_cleared_by_the_next_c
     async with session_factory() as session:
         row = await session.get(Bot, bot.id)
         assert row is not None and row.tg_last_error is None
+
+
+async def test_a_parked_bots_polling_conflict_error_is_not_overwritten_by_delivery(
+    session_factory: SessionFactory, bot: LiveBot, spec: BotSpec, fake_tg: FakeTelegramClient
+) -> None:
+    async with session_factory() as session:  # the poller parked the bot after this snapshot was read
+        await session.execute(
+            update(Bot).where(Bot.id == bot.id).values(tg_last_error=texts.POLLING_CONFLICT)
+        )
+        await session.commit()
+    fake_tg.fail_methods["sendMessage"] = "Forbidden: bot was blocked by the user"
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)  # a failed delivery
+    fake_tg.fail_methods.clear()
+    await run(session_factory, bot, spec, event(bot, "live", "601", "start"), fake_tg)  # a clean one
+    async with session_factory() as session:
+        row = await session.get(Bot, bot.id)
+        assert row is not None and row.tg_last_error == texts.POLLING_CONFLICT
 
 
 async def test_delivery_failure_is_logged_with_bot_and_description(

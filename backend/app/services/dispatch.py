@@ -52,11 +52,12 @@ import re
 import uuid
 from dataclasses import dataclass
 
-from sqlalchemy import update
+from sqlalchemy import or_, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.botspec.models import BotSpec, Role
 from app.db.models import Bot
+from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import (
     NOT_MODIFIED,
     TelegramOrigin,
@@ -441,7 +442,20 @@ async def _record_error(session: AsyncSession, bot: _Target, error: str | None) 
     if bot.last_error == error:
         return
     try:
-        await session.execute(update(Bot).where(Bot.id == bot.id).values(tg_last_error=error))
+        # A parked poller's POLLING_CONFLICT error is the park marker: neither a later delivery error
+        # nor a clean delivery may overwrite it (only the owner's retry, a reconnect or a restart does).
+        await session.execute(
+            update(Bot)
+            .where(
+                Bot.id == bot.id,
+                or_(
+                    Bot.tg_last_error.is_(None),
+                    Bot.tg_last_error.not_like(f"{texts.POLLING_CONFLICT_PREFIX}%"),
+                ),
+            )
+            .values(tg_last_error=error)
+            .execution_options(synchronize_session=False)
+        )
         bot.last_error = error
         await session.commit()
     except Exception:
