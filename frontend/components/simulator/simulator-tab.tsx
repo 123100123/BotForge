@@ -1,22 +1,31 @@
 "use client";
 
+import { useRef, useState, type FormEvent } from "react";
+import { FlaskConical, Play, RotateCcw, SendHorizontal } from "lucide-react";
+import { defaultRevision, REVISION_STATUS_LABELS, revisionOptionLabel } from "@/components/app/revision-labels";
 import { useOpenSection } from "@/components/app/shell/use-open-section";
-import { useRef, useState } from "react";
-import { Play, RotateCcw } from "lucide-react";
-import { defaultRevision, revisionOptionLabel } from "@/components/app/revision-labels";
-import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
+import { ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";
 import { Button } from "@/components/ui/button";
+import { EmptyState } from "@/components/ui/empty-state";
+import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import type { Bot, Persona, RuntimeButton } from "@/lib/types";
+import { fa } from "@/lib/format";
+import type { Bot, Persona } from "@/lib/types";
 import { applyResponse, emptyChats, emptyUnread, PERSONAS, type ChatItem, type Chats, type Unread } from "./chat";
+import { ChatMessageList, type ChatMessage } from "./chat-message-list";
 import { PersonaSwitcher } from "./persona-switcher";
 import { PhoneFrame } from "./phone-frame";
 
-export function SimulatorTab({ bot }: { bot: Bot }) {
+/**
+ * Bot test page body: a controls panel (persona, version, start/reset) and the phone.
+ * `initialRevisionId` preselects a version (from `?revision=` when linked from a change proposal).
+ */
+export function SimulatorTab({ bot, initialRevisionId = null }: { bot: Bot; initialRevisionId?: string | null }) {
   const openSection = useOpenSection();
   const { revisions, error: loadError } = useRevisions(bot.id, bot.active_revision_id);
   const [pickedId, setPickedId] = useState<string | null>(null);
@@ -25,31 +34,43 @@ export function SimulatorTab({ bot }: { bot: Bot }) {
   const [conv, setConv] = useState<{ chats: Chats; unread: Unread }>(() => ({ chats: emptyChats(), unread: emptyUnread() }));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [text, setText] = useState("");
   const counter = useRef(0);
   const nextId = () => (counter.current += 1);
 
-  // Default: the draft under review if there is one, otherwise the active revision.
+  // Only a draft or the active revision can be tried. Default: the linked one, else the draft under review, else the active one.
   const selectable = (revisions ?? []).filter((r) => r.status === "draft" || r.status === "active");
-  const revisionId = pickedId ?? defaultRevision(selectable)?.id ?? null;
+  const linked = initialRevisionId ? selectable.find((r) => r.id === initialRevisionId) : undefined;
+  const revisionId = pickedId ?? linked?.id ?? defaultRevision(selectable)?.id ?? null;
+  const revision = selectable.find((r) => r.id === revisionId) ?? null;
 
   if (loadError) return <ErrorNote>{loadError}</ErrorNote>;
   if (!revisions) return <LoadingBlock />;
   if (selectable.length === 0) {
     return (
-      <EmptyState
-        title="هنوز چیزی برای امتحان کردن نیست"
-        action={
-          <Button variant="outline" onClick={() => openSection("changes")}>
-            رفتن به تغییرات
-          </Button>
-        }
-      >
-        ابتدا در «تغییرات» ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید.
-      </EmptyState>
+      <div className="rounded-md border border-border bg-surface">
+        <EmptyState
+          icon={<FlaskConical strokeWidth={1.75} />}
+          title="هنوز چیزی برای امتحان کردن نیست"
+          description="ابتدا در «تغییرات» ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید."
+          action={
+            <Button variant="secondary" onClick={() => openSection("changes")}>
+              رفتن به تغییرات
+            </Button>
+          }
+        />
+      </div>
     );
   }
 
   const personaLabel = PERSONAS.find((p) => p.id === persona)?.label ?? "";
+  const items = conv.chats[persona];
+  const messages: ChatMessage[] = items.map((i) => ({
+    id: i.id,
+    from: i.from === "me" ? "user" : "bot",
+    text: i.text,
+    buttons: i.buttons.map((row) => row.map((b) => b.label)),
+  }));
 
   async function send(kind: "start" | "text" | "callback", opts: { text?: string; data?: string; label?: string; sourceId?: number } = {}) {
     if (busy) return;
@@ -88,10 +109,27 @@ export function SimulatorTab({ bot }: { bot: Bot }) {
     }
   }
 
+  function submit(e: FormEvent) {
+    e.preventDefault();
+    const value = text.trim();
+    if (!value || busy) return;
+    setText("");
+    void send("text", { text: value });
+  }
+
+  const badge = revision && (
+    <StatusBadge tone={revision.status === "active" ? "success" : "neutral"} marker>
+      {REVISION_STATUS_LABELS[revision.status]}
+    </StatusBadge>
+  );
+
   return (
-    <div className="grid gap-6 md:grid-cols-[minmax(0,18rem)_minmax(0,1fr)] md:items-start">
-      <div className="flex flex-col gap-4">
-        <div className="grid gap-1.5">
+    <div className="grid gap-6 md:grid-cols-[minmax(0,20rem)_minmax(0,1fr)] md:items-start">
+      <section aria-labelledby="sim-controls-title" className="rounded-md border border-border bg-surface">
+        <h2 id="sim-controls-title" className="p-5 text-h3 text-fg">
+          تنظیم آزمایش
+        </h2>
+        <div className="flex flex-col gap-2 border-t border-border p-5">
           <Label>کاربر آزمایشی</Label>
           <PersonaSwitcher
             value={persona}
@@ -102,8 +140,7 @@ export function SimulatorTab({ bot }: { bot: Bot }) {
             }}
           />
         </div>
-
-        <div className="grid gap-1.5">
+        <div className="flex flex-col gap-2 border-t border-border p-5">
           <Label htmlFor="sim-revision">نسخهٔ مورد آزمایش</Label>
           <Select
             id="sim-revision"
@@ -121,32 +158,49 @@ export function SimulatorTab({ bot }: { bot: Bot }) {
             ))}
           </Select>
         </div>
-
-        <div className="flex flex-wrap gap-2">
-          <Button onClick={() => send("start")} disabled={busy}>
-            <Play />
-            شروع
-          </Button>
-          <Button variant="outline" onClick={() => reset(revisionId)} disabled={busy}>
-            <RotateCcw />
-            بازنشانی
-          </Button>
+        <div className="flex flex-col gap-3 border-t border-border p-5">
+          <div className="flex flex-wrap gap-2">
+            <Button onClick={() => void send("start")} disabled={busy}>
+              <Play strokeWidth={1.75} />
+              شروع
+            </Button>
+            <Button variant="secondary" onClick={() => void reset(revisionId)} disabled={busy}>
+              <RotateCcw strokeWidth={1.75} />
+              بازنشانی
+            </Button>
+          </div>
+          {error && <ErrorNote>{error}</ErrorNote>}
         </div>
-
-        {error && <ErrorNote>{error}</ErrorNote>}
-        <p className="text-sm leading-7 text-muted-foreground">
+        <p className="border-t border-border p-5 text-small text-fg-muted">
           این گفتگو فقط آزمایشی است و به تلگرام نمی‌رود. وقتی پیامی برای کاربر دیگری برسد (مثلاً اعلان ثبت‌نام برای مدیر)، روی نام او نشانگر می‌بینید.
         </p>
-      </div>
+      </section>
 
       <PhoneFrame
-        botName={bot.name}
-        personaLabel={personaLabel}
-        items={conv.chats[persona]}
-        busy={busy}
-        onPress={(item: ChatItem, b: RuntimeButton) => send("callback", { data: b.data, label: b.label, sourceId: item.id })}
-        onSendText={(text) => send("text", { text })}
-      />
+        title={bot.name}
+        subtitle={`در نقش ${personaLabel}${revision ? ` · نسخهٔ ${fa(revision.number)}` : ""}`}
+        badge={badge}
+        footer={
+          <form onSubmit={submit} className="flex items-center gap-2">
+            <Input value={text} onChange={(e) => setText(e.target.value)} placeholder="پیام…" aria-label="پیام" disabled={busy} />
+            <Button type="submit" size="icon" aria-label="ارسال" disabled={busy || text.trim() === ""}>
+              <SendHorizontal strokeWidth={1.75} className="rtl:-scale-x-100" />
+            </Button>
+          </form>
+        }
+      >
+        <ChatMessageList
+          autoScroll
+          messages={messages}
+          disabled={busy}
+          emptyText="گفتگو خالی است. برای شروع، دکمهٔ «شروع» را بزنید."
+          onButtonPress={(mi, r, c) => {
+            const item = items[mi];
+            const b = item?.buttons[r]?.[c];
+            if (item && b) void send("callback", { data: b.data, label: b.label, sourceId: item.id });
+          }}
+        />
+      </PhoneFrame>
     </div>
   );
 }

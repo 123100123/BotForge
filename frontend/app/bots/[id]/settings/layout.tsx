@@ -21,7 +21,7 @@ export default function SettingsLayout({ children }: { children: ReactNode }) {
           { href: sectionHref(bot.id, "account"), label: "حساب" },
         ]}
       />
-      <div className="flex w-full max-w-3xl flex-col gap-5">{children}</div>
+      <div className="flex w-full max-w-3xl flex-col gap-6">{children}</div>
     </>
   );
 }

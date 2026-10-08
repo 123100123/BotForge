@@ -40,7 +40,7 @@ export function TelegramSettings({ bot, onBotChanged }: { bot: Bot; onBotChanged
   if (!status) return error ? <ErrorNote>{error}</ErrorNote> : <LoadingBlock />;
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-6">
       {error && <ErrorNote>{error}</ErrorNote>}
       <TelegramConnect
         botId={bot.id}
