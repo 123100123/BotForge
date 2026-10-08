@@ -177,3 +177,34 @@ async def test_fake_client_records_calls_and_can_fail() -> None:
         await fake.send_message(7, "b")
     assert [c[0] for c in fake.calls] == ["sendMessage", "sendMessage"]
     assert [k["text"] for k in fake.sent_to(7)] == ["a", "b"]
+
+
+async def test_set_my_commands_payload_default_and_chat_scope() -> None:
+    stub = Stub(ok(), ok())
+    commands = [{"command": "menu", "description": "منوی اصلی"}]
+    await stub.client().set_my_commands(commands)
+    await stub.client().set_my_commands(commands, scope={"type": "chat", "chat_id": 7})
+    assert stub.requests[0].url.path.endswith("/setMyCommands")
+    assert json.loads(stub.requests[0].content) == {"commands": commands}  # no scope = default scope
+    assert json.loads(stub.requests[1].content) == {
+        "commands": commands,
+        "scope": {"type": "chat", "chat_id": 7},
+    }
+
+
+async def test_set_chat_menu_button_defaults_to_commands() -> None:
+    stub = Stub(ok(), ok())
+    await stub.client().set_chat_menu_button()
+    await stub.client().set_chat_menu_button(chat_id=7, menu_button={"type": "default"})
+    assert stub.requests[0].url.path.endswith("/setChatMenuButton")
+    assert json.loads(stub.requests[0].content) == {"menu_button": {"type": "commands"}}
+    assert json.loads(stub.requests[1].content) == {"chat_id": 7, "menu_button": {"type": "default"}}
+
+
+async def test_fake_client_records_command_calls() -> None:
+    fake = FakeTelegramClient()
+    commands = [{"command": "help", "description": "راهنما"}]
+    await fake.set_my_commands(commands)
+    await fake.set_chat_menu_button()
+    assert fake.calls_to("setMyCommands") == [{"commands": commands, "scope": None}]
+    assert fake.calls_to("setChatMenuButton") == [{"chat_id": None, "menu_button": {"type": "commands"}}]

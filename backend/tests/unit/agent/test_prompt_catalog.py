@@ -176,3 +176,18 @@ def test_check_sample_record_requires_price_for_orders_items() -> None:
     full = {**bare, "values": [*bare["values"], {"key": "price", "value": "50000"}]}
     seed, problem = check_sample_record(full, spec)
     assert seed is not None and problem is None
+
+
+def test_prompts_do_not_ask_the_model_to_design_menus() -> None:
+    """Navigation is generated (runtime/nav.py): the model writes `menu: []` and never edits items."""
+    system = prompts.system_prompt()
+    assert '"menu": []' in system
+    assert "## Navigation is generated" in system
+    assert "## Menu" not in system
+    for stale in ("8 items or fewer", '"main" menu item', '"mine" menu item', "1 to 8", '["menu"'):
+        assert stale not in system, stale
+    build = prompts.load("build")
+    assert '"menu": []' in build and "8 items" not in build and '"mine" menu' not in build
+    change = prompts.load("build_change")
+    assert "not menu edits" in change and "enabled" in change
+    assert "menu item" not in prompts.load("triage")

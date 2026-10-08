@@ -17,6 +17,12 @@ Rules:
 - Live records exist for the collections listed in `live_record_counts`. Never change a field's
   type; never add a required field without a default to a resource that has records; prefer
   keeping existing fields and capabilities over removing them.
+- Requests about the menu ("rename the menu button", "add a button for X", "remove the Y
+  button") are not menu edits: the bot's menus are generated and `menu` stays `[]`. Renaming a
+  button means changing the capability `title` or the resource `label` / `label_plural`; adding or
+  removing a button means turning the capability on (`enabled: true`) or off (`enabled: false`),
+  or adding the capability the owner asks for. If nothing in the spec can express the request,
+  change nothing and say so in the `finish` summary.
 - Turning a feature on or off is `set` on its capability's `enabled` (true or false), never remove
   and add: that keeps its configuration and records.
 - A uniform capacity stays `capacity.mode = "fixed"` with the owner's number.
