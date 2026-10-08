@@ -1,8 +1,8 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useRef, useState } from "react";
 import { Play, RotateCcw } from "lucide-react";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { defaultRevision, revisionOptionLabel } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";
@@ -16,7 +16,8 @@ import { applyResponse, emptyChats, emptyUnread, PERSONAS, type ChatItem, type C
 import { PersonaSwitcher } from "./persona-switcher";
 import { PhoneFrame } from "./phone-frame";
 
-export function SimulatorTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
+export function SimulatorTab({ bot }: { bot: Bot }) {
+  const openSection = useOpenSection();
   const { revisions, error: loadError } = useRevisions(bot.id, bot.active_revision_id);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [persona, setPersona] = useState<Persona>("ali");
@@ -38,12 +39,12 @@ export function SimulatorTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Wo
       <EmptyState
         title="هنوز چیزی برای امتحان کردن نیست"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onClick={() => openSection("changes")}>
+            رفتن به تغییرات
           </Button>
         }
       >
-        ابتدا در تب ایجنت ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید.
+        ابتدا در «تغییرات» ربات را بسازید؛ بعد می‌توانید پیش‌نویس را اینجا با چند کاربر آزمایشی امتحان کنید.
       </EmptyState>
     );
   }

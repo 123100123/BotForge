@@ -1,8 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useOpenSection } from "@/components/app/shell/use-open-section";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Plus } from "lucide-react";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
@@ -21,10 +21,18 @@ type Overview =
   | { state: "error"; message: string }
   | { state: "ready"; collections: DataCollection[] };
 
-export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
+/**
+ * Records of the business's data collections. `collectionKeys` focuses it on some collections (an Operations
+ * page: orders, events, one resource...), in that order; with one collection the collection list is hidden.
+ * Without it every collection of the active revision is listed (the /records page).
+ */
+export function DataTab({ bot, collectionKeys }: { bot: Bot; collectionKeys?: string[] }) {
+  const openSection = useOpenSection();
   /** `key` identifies the bot and active revision the overview was loaded for; a stale one counts as loading. */
   const [loaded, setLoaded] = useState<{ key: string; overview: Overview } | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
+  /** Stable identity of the focus list (the array itself is a new one on every render of the page). */
+  const scope = collectionKeys ? collectionKeys.join("\n") : null;
   const [counts, setCounts] = useState<Record<string, number>>({});
   /** Bumped after every change so the table and the counts reload. */
   const [tick, setTick] = useState(0);
@@ -39,7 +47,6 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
         const data = await api.getDataOverview(bot.id);
         if (cancelled) return;
         setLoaded({ key, overview: { state: "ready", collections: data.collections } });
-        setSelected((cur) => (cur && data.collections.some((c) => c.key === cur) ? cur : (data.collections[0]?.key ?? null)));
       } catch (err) {
         if (cancelled) return;
         if (err instanceof ApiError && err.code === ERROR_CODES.noActiveRevision) setLoaded({ key, overview: { state: "no_revision" } });
@@ -52,9 +59,17 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
   }, [bot.id, bot.active_revision_id, key]);
 
   const overview = loaded && loaded.key === key ? loaded.overview : null;
-  const collections = overview?.state === "ready" ? overview.collections : null;
+  const all = overview?.state === "ready" ? overview.collections : null;
+  const collections = useMemo(() => {
+    if (!all || scope === null) return all;
+    const byKey = new Map(all.map((c) => [c.key, c]));
+    return scope
+      .split("\n")
+      .map((k) => byKey.get(k))
+      .filter((c): c is DataCollection => c !== undefined);
+  }, [all, scope]);
   useEffect(() => {
-    if (!collections) return;
+    if (!collections || collections.length <= 1) return;
     let cancelled = false;
     Promise.all(
       collections.map((c) =>
@@ -80,21 +95,22 @@ export function DataTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Workspa
       <EmptyState
         title="هنوز داده‌ای وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onClick={() => openSection("changes")}>
+            رفتن به تغییرات
           </Button>
         }
       >
-        این ربات هنوز نسخهٔ فعالی ندارد. ابتدا در تب ایجنت ربات را بسازید و تأیید کنید؛ بعد می‌توانید موارد آن (مثل کارگاه‌ها) را اینجا اضافه کنید.
+        این ربات هنوز نسخهٔ فعالی ندارد. ابتدا در «تغییرات» ربات را بسازید و تأیید کنید؛ بعد می‌توانید موارد آن (مثل کارگاه‌ها) را اینجا اضافه کنید.
       </EmptyState>
     );
   }
   if (overview.state === "error") return <ErrorNote>{overview.message}</ErrorNote>;
 
-  const current = overview.collections.find((c) => c.key === selected) ?? null;
+  const shown = collections ?? [];
+  const current = shown.find((c) => c.key === selected) ?? shown[0] ?? null;
   return (
     <div className="flex flex-col gap-5 md:flex-row md:items-start">
-      <CollectionNav collections={overview.collections} selected={selected} counts={counts} onSelect={setSelected} />
+      {shown.length > 1 && <CollectionNav collections={shown} selected={current?.key ?? null} counts={counts} onSelect={setSelected} />}
       <div className="min-w-0 flex-1">
         {current ? (
           <CollectionPanel

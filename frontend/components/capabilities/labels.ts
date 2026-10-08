@@ -1,4 +1,3 @@
-import type { WorkspaceTab } from "@/components/app/workspace";
 import type { CapabilityOut } from "@/lib/types";
 
 /** Capabilities that are listed but cannot be switched on yet. */
@@ -44,20 +43,4 @@ export function configLabel(key: string): string {
 /** "A، B و C" style names for a list of capability ids. */
 export function namesOf(ids: string[], byId: Map<string, CapabilityOut>): string {
   return ids.map((id) => byId.get(id)?.name ?? id).join("، ");
-}
-
-/**
- * Switches to another section of the workspace. Uses the page's `onOpenTab` when it was passed down;
- * otherwise presses the section's sidebar trigger (Radix tabs select on mouse down).
- */
-export function openSection(tab: WorkspaceTab, onOpenTab?: (tab: WorkspaceTab) => void) {
-  if (onOpenTab) {
-    onOpenTab(tab);
-    return;
-  }
-  const value = tab === "agent" ? "copilot" : tab;
-  document
-    .querySelector<HTMLElement>(`[role="tab"][id$="-trigger-${value}"]`)
-    ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
-  window.scrollTo({ top: 0 });
 }

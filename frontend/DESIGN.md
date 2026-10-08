@@ -209,6 +209,23 @@ new work); `segmented.tsx` (legacy radio-style control; prefer `TabsList variant
 `lib`: `theme.tsx` (`ThemeProvider`, `useTheme`, `THEME_INIT_SCRIPT`), `utils.ts` (`cn`, aware of the type
 classes so `cn("text-h1","text-fg-muted")` keeps both).
 
+### Shell and routes (Phase 2)
+
+- Routes: every section of a business is a URL under `/bots/[id]`; `lib/routes.ts` `sectionHref(botId, section)`
+  is the only place that builds them. Cross-links use `useOpenSection()` (`components/app/shell/use-open-section.ts`),
+  never local tab state. Sub-pages (Changes, Reports, Settings) use `SubNav` (`components/app/shell/sub-nav.tsx`).
+- Navigation: `lib/nav.ts` `buildNav(collections, capabilities, botId)` is a pure adapter: Overview; Operations
+  generated from collections (orders, events, bookings, requests, one item per resource; more than six collapse
+  under «سایر داده‌ها»; announcements when its capability is on); Insights; Build; Settings. Count badges are
+  attached by item id in `useNavBadges()` (`components/app/shell/nav-list.tsx`).
+- Contexts mounted by `app/bots/[id]/layout.tsx` (`components/app/shell/business-root.tsx`): `useBusiness()`
+  (bot, collections, capabilities, nav, reload), `useAgentRunContext()` (the agent run; survives navigation),
+  `useAssistant()` (open(prefill?), close, toggle, isOpen; Ctrl/⌘+K).
+- Frame (`components/app/shell/app-shell.tsx`): ≥1024 a 248px sidebar on the start edge; 640–1023 a 64px icon rail
+  with tooltips that expands into a sheet; <640 a top bar plus a fixed five-item bottom tab bar (content reserves
+  its height; anything sticky to the viewport bottom must sit above it below 640px). Top bar 56px, content max
+  width 1360, padding 24 (16 on mobile). Pages render `PageHeader` (the h1) first; focus moves to it on navigation.
+
 Charts (`components/charts`) use `chart-*` tokens; labels are 12.5 viewBox units (they scale with the chart;
 phase work on charts should make them size-stable on narrow screens).
 

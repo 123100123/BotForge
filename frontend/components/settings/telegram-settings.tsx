@@ -2,27 +2,14 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
 import type { Bot, TelegramStatus } from "@/lib/types";
-import { AnnouncementsSection } from "./announcements-section";
-import { GroupsSection } from "./groups-section";
 import { OwnerLink } from "./owner-link";
-import { SchedulesSection } from "./schedules-section";
-import { TeamSection } from "./team-section";
 import { TelegramConnect } from "./telegram-connect";
 
-export function SettingsTab({
-  bot,
-  onBotChanged,
-  onOpenTab,
-}: {
-  bot: Bot;
-  onBotChanged: () => void;
-  /** Optional: lets the schedules note link to the capabilities tab. */
-  onOpenTab?: (tab: WorkspaceTab) => void;
-}) {
+/** Settings › Telegram: connecting the Telegram bot and linking the owner's Telegram account. */
+export function TelegramSettings({ bot, onBotChanged }: { bot: Bot; onBotChanged: () => void }) {
   const [status, setStatus] = useState<TelegramStatus | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -53,7 +40,7 @@ export function SettingsTab({
   if (!status) return error ? <ErrorNote>{error}</ErrorNote> : <LoadingBlock />;
 
   return (
-    <div className="mx-auto flex max-w-2xl flex-col gap-5">
+    <div className="flex flex-col gap-5">
       {error && <ErrorNote>{error}</ErrorNote>}
       <TelegramConnect
         botId={bot.id}
@@ -61,7 +48,7 @@ export function SettingsTab({
         hasActiveRevision={bot.active_revision_id !== null}
         onChanged={(next) => {
           setStatus(next);
-          onBotChanged(); // the header shows the Telegram username and the bot status
+          onBotChanged(); // the sidebar shows the Telegram username and the bot status
         }}
       />
       <OwnerLink
@@ -71,10 +58,6 @@ export function SettingsTab({
           onBotChanged();
         }}
       />
-      <TeamSection botId={bot.id} />
-      <GroupsSection botId={bot.id} />
-      <AnnouncementsSection botId={bot.id} />
-      <SchedulesSection botId={bot.id} onOpenTab={onOpenTab} />
     </div>
   );
 }

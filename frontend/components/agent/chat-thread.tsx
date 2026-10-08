@@ -81,7 +81,8 @@ export function ChatThread({ items, empty, onSend, disabledReason, placeholder, 
         {items.length === 0 ? empty : items.map((item) => <div key={item.key}>{item.node}</div>)}
         <div ref={end} className="scroll-mb-40" aria-hidden />
       </div>
-      <div className="sticky bottom-0 z-10 flex items-end gap-2 bg-background/95 pt-2 pb-3 backdrop-blur">
+      {/* Below 640px the shell's bottom tab bar covers the viewport bottom: stick above it. */}
+      <div className="sticky bottom-0 z-10 flex items-end gap-2 bg-background/95 pt-2 pb-3 backdrop-blur max-sm:bottom-[calc(3.625rem+env(safe-area-inset-bottom))]">
         <Textarea
           value={draft}
           onChange={(e) => setDraft(e.target.value)}

@@ -1,8 +1,8 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useEffect, useMemo, useState } from "react";
 import { CircleCheck, CircleX, Play } from "lucide-react";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { defaultRevision, revisionOptionLabel } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useRevisions } from "@/components/app/use-revisions";
@@ -21,7 +21,8 @@ function firstScenarioId(d: RevisionDetail): string | null {
   return d.test_report?.results?.find((r) => !r.passed)?.scenario_id ?? d.scenarios?.[0]?.id ?? null;
 }
 
-export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
+export function TestsTab({ bot }: { bot: Bot }) {
+  const openSection = useOpenSection();
   const { revisions, error: loadError, reload } = useRevisions(bot.id, bot.active_revision_id);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [loaded, setLoaded] = useState<RevisionDetail | null>(null);
@@ -90,8 +91,8 @@ export function TestsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
       <EmptyState
         title="هنوز آزمونی وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onClick={() => openSection("changes")}>
+            رفتن به تغییرات
           </Button>
         }
       >

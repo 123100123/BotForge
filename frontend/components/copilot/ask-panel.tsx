@@ -3,18 +3,12 @@
 import { useEffect, useRef, useState, type FormEvent, type KeyboardEvent } from "react";
 import { ChevronDown, Loader2, SendHorizontal, Wrench } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent } from "@/components/ui/card";
 import { Textarea } from "@/components/ui/textarea";
-import { api } from "@/lib/api";
-import { ApiError, errorMessage } from "@/lib/errors";
 import { fa, formatNumber, toFaDigits } from "@/lib/format";
-import type { Bot, ChatTurn, CopilotMessageOut, ToolCallOut } from "@/lib/types";
+import type { ToolCallOut } from "@/lib/types";
 import { cn } from "@/lib/utils";
-
-/** Only the most recent turns are sent, so a long conversation does not grow every request. */
-export const HISTORY_LIMIT = 12;
+import { HISTORY_LIMIT, type AskThread } from "./use-ask-thread";
 
 export const SUGGESTIONS = [
   "فروش این هفته چطور بود؟",
@@ -23,26 +17,6 @@ export const SUGGESTIONS = [
   "کی امروز گزارش نفرستاده؟",
   "درخواست‌های در انتظار تأیید",
 ];
-
-interface AskTurn extends ChatTurn {
-  toolCalls?: ToolCallOut[];
-  usage?: Record<string, unknown>;
-}
-
-type Failure = { kind: "disabled" | "limit" | "unavailable" | "other"; message: string };
-
-function classify(err: unknown): Failure {
-  if (err instanceof ApiError) {
-    if (err.status === 409 && err.code === "capability_disabled") {
-      return { kind: "disabled", message: "برای پاسخ به این پرسش، قابلیت مربوط به آن در ربات فعال نیست." };
-    }
-    if (err.status === 429) {
-      return { kind: "limit", message: "سقف پرسش‌های دستیار برای الان پر شده است؛ کمی بعد دوباره امتحان کنید." };
-    }
-    if (err.status === 503) return { kind: "unavailable", message: "دستیار در دسترس نیست" };
-  }
-  return { kind: "other", message: errorMessage(err) };
-}
 
 function formatArg(value: unknown, depth = 0): string {
   if (value === null || value === undefined) return "—";
@@ -111,40 +85,26 @@ function UsageFooter({ usage }: { usage: Record<string, unknown> }) {
   );
 }
 
-/** Ask mode: a manager chat against POST /bots/{id}/copilot/messages. It only reads; nothing in the bot changes. */
-export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: WorkspaceTab) => void }) {
-  const [turns, setTurns] = useState<AskTurn[]>([]);
-  const [draft, setDraft] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [failure, setFailure] = useState<Failure | null>(null);
+/**
+ * The assistant's question view: a manager chat against POST /bots/{id}/copilot/messages. It only reads;
+ * nothing in the bot changes. The thread state comes from the caller (AssistantProvider) so it persists.
+ */
+export function AskPanel({
+  thread,
+  onOpenCapabilities,
+  inputId,
+}: {
+  thread: AskThread;
+  onOpenCapabilities: () => void;
+  /** id of the question box, so the panel can focus it when it opens. */
+  inputId?: string;
+}) {
+  const { turns, draft, setDraft, busy, failure, ask, retry } = thread;
   const endRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     endRef.current?.scrollIntoView?.({ block: "nearest" });
   }, [turns, busy, failure]);
-
-  async function send(thread: AskTurn[]) {
-    setBusy(true);
-    setFailure(null);
-    try {
-      const messages: ChatTurn[] = thread.slice(-HISTORY_LIMIT).map(({ role, content }) => ({ role, content }));
-      const out: CopilotMessageOut = await api.copilotMessage(bot.id, { messages });
-      setTurns([...thread, { role: "assistant", content: out.reply, toolCalls: out.tool_calls, usage: out.usage }]);
-    } catch (err) {
-      setFailure(classify(err));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  function ask(text: string) {
-    const content = text.trim();
-    if (!content || busy) return;
-    const next: AskTurn[] = [...turns, { role: "user", content }];
-    setTurns(next);
-    setDraft("");
-    void send(next);
-  }
 
   function onSubmit(e: FormEvent) {
     e.preventDefault();
@@ -161,10 +121,9 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
   const lastIsUser = turns.length > 0 && turns[turns.length - 1].role === "user";
 
   return (
-    <Card>
-      <CardContent className="flex flex-col gap-4">
+    <div className="flex min-h-0 flex-1 flex-col gap-4">
         {turns.length === 0 ? (
-          <div className="flex flex-col items-center gap-3 py-4 text-center">
+          <div className="flex flex-1 flex-col items-center justify-center gap-3 py-4 text-center">
             <h3 className="text-h3">از کسب‌وکارتان بپرسید</h3>
             <p className="max-w-md text-sm leading-7 text-muted-foreground">
               دستیار از داده‌های ربات پاسخ می‌دهد و چیزی را تغییر نمی‌دهد. یکی از پرسش‌های زیر را امتحان کنید یا سؤال خودتان را بنویسید.
@@ -185,7 +144,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             </ul>
           </div>
         ) : (
-          <ul className="flex max-h-[28rem] flex-col gap-3 overflow-y-auto" aria-live="polite" aria-label="گفتگو با دستیار">
+          <ul className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto" aria-live="polite" aria-label="گفتگو با دستیار">
             {turns.map((t, i) => (
               <li
                 key={i}
@@ -220,7 +179,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             <InfoNote tone="warning" className="w-full">
               {failure.message}
             </InfoNote>
-            <Button variant="outline" size="sm" onClick={() => onOpenTab("capabilities")}>
+            <Button variant="outline" size="sm" onClick={onOpenCapabilities}>
               فعال‌سازی در قابلیت‌ها
             </Button>
           </div>
@@ -229,7 +188,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
           <div className="flex flex-col items-start gap-2">
             <ErrorNote className="w-full">{failure.message}</ErrorNote>
             {lastIsUser && failure.kind !== "limit" && (
-              <Button variant="outline" size="sm" disabled={busy} onClick={() => void send(turns)}>
+              <Button variant="outline" size="sm" disabled={busy} onClick={retry}>
                 تلاش دوباره
               </Button>
             )}
@@ -244,6 +203,7 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             rows={2}
             placeholder="سؤال خود را بنویسید… (Enter برای ارسال، Shift+Enter برای خط جدید)"
             aria-label="پرسش از کسب‌وکار"
+            id={inputId}
             className="min-h-0 flex-1"
           />
           <Button type="submit" disabled={busy || draft.trim() === ""}>
@@ -257,7 +217,6 @@ export function AskPanel({ bot, onOpenTab }: { bot: Bot; onOpenTab: (tab: Worksp
             {fa(Math.min(turns.length, HISTORY_LIMIT))} پیام آخر گفتگو برای دستیار ارسال می‌شود.
           </p>
         )}
-      </CardContent>
-    </Card>
+    </div>
   );
 }

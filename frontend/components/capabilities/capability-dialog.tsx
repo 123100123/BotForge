@@ -1,10 +1,11 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useState } from "react";
 import { ErrorNote } from "@/components/app/state-blocks";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { CapabilityConfig, hasConfigFields } from "@/components/capabilities/capability-config";
-import { AUDIENCE_LABELS, COMING_SOON, metricLabel, namesOf, openSection } from "@/components/capabilities/labels";
+import { AUDIENCE_LABELS, COMING_SOON, metricLabel, namesOf } from "@/components/capabilities/labels";
+import { useOptionalAgentRun } from "@/components/agent/agent-run-provider";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -43,7 +44,6 @@ export function CapabilityDialog({
   onClose,
   onCapabilityUpdated,
   onToggled,
-  onOpenTab,
 }: {
   botId: string;
   cap: CapabilityOut;
@@ -51,8 +51,9 @@ export function CapabilityDialog({
   onClose: () => void;
   onCapabilityUpdated: (cap: CapabilityOut) => void;
   onToggled: (result: ToggleSuccess) => void;
-  onOpenTab?: (tab: WorkspaceTab) => void;
 }) {
+  const openSection = useOpenSection();
+  const agentRun = useOptionalAgentRun();
   const [phase, setPhase] = useState<Phase>({ kind: "idle" });
   const [error, setError] = useState<string | null>(null);
   const [handoffBusy, setHandoffBusy] = useState(false);
@@ -116,9 +117,11 @@ export function CapabilityDialog({
     setError(null);
     setRunActive(false);
     try {
-      await api.createRun(botId, prompt);
+      const run = await api.createRun(botId, prompt);
+      // Show the new run on the Changes page (the run state lives in the bot layout).
+      agentRun?.attach(run);
       onClose();
-      openSection("copilot", onOpenTab);
+      openSection("changes");
     } catch (err) {
       setError(errorMessage(err));
       setRunActive(err instanceof ApiError && err.status === 409);
@@ -274,7 +277,7 @@ export function CapabilityDialog({
               className="self-start"
               onClick={() => {
                 onClose();
-                openSection("copilot", onOpenTab);
+                openSection("changes");
               }}
             >
               باز کردن دستیار

@@ -1,5 +1,6 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useEffect, useState } from "react";
 import { CalendarClock } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
@@ -12,7 +13,6 @@ import { Select } from "@/components/ui/select";
 import { Switch } from "@/components/ui/switch";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import type { ScheduleOut } from "@/lib/types";
 
 /** Backend weekday numbers (0 = Monday ... 6 = Sunday), listed Saturday first as in the Iranian week. */
@@ -39,7 +39,8 @@ const METRIC_LABELS: Record<string, string> = {
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 
 /** Daily and weekly summaries sent to the owner in Telegram. Delivery needs the scheduled_reports capability. */
-export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTab?: (tab: WorkspaceTab) => void }) {
+export function SchedulesSection({ botId }: { botId: string }) {
+  const openSection = useOpenSection();
   const [saved, setSaved] = useState<ScheduleOut[] | null>(null);
   const [draft, setDraft] = useState<ScheduleOut[]>([]);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -98,13 +99,9 @@ export function SchedulesSection({ botId, onOpenTab }: { botId: string; onOpenTa
       <CardContent className="flex flex-col gap-4">
         <p className="rounded-sm bg-muted/50 p-3 text-sm leading-7 text-muted-foreground">
           ارسال گزارش‌ها فقط وقتی انجام می‌شود که قابلیت «گزارش زمان‌بندی‌شده» فعال باشد.{" "}
-          {onOpenTab ? (
-            <button type="button" className="text-brand-text underline-offset-4 hover:underline" onClick={() => onOpenTab("capabilities")}>
-              رفتن به تب قابلیت‌ها
-            </button>
-          ) : (
-            <>آن را در تب قابلیت‌ها روشن کنید.</>
-          )}
+          <button type="button" className="text-brand-text underline-offset-4 hover:underline" onClick={() => openSection("capabilities")}>
+            رفتن به قابلیت‌ها
+          </button>
         </p>
 
         {loadError && <ErrorNote>{loadError}</ErrorNote>}

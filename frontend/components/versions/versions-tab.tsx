@@ -1,8 +1,8 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useEffect, useState } from "react";
 import { History, Undo2 } from "lucide-react";
-import type { WorkspaceTab } from "@/components/app/workspace";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { REVISION_STATUS_LABELS, REVISION_STATUS_VARIANTS } from "@/components/app/revision-labels";
 import { EmptyState, ErrorNote, InfoNote, LoadingBlock } from "@/components/app/state-blocks";
@@ -22,15 +22,7 @@ import { SpecDiff } from "./spec-diff";
 type VersionsView = "history" | "tests";
 
 /** Versions section: the revision history, with the scenario tests as a sub-section. */
-export function VersionsTab({
-  bot,
-  onBotChanged,
-  onOpenTab,
-}: {
-  bot: Bot;
-  onBotChanged: () => void;
-  onOpenTab: (tab: WorkspaceTab) => void;
-}) {
+export function VersionsTab({ bot, onBotChanged }: { bot: Bot; onBotChanged: () => void }) {
   const [view, setView] = useState<VersionsView>("history");
 
   return (
@@ -45,23 +37,16 @@ export function VersionsTab({
         ]}
       />
       {view === "history" ? (
-        <RevisionHistory bot={bot} onBotChanged={onBotChanged} onOpenTab={onOpenTab} />
+        <RevisionHistory bot={bot} onBotChanged={onBotChanged} />
       ) : (
-        <TestsTab bot={bot} onOpenTab={onOpenTab} />
+        <TestsTab bot={bot} />
       )}
     </div>
   );
 }
 
-function RevisionHistory({
-  bot,
-  onBotChanged,
-  onOpenTab,
-}: {
-  bot: Bot;
-  onBotChanged: () => void;
-  onOpenTab: (tab: WorkspaceTab) => void;
-}) {
+function RevisionHistory({ bot, onBotChanged }: { bot: Bot; onBotChanged: () => void }) {
+  const openSection = useOpenSection();
   const { revisions, error: loadError, reload } = useRevisions(bot.id, bot.active_revision_id);
   const [pickedId, setPickedId] = useState<string | null>(null);
   const [detail, setDetail] = useState<RevisionDetail | null>(null);
@@ -99,8 +84,8 @@ function RevisionHistory({
       <EmptyState
         title="هنوز نسخه‌ای وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => onOpenTab("agent")}>
-            رفتن به تب ایجنت
+          <Button variant="outline" onClick={() => openSection("changes")}>
+            رفتن به تغییرات
           </Button>
         }
       >

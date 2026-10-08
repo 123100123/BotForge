@@ -335,6 +335,11 @@
     outline: 2px solid var(--brand);
     outline-offset: 2px;
   }
+  /* Route-change focus target (the page h1 or main, set by AppShell): not interactive, so no ring. */
+  [data-route-focus]:focus,
+  main[tabindex="-1"]:focus {
+    outline: none;
+  }
   /* Opacity-only transitions when the user asks for reduced motion: no transforms, no animations. */
   @media (prefers-reduced-motion: reduce) {
     *,

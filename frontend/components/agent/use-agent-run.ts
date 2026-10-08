@@ -51,6 +51,8 @@ export interface AgentRunController {
   send: (text: string) => Promise<void>;
   approve: () => Promise<void>;
   reject: () => Promise<void>;
+  /** Shows a run created elsewhere (for example a capability handoff) and streams its events. */
+  attach: (run: AgentRun) => void;
 }
 
 /**
@@ -214,6 +216,12 @@ export function useAgentRun(botId: string): AgentRunController {
     [act, runId, syncRun],
   );
 
+  const attach = useCallback((run: AgentRun) => {
+    setServerRun(run);
+    setError(null);
+    dispatch({ type: "attach", runId: run.id, status: run.status });
+  }, []);
+
   const approve = useCallback(() => decide("approved"), [decide]);
   const reject = useCallback(() => decide("rejected"), [decide]);
 
@@ -231,5 +239,6 @@ export function useAgentRun(botId: string): AgentRunController {
     send,
     approve,
     reject,
+    attach,
   };
 }

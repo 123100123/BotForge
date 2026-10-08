@@ -5,11 +5,11 @@ import { fa } from "@/lib/format";
 
 interface DeployedStateProps {
   number: number;
-  onOpenTab: (tab: "data" | "settings") => void;
+  onOpenSection: (section: "data" | "settings") => void;
 }
 
 /** Shown once a revision is active: what to do next. */
-export function DeployedState({ number, onOpenTab }: DeployedStateProps) {
+export function DeployedState({ number, onOpenSection }: DeployedStateProps) {
   return (
     <Card className="border-success/40 bg-success-soft">
       <CardContent className="flex flex-col gap-3">
@@ -18,14 +18,14 @@ export function DeployedState({ number, onOpenTab }: DeployedStateProps) {
           نسخهٔ {fa(number)} فعال شد
         </div>
         <p className="text-sm leading-7">
-          برای اینکه ربات کارگاه‌های واقعی را نشان دهد، آن‌ها را در تب «داده‌ها» اضافه کنید. برای وصل کردن ربات به تلگرام،
-          توکن آن را در تب «تنظیمات» وارد کنید.
+          برای اینکه ربات کارگاه‌های واقعی را نشان دهد، آن‌ها را در بخش «عملیات» اضافه کنید. برای وصل کردن ربات به تلگرام،
+          توکن آن را در «تنظیمات» وارد کنید.
         </p>
         <div className="flex flex-wrap gap-2">
-          <Button size="sm" variant="outline" onClick={() => onOpenTab("data")}>
-            رفتن به داده‌ها
+          <Button size="sm" variant="outline" onClick={() => onOpenSection("data")}>
+            رفتن به عملیات
           </Button>
-          <Button size="sm" variant="outline" onClick={() => onOpenTab("settings")}>
+          <Button size="sm" variant="outline" onClick={() => onOpenSection("settings")}>
             رفتن به تنظیمات
           </Button>
         </div>

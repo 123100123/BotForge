@@ -1,10 +1,9 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useState } from "react";
 import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useLoader } from "@/components/app/use-loader";
-import type { WorkspaceTab } from "@/components/app/workspace";
-import { openSection } from "@/components/capabilities/labels";
 import { StatTile } from "@/components/charts/stat-tile";
 import { PeriodSelect } from "@/components/reports/period-select";
 import { Badge } from "@/components/ui/badge";
@@ -22,14 +21,13 @@ function isEmpty(data: OverviewOut): boolean {
 /**
  * Overview: the state of the business at a glance. Everything comes from the reports API: KPIs for the picked
  * period with their change against the previous one, the enabled capabilities and the latest activity.
- * `onOpenTab` is optional: without it the links activate the sidebar trigger.
  */
-export function OverviewTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: WorkspaceTab) => void }) {
+export function OverviewTab({ bot }: { bot: Bot }) {
   const [period, setPeriod] = useState<Period>("7d");
   const { data, error } = useLoader(() => api.getOverview(bot.id, period), `${bot.id}:${period}`);
   const caps = useLoader(() => api.listCapabilities(bot.id), bot.id);
   const nameById = new Map(caps.data?.categories.flatMap((c) => c.capabilities).map((c) => [c.id, c.name]) ?? []);
-  const open = (tab: WorkspaceTab) => openSection(tab, onOpenTab);
+  const open = useOpenSection();
 
   return (
     <div className="flex flex-col gap-5">

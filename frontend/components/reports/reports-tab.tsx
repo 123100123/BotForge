@@ -1,10 +1,9 @@
 "use client";
 
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { useState } from "react";
 import { EmptyState, ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import { useLoader } from "@/components/app/use-loader";
-import type { WorkspaceTab } from "@/components/app/workspace";
-import { openSection } from "@/components/capabilities/labels";
 import { MetricGrid } from "@/components/reports/metric-view";
 import { PeriodSelect } from "@/components/reports/period-select";
 import { Button } from "@/components/ui/button";
@@ -53,9 +52,10 @@ function ReportBody({ botId, capKey, period }: { botId: string; capKey: string; 
 
 /**
  * Reports: pick an enabled capability on the right, then a period; its metrics render as stat tiles,
- * SVG charts, bar lists and tables. `onOpenTab` is optional (see the Capability Center).
+ * SVG charts, bar lists and tables.
  */
-export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: WorkspaceTab) => void }) {
+export function ReportsTab({ bot }: { bot: Bot }) {
+  const openSection = useOpenSection();
   const { data, error } = useLoader(() => api.listCapabilities(bot.id), bot.id);
   const [selected, setSelected] = useState<{ botId: string; key: string } | null>(null);
   const [period, setPeriod] = useState<Period>("7d");
@@ -73,7 +73,7 @@ export function ReportsTab({ bot, onOpenTab }: { bot: Bot; onOpenTab?: (tab: Wor
       <EmptyState
         title="هنوز گزارشی وجود ندارد"
         action={
-          <Button variant="outline" onClick={() => openSection("capabilities", onOpenTab)}>
+          <Button variant="outline" onClick={() => openSection("capabilities")}>
             رفتن به قابلیت‌ها
           </Button>
         }

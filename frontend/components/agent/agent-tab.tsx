@@ -1,12 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useState } from "react";
 import { WifiOff, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { IS_MOCK } from "@/lib/config";
 import { GOLDEN_CREATE_PROMPT, GOLDEN_MODIFY_PROMPT } from "@/lib/fixtures/common";
 import { latestReport, type FeedItem, type RunView } from "@/lib/agent-state";
-import type { WorkspaceTab } from "@/components/app/workspace";
+import { useOpenSection } from "@/components/app/shell/use-open-section";
 import type { Bot, RunKind, RunStatus } from "@/lib/types";
 import { ActivityTimeline } from "./activity-timeline";
 import { ChatMessage, ChatThread, type ChatItem } from "./chat-thread";
@@ -15,13 +15,10 @@ import { QuestionsCard } from "./questions-card";
 import { RequirementsCard } from "./requirements-card";
 import { ReviewCard, type ReviewDecision } from "./review-card";
 import { TestSummary } from "./test-summary";
-import { useAgentRun } from "./use-agent-run";
+import { useAgentRunContext } from "./agent-run-provider";
 
 interface AgentTabProps {
   bot: Bot;
-  /** The bot changed on the server (a revision was activated); reload it. */
-  onBotChanged: () => void;
-  onOpenTab: (tab: WorkspaceTab) => void;
 }
 
 function reviewDecision(
@@ -57,18 +54,16 @@ function EmptyState({ live, onPick }: { live: boolean; onPick: (text: string) =>
   );
 }
 
-/** The Agent tab: chat, live activity timeline, and the cards the agent produces along the way. */
-export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
-  const agent = useAgentRun(bot.id);
+/**
+ * The change/build flow: chat, live activity timeline, and the cards the agent produces along the way.
+ * The run itself lives in AgentRunProvider (bot layout), so leaving this page does not stop or reset it;
+ * the provider also reloads the bot when a version is activated.
+ */
+export function AgentTab({ bot }: AgentTabProps) {
+  const agent = useAgentRunContext();
+  const openSection = useOpenSection();
   const { view, status } = agent;
   const [seed, setSeed] = useState<{ key: number; text: string } | null>(null);
-
-  const deployed = useMemo(() => view.feed.find((i) => i.kind === "deployed")?.id ?? null, [view.feed]);
-  useEffect(() => {
-    if (deployed !== null) onBotChanged();
-    // onBotChanged is a stable refetch callback; only a new deployment should trigger it
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [deployed]);
 
   const kind: RunKind = agent.kind ?? (view.feed.some((i) => i.kind === "review" && i.diff) ? "modify" : "create");
   const report = latestReport(view);
@@ -108,7 +103,7 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
           />
         );
       case "deployed":
-        return <DeployedState number={item.number} onOpenTab={onOpenTab} />;
+        return <DeployedState number={item.number} onOpenSection={openSection} />;
       case "error":
         return (
           <div role="alert" className="rounded-md border border-destructive/30 bg-danger-soft p-3 text-sm leading-7">
@@ -131,7 +126,7 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
   else if (status === "waiting_approval") placeholder = "برای درخواست تغییر در پیش‌نویس، پیام بنویسید…";
 
   return (
-    <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
+    <div className="grid items-start gap-4 lg:grid-cols-[minmax(0,1fr)_22rem]">
       <div className="flex min-w-0 flex-col gap-3">
         {agent.connection === "reconnecting" && (
           <div className="flex items-center gap-2 rounded-md border border-warning/30 bg-warning-soft p-2.5 text-sm">
@@ -163,7 +158,7 @@ export function AgentTab({ bot, onBotChanged, onOpenTab }: AgentTabProps) {
           seed={seed}
         />
       </div>
-      <aside className="min-w-0 lg:sticky lg:top-4 lg:self-start">
+      <aside className="min-w-0 lg:sticky lg:top-[4.5rem] lg:self-start">
         <ActivityTimeline phases={view.phases} status={status} usage={view.usage} />
       </aside>
     </div>
