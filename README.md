@@ -318,6 +318,18 @@ posts webhooks to the API's public address. The API must run as a single instanc
      "Allow new users to sign up" switch); turn it off for the demo, because open signup multiplies
      every per-account LLM cap. `AUTH_ALLOW_SIGNUP` applies only to `local`.
    - The `?next=` return after login works in both modes.
+
+   In `supabase` mode the API answers with these error codes: `auth_required` and `invalid_token` (401, with
+   `WWW-Authenticate: Bearer`), `auth_unavailable` (503, no verification keys configured) and
+   `local_auth_disabled` (404 on `/auth/*`). JWKS mode against an HS256-only Supabase project sees an empty
+   key set and answers 503: use `SUPABASE_JWT_SECRET` there. `scripts/load_spec.py --owner-email` finds a
+   Supabase owner only after their first sign-in. Supabase dashboard steps:
+   - set the Site URL to the Render web app URL;
+   - decide whether email confirmation is required;
+   - disable public signups for the demo, since `AUTH_ALLOW_SIGNUP` does not apply in supabase mode and open
+     signup multiplies every per-account LLM cap;
+   - make sure the Data API does not expose schema `app`: the anon key is public and the tables have no
+     row-level security.
 7. **Business OS variables.** All have defaults in `render.yaml`; set them on the API:
    `NOTIFICATIONS_TICKER=true` (exactly one process), `NOTIFICATIONS_TICK_SECONDS`,
    `NOTIFICATIONS_SEND_RATE_PER_SECOND`, `UPLOAD_DIR`, `UPLOAD_MAX_BYTES`, `SPREADSHEET_MAX_ROWS`,
