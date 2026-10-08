@@ -11,13 +11,12 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "@/components/ui/use-toast";
 import { fa, relativeTime } from "@/lib/format";
 import type { RevisionSummary } from "@/lib/types";
-import { BuildSteps } from "./build-steps";
 import { ChangeComposer } from "./change-composer";
 import { ChangeTimeline, type ChangeTimelineItem } from "./change-timeline";
 import { BUSINESS_EXAMPLES, CHANGE_EXAMPLES } from "./examples";
+import { PendingRequest } from "./pending-request";
 import { ProposalDetail } from "./proposal-detail";
 import {
-  buildStepIndex,
   feedItems,
   isOpenRun,
   oneLine,
@@ -27,15 +26,18 @@ import {
   runRevisionId,
 } from "./run-model";
 import { VersionDetail } from "./version-detail";
-import { latestReport } from "@/lib/agent-state";
+import { latestReport, type PendingOwnerMessage } from "@/lib/agent-state";
 
 /** Activations already announced with a toast (the view remounts when the owner navigates). */
 const announced = new Set<string>();
 
 const FIRST_EXAMPLES = BUSINESS_EXAMPLES.map((e) => ({ label: e.label, text: e.description }));
 
-function composerReason(status: string | null, loading: boolean): string | null {
-  if (loading) return "در حال بارگذاری…";
+function composerReason(status: string | null, pending: PendingOwnerMessage | null): string | null {
+  if (pending?.target === "new" && pending.state === "sending") return "درخواست شما در حال ارسال است.";
+  if (pending?.target === "new" && pending.state === "failed") {
+    return "درخواست قبلی شما ارسال نشد. آن را دوباره بفرستید یا حذف کنید، بعد می‌توانید درخواست تازه‌ای بنویسید.";
+  }
   switch (status) {
     case "running":
       return "دستیار در حال آماده‌سازی یک پیشنهاد است. تا تمام نشود، تغییر تازه‌ای نمی‌شود خواست.";
@@ -102,9 +104,14 @@ export function ChangesView() {
 
   const [expanded, setExpanded] = useState(false);
 
-  const banners = (
+  /** A request that is on its way (or failed) before the server has a run for it: shown instead of the run. */
+  const pending = agent.pending;
+  const pendingNew = pending !== null && pending.target === "new" && pending.state !== "received";
+
+  // `connectionBanner`: the run's own page shows the connection state itself; this is for the pages that do not.
+  const banners = (connectionBanner: boolean) => (
     <>
-      {agent.connection === "reconnecting" && (
+      {connectionBanner && agent.connection === "reconnecting" && isOpenRun(status) && (
         <div role="status" className="flex items-center gap-2 rounded-sm bg-warning-soft p-3 text-small text-warning-text">
           <WifiOff strokeWidth={1.75} aria-hidden className="size-4 shrink-0" />
           ارتباط قطع شد؛ در حال اتصال دوباره…
@@ -141,15 +148,17 @@ export function ChangesView() {
 
   // ------------------------------------------------------------------ first build
   if (firstBuild) {
-    const step = buildStepIndex(view, status, hasRun);
-    const reason = composerReason(status, false);
+    const reason = composerReason(status, pending);
     const revision = draftId ? (revisions?.find((r) => r.id === draftId) ?? null) : null;
     return (
       <div className="flex w-full max-w-4xl flex-col gap-6">
-        <BuildSteps current={step} />
-        {banners}
-        {hasRun && <ProposalDetail bot={bot} agent={agent} firstBuild revision={revision} />}
-        {!open && (
+        {banners(false)}
+        {pendingNew ? (
+          <PendingRequest agent={agent} firstBuild />
+        ) : (
+          hasRun && <ProposalDetail bot={bot} agent={agent} firstBuild revision={revision} />
+        )}
+        {!open && !pendingNew && (
           <section className="flex flex-col gap-4 rounded-md border border-border bg-surface p-5 sm:p-6">
             <div className="flex flex-col gap-1">
               <h2 className="text-h2 text-fg">{hasRun ? "دوباره توضیح بدهید" : "ربات‌تان را برای دستیار توضیح دهید"}</h2>
@@ -168,7 +177,9 @@ export function ChangesView() {
               disabledReason={reason}
               busy={agent.busy}
               hint="هر چه دقیق‌تر بنویسید، پرسش‌های کمتری لازم می‌شود. تا شما تأیید نکنید چیزی فعال نمی‌شود."
-              onSubmit={(text) => agent.send(text)}
+              onSubmit={async (text) => {
+                await agent.send(text);
+              }}
             />
           </section>
         )}
@@ -184,7 +195,9 @@ export function ChangesView() {
   const resolved = status === "done" || status === "rejected";
   const proposalListed = hasRun && (open || status === "failed" || status === "interrupted" || (resolved && !matched));
 
-  const defaultKey = open ? (matched?.id ?? "proposal") : (bot.active_revision_id ?? (proposalListed ? "proposal" : (revList[0]?.id ?? null)));
+  // A run that failed or was interrupted stays in front: its failure and the retry are what the owner needs.
+  const lastRunBroke = status === "failed" || status === "interrupted";
+  const defaultKey = open || lastRunBroke ? (matched?.id ?? "proposal") : (bot.active_revision_id ?? (proposalListed ? "proposal" : (revList[0]?.id ?? null)));
   const hrefFor = (key: string) => (key === defaultKey ? base : `${base}?v=${encodeURIComponent(key)}`);
 
   const rows: ChangeTimelineItem[] = [];
@@ -221,7 +234,7 @@ export function ChangesView() {
   // The run's own page stays while it is open and, after the owner decided it, until they leave.
   const showProposal = hasRun && isRunSelection && (open || agent.decided !== null || !matched);
 
-  const reason = composerReason(status, false);
+  const reason = composerReason(status, pending);
   const activeNumber = bot.active_revision_number ?? revList.find((r) => r.id === bot.active_revision_id)?.number ?? null;
 
   return (
@@ -246,8 +259,10 @@ export function ChangesView() {
       </section>
 
       <div ref={detailRef} className="flex min-w-0 scroll-mt-20 flex-col gap-4 xl:col-start-2 xl:row-span-2 xl:row-start-1">
-        {banners}
-        {showProposal ? (
+        {banners(!showProposal || pendingNew)}
+        {pendingNew ? (
+          <PendingRequest agent={agent} firstBuild={false} />
+        ) : showProposal ? (
           <ProposalDetail bot={bot} agent={agent} firstBuild={false} revision={matched} />
         ) : selectedKey && selectedKey !== "proposal" ? (
           <VersionDetail

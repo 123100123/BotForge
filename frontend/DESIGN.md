@@ -126,7 +126,7 @@ popovers, drawers: `duration-base`), `--duration-slow` 240ms (dialogs, sheets: `
 `--ease-out cubic-bezier(.2,.8,.2,1)` for enter (`ease-out`), `--ease-in cubic-bezier(.4,0,1,1)` for exit.
 Exits are about 70% of entry duration. Use `motion-safe:` on zoom and slide animations; fades are always
 allowed. A `prefers-reduced-motion` block in `globals.css` removes animations and limits transitions to
-opacity and color, so transforms never animate. The agent timeline's active step is the only "alive" element.
+opacity and color, so transforms never animate. The run status's working icon and running step (subtle pulse, `motion-safe:`) are the only "alive" elements.
 
 ## z-index scale
 
@@ -271,7 +271,15 @@ One line each; props are in the files.
 - Changes (`components/changes`, all pure, props only): `ChangeTimeline items selectedKey expanded`, `ChangeStateBadge state`,
   `ProposalDetail`/`VersionDetail`, `RequirementsList requirements changes?`, `ConfigDiff changes isFirst?`,
   `TestSummary`, `QuestionCard questions answer onAnswer`, `DecisionBar phase` (sticky above the mobile bar),
-  `ChangeComposer`, `BuildSteps current`, `Disclosure title meta? defaultOpen? as?`, `DetailSection`.
+  `ChangeComposer`, `PendingRequest agent firstBuild` (the owner's message before the server has a run), `Disclosure title meta? defaultOpen? as?`,
+  `DetailSection`.
+- Agent (`components/agent`): `RunStatus agent standalone?` is the one progress representation of a run, on the first-build page and
+  in modify: a headline sentence in a polite live region (received, working + what it is doing, waiting for you, ready to
+  approve, done, failed, stopped), the connection line («ارتباط قطع شد؛ در حال اتصال دوباره…» when the stream watchdog fires,
+  «مدل هنوز در حال کار است» when heartbeats arrive but no event for 20 s), the full `StepList` (○ pending, ● running with a pulse,
+  ✓ done, ! failed, ⏸ waiting, – skipped; each with a word), a failure block (what failed, «چیزی در ربات تغییر نکرد.», [تلاش دوباره]),
+  and, once the run is over, one summary line with «مشاهدهٔ فعالیت» (steps plus the technical timeline). The steps come from
+  `deriveSteps(view, kind)` in `lib/agent-state.ts`; liveness comes from `lib/sse.ts` (`onBytes`, 35 s `lib/watchdog.ts`).
 - `PhoneFrame title subtitle? badge? footer?` and `ChatMessageList messages onButtonPress? disabled? emptyText?
   autoScroll?` (`components/simulator`): the real Telegram preview, reused by the test page and the landing page.
 - Charts (`components/charts`): `LineChart`/`BarChart points label unit? compare? compareLabel? height?` (labels size-stable,

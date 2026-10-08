@@ -3,9 +3,9 @@
 import { useEffect, useMemo, useRef } from "react";
 import { MessageSquareText, TriangleAlert } from "lucide-react";
 import type { AgentRunContextValue } from "@/components/agent/agent-run-provider";
-import { ActivityTimeline } from "@/components/agent/activity-timeline";
 import { ChatInput, ChatLog, type ChatLine } from "@/components/agent/chat-thread";
 import { DeployedState } from "@/components/agent/deployed-state";
+import { RunStatus } from "@/components/agent/run-status";
 import { CAPABILITY_TYPE_LABELS, RISK_LABELS } from "@/components/agent/labels";
 import { useOpenSection } from "@/components/app/shell/use-open-section";
 import { ScenarioBrowser } from "@/components/tests/scenario-browser";
@@ -58,7 +58,8 @@ function countNumber(value: number | unknown[]): number {
 export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDetailProps) {
   const openSection = useOpenSection();
   const { view, status } = agent;
-  const request = requestedChange(view);
+  // The owner's own words: the run's first message, or the one just sent that has not come back as an event yet.
+  const request = requestedChange(view) ?? (agent.pending ? { text: agent.pending.text, ts: agent.pending.ts } : null);
   const deployed = feedItems(view, "deployed")[0] ?? null;
   const reviews = feedItems(view, "review");
   const review = reviews[reviews.length - 1] ?? null;
@@ -68,7 +69,6 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
   const openQuestions = questions.some((q) => q.answer === null);
   const testsItem = feedItems(view, "tests").at(-1) ?? null;
   const report = latestReport(view);
-  const errors = feedItems(view, "error");
   const state = proposalState(status, Boolean(deployed));
   const decision = reviewDecision(view, status, agent.decided);
   const draftId = runRevisionId(view);
@@ -90,13 +90,22 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
     questionRef.current?.scrollIntoView({ block: "center", behavior: reduce ? "auto" : "smooth" });
   }, [status, openQuestions]);
 
-  const chatLines: ChatLine[] = useMemo(
-    () =>
-      view.feed.flatMap((item) =>
-        item.kind === "owner" || item.kind === "agent" ? [{ key: `${item.kind}-${item.id}`, from: item.kind, text: item.text }] : [],
-      ),
-    [view.feed],
-  );
+  const pending = agent.pending;
+  const chatLines: ChatLine[] = useMemo(() => {
+    const lines: ChatLine[] = view.feed.flatMap((item) =>
+      item.kind === "owner" || item.kind === "agent" ? [{ key: `${item.kind}-${item.id}`, from: item.kind, text: item.text }] : [],
+    );
+    // A message that is not in the feed yet shows at once, with its delivery state.
+    if (pending) {
+      lines.push({
+        key: "pending",
+        from: "owner",
+        text: pending.text,
+        note: pending.state === "sending" ? "در حال ارسال…" : pending.state === "received" ? "رسید" : "ارسال نشد",
+      });
+    }
+    return lines;
+  }, [view.feed, pending]);
 
   // ---- effect on the bot
   const outline = view.outline;
@@ -142,7 +151,7 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
   }
 
   const assistantAsks = status === "waiting_user" && !openQuestions && lastAgentMessage?.kind === "agent";
-  const showAnswer = (state === "closed" || state === "failed") && lastAgentMessage?.kind === "agent";
+  const showAnswer = state === "closed" && lastAgentMessage?.kind === "agent";
   const canChat = status === "waiting_user" || status === "waiting_approval";
   let chatDisabled: string | null = null;
   if (agent.busy) chatDisabled = "در حال ارسال…";
@@ -162,11 +171,7 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
         </DetailSection>
       )}
 
-      {status === "running" && (
-        <DetailSection title="دستیار در حال کار است">
-          <ActivityTimeline phases={view.phases} variant="steps" />
-        </DetailSection>
-      )}
+      <RunStatus agent={agent} />
 
       {(assistantAsks || showAnswer) && lastAgentMessage?.kind === "agent" && (
         <DetailSection title={assistantAsks ? "دستیار می‌پرسد" : "پاسخ دستیار"}>
@@ -277,14 +282,6 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
         </DetailSection>
       )}
 
-      {errors.map((e) => (
-        <DetailSection key={e.id} title="خطا در کار دستیار">
-          <p role="alert" className="rounded-sm bg-danger-soft p-3 text-body text-danger-text">
-            {e.message}
-          </p>
-        </DetailSection>
-      ))}
-
       {deployed && decision === "approved" && (
         <div className="border-t border-border px-5 py-5">
           <DeployedState number={deployed.number} onOpenSection={openSection} />
@@ -314,9 +311,6 @@ export function ProposalDetail({ bot, agent, firstBuild, revision }: ProposalDet
               </div>
             )}
           </div>
-        </Disclosure>
-        <Disclosure title="جزئیات فنی" meta="برای کنجکاوها">
-          <ActivityTimeline phases={view.phases} variant="technical" label="مراحل و گام‌های فنی دستیار" />
         </Disclosure>
       </div>
 

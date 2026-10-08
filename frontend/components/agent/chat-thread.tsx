@@ -10,9 +10,11 @@ export interface ChatLine {
   key: string;
   from: "owner" | "agent";
   text: string;
+  /** Delivery state of an owner message that is not in the conversation yet. */
+  note?: string;
 }
 
-export function ChatMessage({ from, text }: { from: "owner" | "agent"; text: string }) {
+export function ChatMessage({ from, text, note }: { from: "owner" | "agent"; text: string; note?: string }) {
   const isOwner = from === "owner";
   return (
     <div className={cn("flex", isOwner ? "justify-start" : "justify-end")}>
@@ -24,6 +26,7 @@ export function ChatMessage({ from, text }: { from: "owner" | "agent"; text: str
       >
         <div className="mb-0.5 text-caption text-fg-muted">{isOwner ? "شما" : "دستیار"}</div>
         {text}
+        {note && <div className="mt-1 text-caption text-fg-muted">{note}</div>}
       </div>
     </div>
   );
@@ -36,7 +39,7 @@ export function ChatLog({ lines }: { lines: ChatLine[] }) {
     <ul className="flex flex-col gap-3" aria-label="گفتگو با دستیار">
       {lines.map((line) => (
         <li key={line.key}>
-          <ChatMessage from={line.from} text={line.text} />
+          <ChatMessage from={line.from} text={line.text} note={line.note} />
         </li>
       ))}
     </ul>
