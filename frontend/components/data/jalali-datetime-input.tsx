@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { formatDateTime } from "@/lib/format";
 import { isoToJalali, jalaliToIso } from "@/lib/jalali";
 import { cn } from "@/lib/utils";
+import "./jalali-calendar.css";
 
 interface JalaliDateTimeInputProps {
   id: string;
@@ -39,11 +40,11 @@ export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, de
           aria-describedby={describedBy}
           onClick={() => setOpen((o) => !o)}
           className={cn(
-            "flex h-9 min-w-0 flex-1 items-center gap-2 rounded-sm border border-input bg-card px-3 text-start text-sm focus-visible:border-ring data-[invalid=true]:border-destructive",
-            !value && "text-muted-foreground",
+            "flex h-10 min-w-0 flex-1 items-center gap-2 rounded-sm border border-border-strong bg-surface-raised px-3 text-start text-body text-fg outline-none focus-visible:border-brand data-[invalid=true]:border-danger sm:h-9",
+            !value && "text-fg-muted",
           )}
         >
-          <CalendarDays className="size-4 shrink-0 text-muted-foreground" />
+          <CalendarDays className="size-4 shrink-0 text-fg-muted" strokeWidth={1.75} />
           <span className="truncate">{value ? formatDateTime(value, timeZone) : "انتخاب تاریخ و ساعت"}</span>
         </button>
         {value && (
@@ -53,7 +54,7 @@ export function JalaliDateTimeInput({ id, value, onChange, timeZone, invalid, de
         )}
       </div>
       {open && (
-        <div className="self-start" dir="rtl">
+        <div className="bf-calendar self-start" dir="rtl">
           <Calendar
             calendar={persian}
             locale={persian_fa}

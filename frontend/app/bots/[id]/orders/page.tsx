@@ -1,7 +1,7 @@
 "use client";
 
-import { OperationsView } from "@/components/data/operations-view";
+import { OrdersView } from "@/components/operations/orders-view";
 
 export default function OrdersPage() {
-  return <OperationsView route="orders" />;
+  return <OrdersView />;
 }

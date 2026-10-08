@@ -40,6 +40,17 @@ export function initialMockBots(): Bot[] {
       owner_linked: false,
       created_at: iso(2 * DAY),
     },
+    {
+      id: "bot_niloofar",
+      name: "مرکز رویدادهای نیلوفر",
+      status: "live",
+      active_revision_id: "rev_niloofar_1",
+      active_revision_number: 1,
+      tg_username: "niloofar_events_bot",
+      owner_link_code: null,
+      owner_linked: true,
+      created_at: iso(4 * DAY),
+    },
   ];
 }
 
@@ -113,6 +124,17 @@ export function initialMockRevisions(): StoredRevision[] {
       created_at: iso(2 * 3_600_000),
       activated_at: null,
       variant: "repair_failing",
+    },
+    {
+      id: "rev_niloofar_1",
+      bot_id: "bot_niloofar",
+      number: 1,
+      parent_id: null,
+      status: "active",
+      change_request: "رویدادهای مرکز را در ربات نشان بده تا مشتری‌ها ثبت‌نام کنند؛ ظرفیت هر رویداد جداست و پشتیبانی و تأییدیه‌ها هم باشد.",
+      created_at: iso(4 * DAY),
+      activated_at: iso(4 * DAY),
+      variant: "events",
     },
   ];
 }

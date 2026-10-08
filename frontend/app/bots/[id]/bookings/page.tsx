@@ -1,7 +1,7 @@
 "use client";
 
-import { OperationsView } from "@/components/data/operations-view";
+import { BookingsView } from "@/components/operations/bookings-view";
 
 export default function BookingsPage() {
-  return <OperationsView route="bookings" />;
+  return <BookingsView />;
 }

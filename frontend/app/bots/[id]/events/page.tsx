@@ -1,7 +1,7 @@
 "use client";
 
-import { OperationsView } from "@/components/data/operations-view";
+import { EventsView } from "@/components/operations/events-view";
 
 export default function EventsPage() {
-  return <OperationsView route="events" />;
+  return <EventsView />;
 }

@@ -5,6 +5,7 @@
  */
 import { ApiError, ERROR_CODES } from "@/lib/errors";
 import { countsOf, detailOf, hasNoStoredTests, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
+import { niloofarActorName } from "@/lib/fixtures/records";
 import { reportOf } from "@/lib/fixtures/scenarios";
 import { capabilitySummaries } from "@/lib/mock/capabilities";
 import { getDb, newId, persist } from "@/lib/mock/engine";
@@ -298,6 +299,74 @@ function seedDemoOrders(botId: string): void {
         address: "",
       },
     },
+    {
+      actor: "5012345801",
+      status: "placed",
+      at: ago(3 * 3_600_000),
+      data: {
+        items: [
+          { item_id: 4, title: "روغن موتور ۴ لیتری", qty: 1, unit_price: 1_450_000 },
+          { item_id: 1, title: "فیلتر روغن", qty: 1, unit_price: 250_000 },
+          { item_id: 5, title: "فیلتر هوا", qty: 1, unit_price: 320_000 },
+          { item_id: 6, title: "برف‌پاک‌کن", qty: 2, unit_price: 180_000 },
+        ],
+        total: 2_380_000,
+        payment_status: "unpaid",
+        phone: "09123334455",
+        address: "تهران، پاسداران، کوچهٔ بیست و یکم، پلاک ۶",
+      },
+    },
+    {
+      actor: "6001003",
+      status: "shipped",
+      at: ago(3 * 24 * 3_600_000),
+      data: {
+        items: [{ item_id: 2, title: "لنت ترمز", qty: 2, unit_price: 600_000 }],
+        total: 1_200_000,
+        payment_status: "unpaid",
+        phone: "09361239876",
+        address: "کرج، گوهردشت، بلوک ۷",
+      },
+    },
+    {
+      actor: "5012345702",
+      status: "cancelled",
+      at: ago(5 * 24 * 3_600_000),
+      data: {
+        items: [{ item_id: 3, title: "شمع موتور", qty: 4, unit_price: 162_500 }],
+        total: 650_000,
+        payment_status: "unpaid",
+        phone: "09101110000",
+        address: "",
+      },
+    },
+    {
+      actor: "6001001",
+      status: "placed",
+      at: ago(55 * 60_000),
+      data: {
+        items: [{ item_id: 7, title: "باتری ۶۰ آمپر", qty: 1, unit_price: 3_900_000 }],
+        total: 3_900_000,
+        payment_status: "unpaid",
+        phone: "09121234567",
+        address: "تهران، خیابان ولیعصر، پلاک ۱۲",
+      },
+    },
+    {
+      actor: "5012345701",
+      status: "confirmed",
+      at: ago(9 * 3_600_000),
+      data: {
+        items: [
+          { item_id: 8, title: "ضدیخ", qty: 3, unit_price: 210_000 },
+          { item_id: 9, title: "شیشه‌شوی", qty: 2, unit_price: 90_000 },
+        ],
+        total: 810_000,
+        payment_status: "unpaid",
+        phone: "09121234500",
+        address: "تهران، شهرک غرب",
+      },
+    },
   ];
   for (const sample of samples) {
     d.recordSeq += 1;
@@ -337,7 +406,7 @@ const FIXTURE_NAMES: Record<string, string> = {
 /** The booking/request fields the real backend adds: the customer's name and the item's title. */
 function decorate(botId: string, spec: BotSpec, record: DataRecord): DataRecord {
   const out: DataRecord = { ...record };
-  if (record.actor_id) out.actor_name = FIXTURE_NAMES[record.actor_id] ?? null;
+  if (record.actor_id) out.actor_name = FIXTURE_NAMES[record.actor_id] ?? niloofarActorName(record.actor_id);
   if (record.item_id !== null) {
     const cap = spec.capabilities.find((c) => c.key === record.collection);
     const resourceKey = cap?.type === "booking" ? cap.resource : cap?.type === "request" ? cap.item_resource : null;
