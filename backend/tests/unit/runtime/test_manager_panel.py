@@ -49,8 +49,8 @@ async def test_report_list_has_overview_capabilities_back_and_home() -> None:
     assert data[0] == "nav:go:mgr.rep.all"
     assert f"nav:go:mgr.rep.{CAP}" in data
     assert find_button(resp, "فروشگاه").data == f"nav:go:mgr.rep.{CAP}"
-    assert data[-2:] == ["nav:go:mgr", "nav:go:home"]
-    assert text(resp).startswith(nav_texts.REPORTS)
+    assert data[-1] == "nav:go:mgr"  # «🧭 مدیریت»
+    assert text(resp).startswith(f"🧭 مدیریت › {nav_texts.REPORTS}\n")
     assert resp.messages[0].edit is True
     assert all(len(d.encode()) <= 64 for d in data)
 
@@ -62,7 +62,7 @@ async def test_overview_and_capability_report_are_persian_text() -> None:
         assert "نمای کلی کسب‌وکار" in text(overview)
         assert "۷ روز گذشته" in text(overview)
         assert "• تعداد سفارش‌ها: ۲" in text(overview)  # Persian digits
-        assert [b.data for b in buttons(overview)] == [REPORTS, "nav:go:home"]
+        assert [b.data for b in buttons(overview)] == [REPORTS, "nav:go:mgr"]
 
     report = await h.tap(OWNER, f"nav:go:mgr.rep.{CAP}")
     assert text(report).startswith("📊 گزارش فروشگاه")

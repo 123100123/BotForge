@@ -138,10 +138,10 @@ def test_one_shop_when_catalog_and_orders_sell_the_same_resource() -> None:
 def test_manager_home_lists_manage_sections_reports_and_customer_view() -> None:
     repair = load_example("repair.botspec.json")
     entries = nav.compile_home(repair, "manager")
-    assert keys(entries) == ["mgr.req", "mgr.rep", "cust"]
+    assert keys(entries) == ["mgr.req", "mgr.rep", "mgr.team", "cust"]
     assert entries[-1].label == tx.CUSTOMER_VIEW
     spec = spec_of(business_data())
-    assert keys(nav.compile_home(spec, "manager")) == ["mgr.evt", "mgr.rep", "cust"]  # mgr.ord: U6
+    assert keys(nav.compile_home(spec, "manager")) == ["mgr.ord", "mgr.evt", "mgr.rep", "mgr.team", "cust"]
 
 
 def test_disabling_a_capability_changes_only_the_homes_it_appears_in() -> None:
@@ -156,7 +156,7 @@ def test_disabling_a_capability_changes_only_the_homes_it_appears_in() -> None:
     no_requests = BotSpec.model_validate(data)
     assert keys(nav.compile_home(no_requests, "customer")) == ["info"]
     assert keys(nav.compile_home(no_requests, "staff")) == ["info"]  # no staff queue either
-    assert keys(nav.compile_home(no_requests, "manager")) == ["cust"]  # info has no metrics
+    assert keys(nav.compile_home(no_requests, "manager")) == ["mgr.team", "cust"]  # info has no metrics
 
 
 def test_restricted_capabilities_appear_for_the_roles_that_may_use_them() -> None:
@@ -301,7 +301,7 @@ async def test_stale_navigation_is_a_new_message_with_the_home() -> None:
 
 async def test_placeholder_routes_answer_with_a_notice_and_the_manager_home() -> None:
     h = Harness(BotSpec.model_validate(business_data()))
-    for data in ("nav:go:mgr.ord", "nav:go:mgr.team", "nav:go:mgr.evt.new"):
+    for data in ("nav:go:mgr.evt.new",):  # mgr.ord and mgr.team are real since U6
         r = await h.tap(OWNER, data)
         assert text(r).startswith(tx.COMING_SOON), data
         assert "nav:go:cust" in button_data(r)
