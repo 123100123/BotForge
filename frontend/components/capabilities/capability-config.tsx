@@ -128,7 +128,7 @@ export function CapabilityConfig({
       })}
       {error && <ErrorNote>{error}</ErrorNote>}
       {saved && <InfoNote>تنظیمات ذخیره شد.</InfoNote>}
-      <Button variant="outline" size="sm" className="self-start" disabled={busy || changed.length === 0} onClick={save}>
+      <Button variant="secondary" size="sm" className="self-start" disabled={busy || changed.length === 0} onClick={save}>
         {busy ? "در حال ذخیره…" : "ذخیرهٔ تنظیمات"}
       </Button>
     </div>

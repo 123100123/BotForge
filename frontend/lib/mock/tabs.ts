@@ -6,6 +6,7 @@
 import { ApiError, ERROR_CODES } from "@/lib/errors";
 import { countsOf, detailOf, hasNoStoredTests, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
 import { reportOf } from "@/lib/fixtures/scenarios";
+import { capabilitySummaries } from "@/lib/mock/capabilities";
 import { getDb, newId, persist } from "@/lib/mock/engine";
 import { resetSandbox, simulate } from "@/lib/mock/simulator";
 import type {
@@ -217,6 +218,40 @@ function collectionsOf(spec: BotSpec): DataCollection[] {
     statuses: orders.statuses,
     actions: orders.owner_actions.map((a) => ({ key: a.key, label: a.label, from_statuses: a.from_statuses })),
   });
+  // Mock only: the Capability Center switches «رویدادها» without building a new spec, so the matching
+  // collections (an events resource and its registrations) follow the mock capability state.
+  if (capabilitySummaries().some((c) => c.id === "events" && c.enabled) && !out.some((c) => c.key === "event")) {
+    out.push(
+      {
+        key: "event",
+        kind: "resource",
+        label: "رویداد",
+        label_plural: "رویدادها",
+        writable: true,
+        fields: [],
+        system_columns: [],
+        title_field: "title",
+        timezone: spec.bot.timezone,
+      },
+      {
+        key: "event_registration",
+        kind: "booking",
+        label: "ثبت‌نام رویداد",
+        label_plural: "ثبت‌نام‌های رویداد",
+        writable: false,
+        enabled: true,
+        fields: [],
+        system_columns: SYSTEM_COLUMNS,
+        resource: "event",
+        timezone: spec.bot.timezone,
+        statuses: [
+          { key: "confirmed", label: "تأیید شده" },
+          { key: "cancelled", label: "لغو شده" },
+        ],
+        actions: [],
+      },
+    );
+  }
   return out;
 }
 
