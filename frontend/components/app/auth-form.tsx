@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { authErrorMessage, useAuth } from "@/lib/auth";
 import { IS_MOCK } from "@/lib/config";
+import { postLoginPath } from "@/lib/session-expiry";
 
 type Mode = "login" | "signup";
 
@@ -38,6 +39,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   const [password, setPassword] = useState("");
   const [errors, setErrors] = useState<FieldErrors>({});
   const [formError, setFormError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
 
   const isLogin = mode === "login";
@@ -45,6 +47,7 @@ export function AuthForm({ mode }: { mode: Mode }) {
   async function onSubmit(e: FormEvent) {
     e.preventDefault();
     setFormError(null);
+    setNotice(null);
     const found = validate(mode, email, password);
     setErrors(found);
     if (Object.keys(found).length > 0) return;
@@ -53,10 +56,14 @@ export function AuthForm({ mode }: { mode: Mode }) {
     try {
       if (isLogin) {
         await signIn(email.trim(), password);
-        router.replace("/bots");
+        router.replace(postLoginPath()); // the validated ?next=, otherwise the bots list
       } else {
-        await signUp(email.trim(), password);
-        router.replace("/bots");
+        const { needsConfirmation } = await signUp(email.trim(), password);
+        if (needsConfirmation) {
+          setNotice("ثبت‌نام انجام شد. برای ادامه، پیوند تأییدی را که به ایمیل شما فرستادیم باز کنید.");
+        } else {
+          router.replace(postLoginPath());
+        }
       }
     } catch (err) {
       setFormError(authErrorMessage(err));
@@ -119,6 +126,11 @@ export function AuthForm({ mode }: { mode: Mode }) {
           {formError && (
             <p role="alert" className="rounded-md bg-destructive/10 p-2.5 text-sm text-destructive">
               {formError}
+            </p>
+          )}
+          {notice && (
+            <p role="status" className="rounded-md bg-success/10 p-2.5 text-sm text-success">
+              {notice}
             </p>
           )}
 

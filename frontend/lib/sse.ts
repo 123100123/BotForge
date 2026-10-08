@@ -1,5 +1,6 @@
 import { API_BASE_URL, IS_MOCK } from "@/lib/config";
-import { parseErrorResponse, UNAUTHORIZED_EVENT } from "@/lib/api";
+import { authInit, parseErrorResponse } from "@/lib/api";
+import { handleUnauthorized } from "@/lib/session-expiry";
 import * as engine from "@/lib/mock/engine";
 import type { RawAgentEvent } from "@/lib/types";
 
@@ -22,7 +23,9 @@ export interface StreamOptions {
 
 /**
  * Streams the events of one agent run until `signal` is aborted. Uses fetch (not EventSource) so the
- * request can be aborted and `Last-Event-ID` sent; it authenticates by the session cookie. Reconnects with `Last-Event-ID` after a dropped connection.
+ * request can be aborted and `Last-Event-ID` and the Authorization header sent; it authenticates like
+ * every API call (`authInit` in lib/api.ts: the session cookie, or the Supabase access token, fetched
+ * fresh for each connection). Reconnects with `Last-Event-ID` after a dropped connection.
  * Mock mode replays the fixture run with its recorded delays.
  */
 export function streamRunEvents(runId: string, opts: StreamOptions): Promise<void> {
@@ -39,14 +42,15 @@ export async function loadRunEvents(runId: string, signal: AbortSignal): Promise
     await engine.sleep(150);
     return engine.eventsAfter(runId, 0);
   }
+  const auth = await authInit("GET");
   const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
-    credentials: "same-origin",
-    headers: { Accept: "text/event-stream" },
+    credentials: auth.credentials,
+    headers: { ...auth.headers, Accept: "text/event-stream" },
     signal,
   });
   if (!res.ok) {
     const err = await parseErrorResponse(res);
-    if (res.status === 401) notifyUnauthorized();
+    if (res.status === 401) void handleUnauthorized(); // the session is gone, as in request() in lib/api.ts
     throw err;
   }
   if (!res.body) throw new Error("no body");
@@ -58,11 +62,6 @@ export async function loadRunEvents(runId: string, signal: AbortSignal): Promise
     events.push(event);
   });
   return events;
-}
-
-/** The session is gone (401): tell the auth provider, like `request()` in lib/api.ts does. */
-function notifyUnauthorized(): void {
-  if (typeof window !== "undefined") window.dispatchEvent(new Event(UNAUTHORIZED_EVENT));
 }
 
 /* ------------------------------------------------------------------ mock */
@@ -201,9 +200,11 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
 
   while (!signal.aborted) {
     try {
+      const auth = await authInit("GET");
       const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
-        credentials: "same-origin",
+        credentials: auth.credentials,
         headers: {
+          ...auth.headers,
           Accept: "text/event-stream",
           ...(last > 0 ? { "Last-Event-ID": String(last) } : {}),
         },
@@ -211,7 +212,7 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       });
       if (!res.ok) {
         const err = await parseErrorResponse(res);
-        if (res.status === 401) notifyUnauthorized();
+        if (res.status === 401) void handleUnauthorized(); // the session is gone, as in request() in lib/api.ts
         if (res.status >= 400 && res.status < 500 && res.status !== 429) {
           opts.onFatal?.(err.message);
           return;
