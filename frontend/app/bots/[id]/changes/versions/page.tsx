@@ -1,9 +1,7 @@
-"use client";
+import { redirect } from "next/navigation";
 
-import { useBusiness } from "@/components/app/business-context";
-import { VersionsTab } from "@/components/versions/versions-tab";
-
-export default function VersionsPage() {
-  const { bot, reload } = useBusiness();
-  return <VersionsTab bot={bot} onBotChanged={reload} />;
+/** Versions and tests now live on the Changes page; this keeps old links working. */
+export default async function VersionsRedirect({ params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params;
+  redirect(`/bots/${encodeURIComponent(id)}/changes`);
 }

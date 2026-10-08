@@ -1,9 +1,11 @@
-"use client";
+import { Suspense } from "react";
+import { ChangesView } from "@/components/changes/changes-view";
 
-import { AgentTab } from "@/components/agent/agent-tab";
-import { useBusiness } from "@/components/app/business-context";
-
+/** The selected proposal or version lives in `?v=`, which needs a Suspense boundary for the static shell. */
 export default function ChangesPage() {
-  const { bot } = useBusiness();
-  return <AgentTab bot={bot} />;
+  return (
+    <Suspense fallback={null}>
+      <ChangesView />
+    </Suspense>
+  );
 }

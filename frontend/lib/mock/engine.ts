@@ -152,11 +152,31 @@ function emit<T extends AgentEventType>(run: StoredRun, type: T, payload: EventP
 
   if (event.type === "phase_started") run.phase = event.payload.phase;
   if (event.type === "usage") run.usage = event.payload;
+  if (event.type === "approval_requested" && event.payload.revision_id) ensureDraft(run, event.payload.revision_id);
   if (event.type === "deployed") applyDeployed(run, event.payload.revision_id, event.payload.number);
 
   touch(run);
   listeners.get(run.id)?.forEach((fn) => fn(event));
   return event;
+}
+
+/** The real backend stores the draft version when it asks for approval; the mock does the same. */
+function ensureDraft(run: StoredRun, revisionId: string) {
+  const d = getDb();
+  if (d.revisions.some((r) => r.id === revisionId)) return;
+  const first = (d.events[run.id] ?? []).find((e) => e.type === "owner_message");
+  const parent = d.revisions.find((r) => r.id === run.base_revision_id);
+  d.revisions.push({
+    id: revisionId,
+    bot_id: run.bot_id,
+    number: run.meta.revisionNumber,
+    parent_id: run.base_revision_id,
+    status: "draft",
+    change_request: first && first.type === "owner_message" ? first.payload.text : null,
+    created_at: new Date().toISOString(),
+    activated_at: null,
+    variant: nextVariant(parent?.variant ?? null),
+  });
 }
 
 function applyDeployed(run: StoredRun, revisionId: string, number: number) {
@@ -165,19 +185,13 @@ function applyDeployed(run: StoredRun, revisionId: string, number: number) {
   for (const rev of d.revisions) {
     if (rev.bot_id === run.bot_id && rev.status === "active") rev.status = "superseded";
   }
-  const first = (d.events[run.id] ?? []).find((e) => e.type === "owner_message");
-  const parent = d.revisions.find((r) => r.id === run.base_revision_id);
-  d.revisions.push({
-    id: revisionId,
-    bot_id: run.bot_id,
-    number,
-    parent_id: run.base_revision_id,
-    status: "active",
-    change_request: first && first.type === "owner_message" ? first.payload.text : null,
-    created_at: now,
-    activated_at: now,
-    variant: nextVariant(parent?.variant ?? null),
-  });
+  ensureDraft(run, revisionId);
+  const draft = d.revisions.find((r) => r.id === revisionId);
+  if (draft) {
+    draft.number = number;
+    draft.status = "active";
+    draft.activated_at = now;
+  }
   const bot = d.bots.find((b) => b.id === run.bot_id);
   if (bot) {
     bot.status = "live";
@@ -356,6 +370,8 @@ export function rejectRun(runId: string): AgentRun {
   if (run.status !== "waiting_approval") {
     throw new ApiError("run_not_waiting", "این اجرا منتظر تأیید نیست.", 409);
   }
+  const draft = getDb().revisions.find((r) => r.id === run.meta.revisionId);
+  if (draft && draft.status === "draft") draft.status = "rejected";
   emit(run, "phase_finished", { phase: "await_approval", ok: false, summary: "پیش‌نویس رد شد" });
   emit(run, "agent_message", { text: "پیش‌نویس کنار گذاشته شد و ربات فعلی بدون تغییر ماند." });
   setStatus(run, "rejected");

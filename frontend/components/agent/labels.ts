@@ -22,20 +22,42 @@ export function phaseLabel(phase: string): string {
 export const RUN_STATUS_LABELS: Record<RunStatus, string> = {
   running: "در حال کار",
   waiting_user: "منتظر پاسخ شما",
-  waiting_approval: "منتظر تأیید شما",
+  waiting_approval: "آمادهٔ تأیید",
   done: "انجام شد",
   failed: "ناموفق",
   rejected: "رد شد",
   interrupted: "قطع شد",
 };
 
+/** Plain-language type tags of a requirement. */
 export const REQUIREMENT_KIND_LABELS: Record<RequirementKind, string> = {
   capability: "قابلیت",
-  rule: "قانون",
-  data: "داده",
-  text: "متن",
-  notification: "اعلان",
+  rule: "قاعده",
+  data: "اطلاعات",
+  text: "متن پیام‌ها",
+  notification: "اطلاع‌رسانی",
 };
+
+/**
+ * Owner-facing names of the agent's tool steps (D11). The raw tool name may only appear in the collapsed
+ * «جزئیات فنی» section, never as the primary label.
+ */
+export const TOOL_LABELS: Record<string, string> = {
+  set_spec: "نوشتن پیکربندی ربات",
+  apply_spec_patch: "اعمال تغییر در پیکربندی",
+  validate_spec: "بررسی درستی پیکربندی",
+  get_spec: "خواندن پیکربندی",
+  run_tests: "اجرای آزمون‌ها",
+  get_failure: "بررسی آزمون ناموفق",
+  fix_scenario: "اصلاح آزمون",
+  supersede_scenario: "کنار گذاشتن آزمون قدیمی",
+  finish: "آماده‌سازی نسخهٔ پیش‌نویس",
+};
+
+/** Label for any tool name; an unknown tool gets a generic label, never its raw name. */
+export function toolLabel(name: string): string {
+  return TOOL_LABELS[name] ?? "گام فنی";
+}
 
 export const CAPABILITY_TYPE_LABELS: Record<CapabilityType, string> = {
   info: "اطلاعات",
