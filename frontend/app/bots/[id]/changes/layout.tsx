@@ -2,25 +2,21 @@
 
 import type { ReactNode } from "react";
 import { useBusiness } from "@/components/app/business-context";
-import { SubNav } from "@/components/app/shell/sub-nav";
 import { PageHeader } from "@/components/ui/page-header";
-import { sectionHref } from "@/lib/routes";
 
-/** Changes: the current proposal (build or change flow) and the history of versions with their tests. */
+/** Changes: proposals and versions of the business; for a business with no active version, the first build. */
 export default function ChangesLayout({ children }: { children: ReactNode }) {
   const { bot } = useBusiness();
+  const firstBuild = !bot.active_revision_id;
   return (
     <>
       <PageHeader
-        title="تغییرات"
-        description="ربات را با دستیار بسازید یا تغییر دهید؛ هیچ تغییری بدون تأیید شما فعال نمی‌شود."
-      />
-      <SubNav
-        label="بخش‌های تغییرات"
-        items={[
-          { href: sectionHref(bot.id, "changes"), label: "پیشنهاد تغییر" },
-          { href: sectionHref(bot.id, "versions"), label: "نسخه‌ها و آزمون‌ها" },
-        ]}
+        title={firstBuild ? "ساخت ربات" : "تغییرات"}
+        description={
+          firstBuild
+            ? "کسب‌وکارتان را برای دستیار توضیح دهید تا ربات تلگرامش را بسازد و آزمایش کند. چیزی بدون تأیید شما فعال نمی‌شود."
+            : "ربات را با یک جمله تغییر دهید؛ دستیار یک پیشنهاد می‌سازد و هیچ تغییری بدون تأیید شما فعال نمی‌شود."
+        }
       />
       {children}
     </>
