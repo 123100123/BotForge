@@ -1,7 +1,9 @@
 """Connecting and disconnecting an owner's Telegram bot (roadmap: Telegram Integration, onboarding).
 
 ``connect`` verifies the token with ``getMe``, refuses a Telegram bot that another BotForge bot
-already uses, stores the token Fernet-encrypted, generates the per-bot webhook secret and registers
+already uses (on this server: ``bots.tg_bot_id`` is unique; on another server: ``getWebhookInfo`` and
+a short ``getUpdates`` probe, because Telegram is the only state two servers share), stores the
+token Fernet-encrypted, generates the per-bot webhook secret and registers
 ``{PUBLIC_BASE_URL}/tg/{bot_id}``. Nothing here returns or logs the token or the secret. In polling
 mode (``TELEGRAM_MODE=polling``) no webhook is registered: connect removes any webhook instead and the
 poller (``poller.py``) fetches the bot's updates.
@@ -33,7 +35,13 @@ from sqlalchemy.orm.attributes import flag_modified
 from app.config import TelegramMode
 from app.db.models import Bot
 from app.integrations.telegram import texts
-from app.integrations.telegram.client import TelegramError, TelegramProvider
+from app.integrations.telegram.client import (
+    ALLOWED_UPDATES,
+    COMPETING_POLLER,
+    TelegramApi,
+    TelegramError,
+    TelegramProvider,
+)
 from app.security.crypto import (
     TokenCryptoError,
     decrypt_token,
@@ -47,6 +55,8 @@ log = logging.getLogger(__name__)
 # admit other scripts' digits), and never shorter than what the log redaction (app.security.redact)
 # recognizes as a token, so every token held here is one the safety net can catch.
 TOKEN_FORMAT = re.compile(r"^[0-9]{6,}:[A-Za-z0-9_-]{30,}$")
+# Seconds connect's getUpdates probe waits for a competing poller to end it (see _refuse_if_used_elsewhere).
+PROBE_TIMEOUT = 6
 
 
 class OnboardingError(Exception):
@@ -158,6 +168,62 @@ def _telegram_failure(exc: TelegramError, *, invalid_token_possible: bool = Fals
     return OnboardingError(502, "telegram_error", texts.TELEGRAM_REJECTED.format(description=exc.description))
 
 
+def _used_elsewhere() -> OnboardingError:
+    return OnboardingError(409, "telegram_bot_in_use_elsewhere", texts.TOKEN_IN_USE_ELSEWHERE)
+
+
+def _is_own_connection(bot: Bot, token: str, tg_bot_id: int) -> bool:
+    """Whether this very bot already stores this token: this server's poller may be polling it right
+    now, and would make the probe see a competing consumer that is only ourselves."""
+    if bot.tg_token_enc is None or bot.tg_bot_id != tg_bot_id:
+        return False
+    try:
+        return decrypt_token(bot.tg_token_enc) == token
+    except TokenCryptoError:
+        return False
+
+
+async def _refuse_if_used_elsewhere(
+    bot: Bot, token: str, tg_bot_id: int, client: TelegramApi, public_base_url: str
+) -> None:
+    """Telegram is the only state two BotForge servers share, so ask it whether another server serves
+    this Telegram bot. Runs after ``getMe`` and before anything is stored.
+
+    1. ``getWebhookInfo``: a webhook that is not this bot's own ``webhook_url`` belongs to another
+       server. An own webhook (a reconnect here) is fine, and with any webhook set no one can be
+       polling (``getUpdates`` fails), so the probe is skipped.
+    2. Probe: one ``getUpdates(limit=1)`` with no offset, so nothing is confirmed and its result is
+       dropped. Telegram ends the older of two concurrent ``getUpdates`` with 409 "terminated by
+       other getUpdates request": a competing poller re-polls within the probe's window and ends
+       ours. Skipped when this bot already stores this token (our own poller would be the
+       "competitor").
+
+    ``OnboardingError`` (409, ``telegram_bot_in_use_elsewhere``) when either finds another server.
+    Other Telegram errors of the probe are ignored: the calls that follow report them.
+    """
+    try:
+        info = await client.get_webhook_info()
+    except TelegramError as exc:
+        raise _telegram_failure(exc) from None
+    hook = info.get("url")
+    if isinstance(hook, str) and hook:
+        try:
+            own = webhook_url(public_base_url, bot.id)
+        except OnboardingError:  # no usable public URL here: no webhook can be ours
+            own = None
+        if hook != own:
+            raise _used_elsewhere()
+        return
+    if _is_own_connection(bot, token, tg_bot_id):
+        return
+    try:
+        await client.get_updates(offset=None, timeout=PROBE_TIMEOUT, allowed_updates=ALLOWED_UPDATES, limit=1)
+    except TelegramError as exc:
+        if exc.error_code == 409 and COMPETING_POLLER in exc.description.lower():
+            raise _used_elsewhere() from None
+        log.warning("Telegram connect probe failed: %s", exc.description)
+
+
 async def connect(
     session: AsyncSession,
     bot: Bot,
@@ -183,11 +249,13 @@ async def connect(
     if not isinstance(tg_bot_id, int) or not isinstance(username, str) or not username:
         raise OnboardingError(400, "invalid_token", texts.INVALID_TOKEN)
 
+    in_use = texts.TOKEN_IN_USE.format(username=username)
     taken = (
         await session.execute(select(Bot.id).where(Bot.tg_bot_id == tg_bot_id, Bot.id != bot.id))
     ).first()
     if taken is not None:
-        raise OnboardingError(409, "telegram_bot_in_use", texts.TOKEN_IN_USE)
+        raise OnboardingError(409, "telegram_bot_in_use", in_use)
+    await _refuse_if_used_elsewhere(bot, token, tg_bot_id, client, public_base_url)
 
     try:
         token_enc = encrypt_token(token)
@@ -211,7 +279,7 @@ async def connect(
         await session.flush()
     except IntegrityError:  # lost a race for the same Telegram bot id
         await session.rollback()
-        raise OnboardingError(409, "telegram_bot_in_use", texts.TOKEN_IN_USE) from None
+        raise OnboardingError(409, "telegram_bot_in_use", in_use) from None
 
     try:
         if url is not None:

@@ -1,15 +1,17 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CircleCheck, CircleSlash, ExternalLink, Unplug } from "lucide-react";
+import { CircleAlert, CircleCheck, CircleSlash, ExternalLink, RefreshCw, Unplug } from "lucide-react";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { ErrorNote } from "@/components/app/state-blocks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { StatusBadge } from "@/components/ui/status-badge";
+import { invalidateAttention } from "@/lib/adapters/attention";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { isPollingConflict, pollingConflictMessage } from "@/lib/telegram";
 import type { TelegramStatus } from "@/lib/types";
 import { DANGER_OUTLINE, FieldRow, PanelSection, SettingsPanel } from "./settings-panel";
 
@@ -26,6 +28,23 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState<string | null>(null);
+  const conflict = isPollingConflict(status.last_error);
+
+  async function retry() {
+    setRetrying(true);
+    setRetryError(null);
+    try {
+      const next = await api.retryTelegram(botId);
+      invalidateAttention(botId); // the Overview item «دریافت پیام‌های تلگرام متوقف شده است» is stale now
+      onChanged(next);
+    } catch (err) {
+      setRetryError(errorMessage(err));
+    } finally {
+      setRetrying(false);
+    }
+  }
 
   async function connect(e: FormEvent) {
     e.preventDefault();
@@ -63,7 +82,27 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
         )
       }
     >
-      {status.last_error && (
+      {conflict && status.last_error && (
+        <PanelSection>
+          <div role="alert" className="flex flex-col gap-3 rounded-sm bg-danger-soft p-4 text-danger-text">
+            <div className="flex items-start gap-2.5">
+              <CircleAlert className="mt-0.5 size-5 shrink-0" strokeWidth={1.75} aria-hidden />
+              <div className="flex min-w-0 flex-col gap-1">
+                <p className="text-body font-semibold">دریافت پیام‌های تلگرام متوقف شده است</p>
+                <p className="text-small">{pollingConflictMessage(status.last_error)}</p>
+              </div>
+            </div>
+            <div>
+              <Button variant="secondary" className={DANGER_OUTLINE} loading={retrying} onClick={retry}>
+                <RefreshCw strokeWidth={1.75} />
+                تلاش دوباره
+              </Button>
+            </div>
+            {retryError && <p className="text-small">{retryError}</p>}
+          </div>
+        </PanelSection>
+      )}
+      {status.last_error && !conflict && (
         <PanelSection>
           <ErrorNote>آخرین خطا: {status.last_error}</ErrorNote>
         </PanelSection>

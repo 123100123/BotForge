@@ -100,6 +100,8 @@ export interface Api {
   getTelegram(botId: string): Promise<TelegramStatus>;
   connectTelegram(botId: string, token: string): Promise<TelegramStatus>;
   disconnectTelegram(botId: string): Promise<TelegramStatus>;
+  /** Owner: clear a POLLING_CONFLICT park so the server polls Telegram again; returns the new status. */
+  retryTelegram(botId: string): Promise<TelegramStatus>;
   // Capability Center
   listCapabilities(botId: string): Promise<CapabilityListOut>;
   /** `dry_run: true` returns the plan without creating a revision. */
@@ -274,6 +276,7 @@ export const realApi: Api = {
 
   getTelegram: (botId) => request("GET", `/bots/${enc(botId)}/telegram`),
   connectTelegram: (botId, token) => request("POST", `/bots/${enc(botId)}/telegram/connect`, { token }),
+  retryTelegram: (botId) => request("POST", `/bots/${enc(botId)}/telegram/retry`),
   disconnectTelegram: async (botId) =>
     (await request<TelegramStatus | undefined>("DELETE", `/bots/${enc(botId)}/telegram`)) ??
     (await request<TelegramStatus>("GET", `/bots/${enc(botId)}/telegram`)),

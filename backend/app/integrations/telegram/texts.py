@@ -6,7 +6,20 @@ OWNER_LINK_INVALID = "این لینک نامعتبر است یا قبلاً اس
 
 # Onboarding / API errors shown to the owner in the web app.
 INVALID_TOKEN = "توکن ربات نامعتبر است. توکن را دقیقاً از BotFather کپی کنید."
-TOKEN_IN_USE = "این ربات تلگرام قبلاً برای ربات دیگری در سامانه متصل شده است."
+TOKEN_IN_USE = (
+    "ربات تلگرام @{username} قبلاً به کسب‌وکار دیگری در این سامانه وصل شده است. اول آن را از آنجا جدا کنید."
+)
+TOKEN_IN_USE_ELSEWHERE = (
+    "این ربات تلگرام همین حالا به سرور دیگری وصل است (یک نسخهٔ دیگر BotForge یا برنامهٔ دیگری). "
+    "اول آن را از آنجا جدا کنید، بعد دوباره امتحان کنید."
+)
+# Stored in bots.tg_last_error when the poller parks a bot; the prefix is a stable marker the web app
+# matches on (do not translate or change it).
+POLLING_CONFLICT_PREFIX = "POLLING_CONFLICT:"
+POLLING_CONFLICT = (
+    f"{POLLING_CONFLICT_PREFIX} این ربات تلگرام هم‌زمان در سرور دیگری فعال است؛ این سرور دریافت پیام‌ها را "
+    "متوقف کرد تا تداخل پیش نیاید. اگر سرور دیگر را خاموش کرده‌اید، «تلاش دوباره» را بزنید."
+)
 TELEGRAM_UNREACHABLE = "ارتباط با تلگرام برقرار نشد. کمی بعد دوباره تلاش کنید."
 TELEGRAM_REJECTED = "تلگرام درخواست را نپذیرفت: {description}"
 PUBLIC_URL_MISSING = "آدرس عمومی سرور (PUBLIC_BASE_URL) تنظیم نشده است؛ اتصال به تلگرام ممکن نیست."

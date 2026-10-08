@@ -1,4 +1,4 @@
-"""Telegram connection settings: status, connect (token), disconnect.
+"""Telegram connection settings: status, connect (token), disconnect, retry after a polling conflict.
 
 The response never contains the token or the webhook secret; ``connected`` is derived from the
 stored (encrypted) token and the links are built from the public bot username.
@@ -8,13 +8,14 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, StringConstraints
+from sqlalchemy import update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_owned_bot
 from app.config import get_settings
 from app.db.models import Bot
 from app.db.session import get_session
-from app.integrations.telegram import onboarding
+from app.integrations.telegram import onboarding, texts
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
 
 router = APIRouter(tags=["telegram"])
@@ -69,6 +70,29 @@ async def telegram_connect(
         )
     except onboarding.OnboardingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None
+    return _out(bot)
+
+
+@router.post("/bots/{bot_id}/telegram/retry", response_model=TelegramStatusOut)
+async def telegram_retry(
+    bot: Bot = Depends(get_owned_bot), session: AsyncSession = Depends(get_session)
+) -> TelegramStatusOut:
+    """After the poller parked the bot because another server polls the same token
+    (``POLLING_CONFLICT``): clear that error so the poller's next pass starts polling again. Any other
+    error, and a bot that is not parked, is left as it is. Compare-and-set on the stored token."""
+    if bot.tg_token_enc is not None:
+        await session.execute(
+            update(Bot)
+            .where(
+                Bot.id == bot.id,
+                Bot.tg_token_enc == bot.tg_token_enc,
+                Bot.tg_last_error.like(f"{texts.POLLING_CONFLICT_PREFIX}%"),
+            )
+            .values(tg_last_error=None)
+            .execution_options(synchronize_session=False)
+        )
+        await session.commit()
+        await session.refresh(bot)
     return _out(bot)
 
 

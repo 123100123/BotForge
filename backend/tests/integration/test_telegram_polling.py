@@ -11,6 +11,7 @@ import subprocess
 import sys
 import uuid
 from collections.abc import AsyncIterator, Callable, Iterator
+from datetime import UTC, datetime, timedelta
 from types import ModuleType
 from typing import Any
 
@@ -119,7 +120,9 @@ async def make_poller(
     poller made here is stopped after the test."""
     made: list[TelegramPoller] = []
 
-    def make(*bot_ids: uuid.UUID, provider: Callable[[str], TelegramApi] | None = None) -> TelegramPoller:
+    def make(
+        *bot_ids: uuid.UUID, provider: Callable[[str], TelegramApi] | None = None, **options: Any
+    ) -> TelegramPoller:
         poller = TelegramPoller(
             session_factory,
             provider or telegram,
@@ -127,6 +130,7 @@ async def make_poller(
             rng=lambda: 1.0,
             stop_grace=5.0,
             bot_ids=bot_ids,
+            **options,
         )
         made.append(poller)
         return poller
@@ -266,6 +270,232 @@ async def test_the_webhook_is_deleted_at_start_and_again_on_a_conflict(
     names = [name for name, _ in fake.calls]
     assert names[:4] == ["deleteWebhook", "getUpdates", "deleteWebhook", "getUpdates"]
     assert sleeps.waits[0] == 1.0  # then backed off
+
+
+# --- competing consumers: park, retry, prune --------------------------------------------------------
+
+COMPETITOR = TelegramError(
+    "getUpdates",
+    "Conflict: terminated by other getUpdates request; make sure that only one bot instance is running",
+    error_code=409,
+)
+
+
+def conflicts(count: int) -> list[Exception]:
+    return [COMPETITOR] * count
+
+
+async def parked_with_error(session_factory: SessionFactory, bot_id: uuid.UUID) -> bool:
+    error = (await row(session_factory, bot_id)).tg_last_error
+    return error is not None and error.startswith("POLLING_CONFLICT:")
+
+
+async def test_three_competing_consumer_conflicts_park_the_bot(
+    bot: LiveBot,
+    telegram: Telegram,
+    sleeps: Sleeps,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    fake = telegram(bot.token)
+    fake.get_updates_errors.extend(conflicts(3))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: parked_with_error(session_factory, bot.id))
+    await eventually(lambda: not poller.polling)
+
+    stored = (await row(session_factory, bot.id)).tg_last_error
+    assert stored == texts.POLLING_CONFLICT and "تلاش دوباره" in stored
+    assert len(polls(fake)) == 3
+    assert fake.calls_to("deleteWebhook") == [{"drop_pending_updates": False}]  # only the one at start
+    assert sleeps.waits[:2] == [1.0, 2.0]  # backed off between the conflicts, not after the third
+
+    await poller.sync_once()  # same token, error still set: the supervisor leaves it parked
+    await asyncio.sleep(0.05)
+    assert not poller.polling and len(polls(fake)) == 3
+    assert bot.id in poller._runs
+
+
+async def test_a_token_change_unparks_the_bot(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    telegram(bot.token).get_updates_errors.extend(conflicts(3))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: parked_with_error(session_factory, bot.id))
+    await eventually(lambda: not poller.polling)
+
+    _, new = new_token()
+    async with session_factory() as session:  # what a reconnect stores (and it clears the error)
+        await session.execute(
+            update(Bot).where(Bot.id == bot.id).values(tg_token_enc=encrypt_token(new), tg_last_error=None)
+        )
+        await session.commit()
+    await poller.sync_once()
+    await eventually(lambda: polls(telegram(new)))
+    assert bot.id in poller.polling
+
+
+async def test_the_retry_endpoint_unparks_the_bot(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+    tg_client: httpx.AsyncClient,
+) -> None:
+    fake = telegram(bot.token)
+    fake.get_updates_errors.extend(conflicts(3))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: parked_with_error(session_factory, bot.id))
+    await eventually(lambda: not poller.polling)
+
+    status = await tg_client.get(f"/bots/{bot.id}/telegram", headers=ALICE)
+    assert status.json()["last_error"].startswith("POLLING_CONFLICT:")
+    response = await tg_client.post(f"/bots/{bot.id}/telegram/retry", headers=ALICE)
+    assert response.status_code == 200 and response.json()["last_error"] is None
+    assert (await row(session_factory, bot.id)).tg_last_error is None
+
+    fake.push_updates(message_update(901, 741, "/start"))
+    await poller.sync_once()
+    await eventually(lambda: sent_texts(fake, 741))
+    assert bot.id in poller.polling
+    assert fake.calls_to("deleteWebhook") == [{"drop_pending_updates": False}] * 2  # start + new task
+
+
+async def test_retry_leaves_other_errors_alone_and_belongs_to_the_owner(
+    bot: LiveBot, session_factory: SessionFactory, tg_client: httpx.AsyncClient
+) -> None:
+    other = "getUpdates: Unauthorized"
+    async with session_factory() as session:
+        await session.execute(update(Bot).where(Bot.id == bot.id).values(tg_last_error=other))
+        await session.commit()
+    response = await tg_client.post(f"/bots/{bot.id}/telegram/retry", headers=ALICE)
+    assert response.status_code == 200 and response.json()["last_error"] == other
+    stranger = await tg_client.post(f"/bots/{bot.id}/telegram/retry", headers={"X-Test-User": "bob"})
+    assert stranger.status_code == 404
+    assert (await row(session_factory, bot.id)).tg_last_error == other
+
+
+async def test_a_successful_poll_resets_the_conflict_count(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    fake = telegram(bot.token)
+    fake.get_updates_errors.extend(conflicts(2))
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: len(polls(fake)) >= 5)  # two conflicts, then good (empty) polls
+    fake.get_updates_errors.extend(conflicts(2))  # two more: four in total, never three in a row
+    await eventually(lambda: len(polls(fake)) >= 10)
+    assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
+
+
+async def test_conflicts_further_apart_than_the_window_do_not_park(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    clock = [0.0]
+
+    def tick() -> float:
+        clock[0] += 20.0  # each reading is 20 s after the last: never three within 30 s
+        return clock[0]
+
+    fake = telegram(bot.token)
+    fake.get_updates_errors.extend(conflicts(5))
+    poller = make_poller(bot.id, clock=tick)
+    await poller.sync_once()
+    await eventually(lambda: len(polls(fake)) >= 7)
+    assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
+
+
+async def test_a_webhook_is_active_conflict_still_deletes_the_webhook_and_never_parks(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    fake = telegram(bot.token)
+    hook = TelegramError(
+        "getUpdates", "Conflict: can't use getUpdates method while webhook is active", error_code=409
+    )
+    fake.get_updates_errors.extend([hook] * 5)
+    poller = make_poller(bot.id)
+    await poller.sync_once()
+    await eventually(lambda: len(polls(fake)) >= 7)
+    assert len(fake.calls_to("deleteWebhook")) == 6  # at start and after each of the five
+    assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
+
+
+async def test_a_restarted_process_polls_a_parked_bot_again_and_clears_the_stale_error(
+    bot: LiveBot,
+    telegram: Telegram,
+    make_poller: Callable[..., TelegramPoller],
+    session_factory: SessionFactory,
+) -> None:
+    async with session_factory() as session:
+        await session.execute(
+            update(Bot).where(Bot.id == bot.id).values(tg_last_error=texts.POLLING_CONFLICT)
+        )
+        await session.commit()
+    fake = telegram(bot.token)
+    poller = make_poller(bot.id)  # a new poller: no memory of the park
+    await poller.sync_once()
+    await eventually(lambda: polls(fake))
+
+    async def cleared() -> bool:
+        return (await row(session_factory, bot.id)).tg_last_error is None
+
+    await eventually(cleared)
+    assert bot.id in poller.polling
+
+
+async def add_update(
+    session_factory: SessionFactory, bot_id: uuid.UUID, update_id: int, age: timedelta
+) -> None:
+    async with session_factory() as session:
+        session.add(TgUpdate(bot_id=bot_id, update_id=update_id, received_at=datetime.now(UTC) - age))
+        await session.commit()
+
+
+async def test_pruning_deletes_only_old_updates_and_runs_at_most_hourly(
+    bot: LiveBot, make_poller: Callable[..., TelegramPoller], session_factory: SessionFactory
+) -> None:
+    await add_update(session_factory, bot.id, 1, timedelta(days=4))
+    await add_update(session_factory, bot.id, 2, timedelta(days=3, hours=1))
+    await add_update(session_factory, bot.id, 3, timedelta(days=2, hours=23))
+    await add_update(session_factory, bot.id, 4, timedelta(minutes=1))
+    clock = [1000.0]
+    poller = make_poller(bot.id, clock=lambda: clock[0])
+    await poller.prune_if_due()
+    assert await seen_updates(session_factory, bot.id) == {3, 4}
+
+    await add_update(session_factory, bot.id, 5, timedelta(days=10))
+    clock[0] += 3599.0
+    await poller.prune_if_due()  # not due yet
+    assert await seen_updates(session_factory, bot.id) == {3, 4, 5}
+    clock[0] += 2.0
+    await poller.prune_if_due()
+    assert await seen_updates(session_factory, bot.id) == {3, 4}
+
+
+async def test_the_supervisor_loop_prunes(
+    bot: LiveBot, make_poller: Callable[..., TelegramPoller], session_factory: SessionFactory
+) -> None:
+    await add_update(session_factory, bot.id, 7, timedelta(days=5))
+    make_poller(bot.id).start()
+
+    async def pruned() -> bool:
+        return 7 not in await seen_updates(session_factory, bot.id)
+
+    await eventually(pruned)
 
 
 async def test_a_revoked_token_is_recorded_and_polling_stops_until_the_token_changes(
@@ -500,7 +730,8 @@ async def test_webhook_mode_connect_is_unchanged(
     _, token = new_token()
     response = await tg_client.post(f"/bots/{bot_id}/telegram/connect", json={"token": token}, headers=ALICE)
     assert response.status_code == 200
-    assert [name for name, _ in fake_tg.calls] == ["getMe", "setWebhook"]
+    # connect also asks whether another server serves this Telegram bot (webhook info, then a probe)
+    assert [name for name, _ in fake_tg.calls] == ["getMe", "getWebhookInfo", "getUpdates", "setWebhook"]
     assert fake_tg.calls_to("setWebhook")[0]["drop_pending_updates"] is True
 
 
