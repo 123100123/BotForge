@@ -301,12 +301,12 @@ async def test_stale_navigation_is_a_new_message_with_the_home() -> None:
 
 async def test_placeholder_routes_answer_with_a_notice_and_the_manager_home() -> None:
     h = Harness(BotSpec.model_validate(business_data()))
-    for data in ("nav:go:mgr.ord", "nav:go:mgr.team", "nav:go:mgr.evt.new"):
+    for data in ("nav:go:mgr.ord", "nav:go:mgr.team"):
         r = await h.tap(OWNER, data)
         assert text(r).startswith(tx.COMING_SOON), data
         assert "nav:go:cust" in button_data(r)
-    r = await h.tap(OWNER, "nav:go:mgr.evt")  # until U7: the events list
-    assert "events:" in " ".join(button_data(r))
+    r = await h.tap(OWNER, "nav:go:mgr.evt")  # U7: the manager's events list (runtime/manager_events.py)
+    assert button_data(r)[0] == "nav:go:mgr.evt.new"
 
 
 # --- extension points ------------------------------------------------------------------------------

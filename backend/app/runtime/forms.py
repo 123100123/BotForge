@@ -37,6 +37,16 @@ call, and progress is keyed by field key, so a spec change mid-form cannot misal
 Answers that no longer validate at completion (e.g. a removed choice) are asked again.
 Note: an ``ans`` tap on an old question message whose field is no longer current is applied to
 the current field if its index is valid for it (callback args carry only the choice index).
+
+Host-provided steps (additive, U7): a module that runs its own multi-step flow on a capability
+(the manager's event form in ``runtime/manager_events.py``) registers a session ``step`` name with
+``register_step(step, host)``. A session ``{"capability": cap.key, "step": <registered step>,
+"vars": {...}}`` is then handed to that host by ``handle_text`` (``host.on_step_text``) and by
+``handle_callback`` (``host.on_step_callback``, for every form action: ``ans`` with any arg,
+``skip``, ``stop``) instead of being answered as stale. The host owns that session (sets, reads,
+clears it) and the args of its own ``ans``/``skip``/``stop`` buttons. No engine change is needed:
+engines already route their capability's text and form actions here. Sessions whose step is
+``"form"`` or not registered behave exactly as before.
 """
 
 from collections.abc import Sequence
@@ -56,6 +66,38 @@ class FormHost(Protocol):
     async def on_form_done(
         self, ctx: Ctx, cap: Any, values: dict[str, Any], data: dict[str, Any]
     ) -> None: ...
+
+
+class StepHost(Protocol):
+    """A module running its own steps on a capability's form actions (module docstring)."""
+
+    async def on_step_text(self, ctx: Ctx, cap: Any, session: dict[str, Any], text: str) -> None: ...
+
+    async def on_step_callback(
+        self, ctx: Ctx, cap: Any, session: dict[str, Any], action: str, arg: str
+    ) -> None: ...
+
+
+STEP_HOSTS: dict[str, StepHost] = {}
+
+
+def register_step(step: str, host: StepHost) -> None:
+    """Hand sessions whose ``step`` is ``step`` to ``host`` (``"form"`` stays this module's)."""
+    if step == FORM_STEP:
+        raise ValueError("the form step belongs to runtime/forms.py")
+    STEP_HOSTS[step] = host
+
+
+def _step_host(session: dict[str, Any] | None, cap: Any) -> StepHost | None:
+    """The registered host of ``session`` when it is a host step on ``cap``, else None."""
+    if not (
+        isinstance(session, dict)
+        and session.get("capability") == cap.key
+        and isinstance(session.get("vars"), dict)
+    ):
+        return None
+    step = session.get("step")
+    return STEP_HOSTS.get(step) if isinstance(step, str) else None
 
 
 def _fields(cap: Any, fields: Sequence[FieldDef] | None) -> list[FieldDef]:
@@ -100,6 +142,10 @@ async def handle_text(
     ctx: Ctx, host: FormHost, cap: Any, text: str, *, fields: Sequence[FieldDef] | None = None
 ) -> None:
     session = await ctx.get_session()
+    step_host = _step_host(session, cap)
+    if step_host is not None and session is not None:
+        await step_host.on_step_text(ctx, cap, session, text)
+        return
     if not is_form_session(session, cap):
         ctx.stale()
         return
@@ -121,8 +167,12 @@ async def handle_callback(
     *,
     fields: Sequence[FieldDef] | None = None,
 ) -> None:
-    """Handle ``ans`` / ``skip`` / ``stop`` for ``cap``'s form."""
+    """Handle ``ans`` / ``skip`` / ``stop`` for ``cap``'s form (or a registered step host's)."""
     session = await ctx.get_session()
+    step_host = _step_host(session, cap)
+    if step_host is not None and session is not None:
+        await step_host.on_step_callback(ctx, cap, session, action, arg)
+        return
     if not is_form_session(session, cap):
         ctx.stale()
         return
