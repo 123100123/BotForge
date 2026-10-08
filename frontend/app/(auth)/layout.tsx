@@ -1,27 +1,8 @@
-"use client";
+import type { ReactNode } from "react";
+import { AuthBrandPanel } from "@/components/auth/auth-brand-panel";
+import { AuthShell } from "@/components/auth/auth-shell";
 
-import { useEffect, type ReactNode } from "react";
-import { useRouter } from "next/navigation";
-import { Logo } from "@/components/app/logo";
-import { ThemeMenu } from "@/components/app/theme-menu";
-import { useAuth } from "@/lib/auth";
-
-/** Centered shell for the auth pages; users with a session are sent to the bots list. */
+/** Split shell for the auth pages (form at the start edge, brand panel at the end edge from 1024px). */
 export default function AuthLayout({ children }: { children: ReactNode }) {
-  const { status } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (status === "authenticated") router.replace("/bots");
-  }, [status, router]);
-
-  return (
-    <main className="relative flex min-h-dvh flex-col items-center justify-center gap-6 px-4 py-10">
-      <div className="absolute end-4 top-4">
-        <ThemeMenu />
-      </div>
-      <Logo size={36} />
-      {children}
-    </main>
-  );
+  return <AuthShell aside={<AuthBrandPanel />}>{children}</AuthShell>;
 }
