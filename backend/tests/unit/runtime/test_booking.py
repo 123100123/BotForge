@@ -19,7 +19,7 @@ from app.runtime.engines import get_engine
 from app.runtime.memory_store import MemoryStore
 from app.runtime.store import Record
 from app.runtime.texts import booking as tx
-from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from tests.unit.runtime.harness import EXAMPLES, T0, Harness, button_data, text
 
 CAP = "book_workshop"
@@ -174,7 +174,7 @@ async def test_list_shows_upcoming_items_sorted_and_hides_started() -> None:
         f"{CAP}:item:{sooner}",
         f"{CAP}:item:{later}",
         f"{CAP}:mine:",
-        "menu:home:",
+        "nav:go:home",
     ]
     assert not has(r, "item", started)
     # list callback with a page arg renders the same list
@@ -202,7 +202,7 @@ async def test_item_detail_buttons_remaining_waitlist_and_own_status() -> None:
     assert t.startswith("کارگاه عکاسی\n\nتوضیحات: توضیح\nمدرس: مریم احمدی\nزمان شروع: ")
     assert "هزینه (تومان): ۱٬۵۰۰٬۰۰۰" in t
     assert "ظرفیت باقی‌مانده: ۱" in t and "تعداد در لیست انتظار: ۰" in t
-    assert button_data(r) == [f"{CAP}:book:{w}", f"{CAP}:list:0", "menu:home:"]
+    assert button_data(r) == [f"{CAP}:book:{w}", f"{CAP}:list:0", "nav:go:home"]
 
     b_ali = await book_ok(h, "ali", w)
     r = await open_item(h, "ali", w)
@@ -225,7 +225,7 @@ async def test_item_detail_without_waitlist_has_no_waitlist_line() -> None:
 async def test_item_stale_and_started_item_detail_still_offers_book() -> None:
     h = Harness(booking_spec())
     r = await h.tap("ali", f"{CAP}:item:999")
-    assert text(r) == common.STALE
+    assert text(r) == nav_texts.STALE
     started = await seed_item(h, hours=-2)
     r = await h.tap("ali", f"{CAP}:item:{started}")
     assert has(r, "book", started) and tx.CLOSED_LINE in text(r)
@@ -542,7 +542,7 @@ async def test_mine_view_lists_active_bookings_with_cancel_buttons() -> None:
         "• الف (دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۱:۳۰) — قطعی\n"
         "• ب (دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۷:۳۰) — در لیست انتظار (نفر ۱)"
     )
-    assert button_data(r) == [f"{CAP}:cancel:{ba}", f"{CAP}:cancel:{bb}", f"{CAP}:list:0", "menu:home:"]
+    assert button_data(r) == [f"{CAP}:cancel:{ba}", f"{CAP}:cancel:{bb}", f"{CAP}:list:0", "nav:go:home"]
     r2 = await h.tap("ali", f"{CAP}:mine:")
     assert text(r2) == text(r)
 

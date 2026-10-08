@@ -3,6 +3,7 @@ from datetime import timedelta
 from app.botspec.models import BotSpec
 from app.runtime.ctx import Ctx
 from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from tests.unit.runtime.conftest import build_catalog_spec
 from tests.unit.runtime.harness import T0, Harness, button_data, buttons, find_button, text
 
@@ -25,26 +26,26 @@ async def test_info_multi_page_list_show_and_back(workshop: BotSpec) -> None:
     h = Harness(workshop)
     r = await h.tap("ali", "menu:open:about")
     assert text(r).startswith("دربارهٔ ما\n")
-    assert button_data(r) == ["info:show:about", "info:show:address", "menu:home:"]
+    assert button_data(r) == ["info:show:about", "info:show:address", "nav:go:home"]
     assert [b.label for b in buttons(r)][:2] == ["دربارهٔ آموزشگاه", "نشانی و تماس"]
     r = await h.tap("ali", "info:show:address")
     assert text(r).startswith("نشانی و تماس\n\nنشانی: تهران")
     assert r.messages[0].edit is True
-    assert button_data(r) == ["menu:open:about", "menu:home:"]
-    assert find_button(r, common.BACK).data == "menu:open:about"
+    assert button_data(r) == ["nav:go:info", "nav:go:home"]
+    assert find_button(r, common.BACK).data == "nav:go:info"
 
 
 async def test_info_single_page_shown_directly() -> None:
     h = Harness(build_catalog_spec(info_pages=1))
     r = await h.tap("ali", "menu:open:about")
     assert text(r) == "صفحه 1\n\nمتن صفحه 1"
-    assert button_data(r) == ["menu:home:"]
+    assert button_data(r) == ["nav:go:home"]
 
 
 async def test_info_page_removed_is_stale() -> None:
     h = Harness(build_catalog_spec(info_pages=2))
     r = await h.tap("ali", "info:show:p9")
-    assert text(r) == common.STALE
+    assert text(r) == nav_texts.STALE
 
 
 # --- catalog --------------------------------------------------------------------------------
@@ -54,7 +55,7 @@ async def test_catalog_empty() -> None:
     h = Harness(build_catalog_spec())
     r = await h.tap("ali", "menu:open:events_menu")
     assert text(r) == "فهرست رویدادها\nدر حال حاضر موردی برای نمایش وجود ندارد."
-    assert button_data(r) == ["menu:home:"]
+    assert button_data(r) == ["nav:go:home"]
 
 
 async def test_catalog_list_item_detail_and_back() -> None:
@@ -63,13 +64,13 @@ async def test_catalog_list_item_detail_and_back() -> None:
     await h.store.update_record("event", ids[1], data={"online": True}, now=T0)
     r = await h.tap("ali", "menu:open:events_menu")
     assert text(r) == "فهرست رویدادها\nیکی از موارد زیر را انتخاب کنید:"
-    assert button_data(r) == [f"events:item:{i}" for i in ids] + ["menu:home:"]
+    assert button_data(r) == [f"events:item:{i}" for i in ids] + ["nav:go:home"]
     assert [b.label for b in buttons(r)][:3] == ["رویداد 0", "رویداد 1", "رویداد 2"]
 
     r = await h.tap("ali", f"events:item:{ids[1]}")
     # 2026-10-05 09:00 UTC = 12:30 Tehran, Monday 13 Mehr 1405
     assert text(r) == ("رویداد 1\n\nزمان شروع: دوشنبه ۱۳ مهر ۱۴۰۵، ساعت ۱۲:۳۰\nهزینه: ۱٬۰۰۰\nآنلاین: بله")
-    assert button_data(r) == ["events:list:0", "menu:home:"]
+    assert button_data(r) == ["events:list:0", "nav:go:home"]
     r = await h.tap("ali", f"events:item:{ids[0]}")
     assert "هزینه: ۰" in text(r) and "آنلاین: —" in text(r)
 
@@ -81,17 +82,17 @@ async def test_catalog_pagination() -> None:
     assert "صفحهٔ ۱ از ۳" in text(r)
     data = button_data(r)
     assert data[:8] == [f"events:item:{i}" for i in ids[:8]]
-    assert data[8:] == ["events:list:1", "menu:home:"]  # next only on the first page
+    assert data[8:] == ["events:list:1", "nav:go:home"]  # next only on the first page
 
     r = await h.tap("ali", "events:list:1")
     data = button_data(r)
     assert data[:8] == [f"events:item:{i}" for i in ids[8:16]]
-    assert data[8:] == ["events:list:0", "events:list:2", "menu:home:"]
+    assert data[8:] == ["events:list:0", "events:list:2", "nav:go:home"]
     assert [b.label for b in buttons(r)][8:10] == [common.PREVIOUS, common.NEXT]
 
     r = await h.tap("ali", "events:list:2")
     assert "صفحهٔ ۳ از ۳" in text(r)
-    assert button_data(r) == [f"events:item:{i}" for i in ids[16:]] + ["events:list:1", "menu:home:"]
+    assert button_data(r) == [f"events:item:{i}" for i in ids[16:]] + ["events:list:1", "nav:go:home"]
 
     r = await h.tap("ali", "events:list:99")  # clamped to the last page
     assert "صفحهٔ ۳ از ۳" in text(r)
@@ -99,7 +100,7 @@ async def test_catalog_pagination() -> None:
     assert "صفحهٔ ۱ از ۳" in text(r)
 
     r = await h.tap("ali", f"events:item:{ids[17]}")  # back goes to the item's page
-    assert button_data(r) == ["events:list:2", "menu:home:"]
+    assert button_data(r) == ["events:list:2", "nav:go:home"]
 
 
 async def test_catalog_upcoming_only_with_injected_now() -> None:
@@ -108,12 +109,12 @@ async def test_catalog_upcoming_only_with_injected_now() -> None:
     soon = await h.seed("event", {"title": "نزدیک", "starts_at": iso(2)})
     later = await h.seed("event", {"title": "بعدی", "starts_at": iso(48)})
     r = await h.tap("ali", "menu:open:events_menu")
-    assert button_data(r) == [f"events:item:{soon}", f"events:item:{later}", "menu:home:"]
-    assert text(await h.tap("ali", f"events:item:{past}")) == common.STALE
+    assert button_data(r) == [f"events:item:{soon}", f"events:item:{later}", "nav:go:home"]
+    assert text(await h.tap("ali", f"events:item:{past}")) == nav_texts.STALE
 
     h.advance(hours=3)  # "soon" has started now
     r = await h.tap("ali", "events:list:0")
-    assert button_data(r) == [f"events:item:{later}", "menu:home:"]
+    assert button_data(r) == [f"events:item:{later}", "nav:go:home"]
 
     h.advance(hours=100)
     r = await h.tap("ali", "events:list:0")
@@ -149,7 +150,7 @@ async def test_catalog_sort_field_and_desc() -> None:
 async def test_catalog_missing_item_and_bad_arg_are_stale() -> None:
     h = Harness(build_catalog_spec())
     for data in ("events:item:999", "events:item:abc", "events:item:"):
-        assert text(await h.tap("ali", data)) == common.STALE
+        assert text(await h.tap("ali", data)) == nav_texts.STALE
 
 
 async def test_catalog_title_fallback_and_long_label() -> None:

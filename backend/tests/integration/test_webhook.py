@@ -193,11 +193,11 @@ async def test_golden_flow_book_waitlist_cancel_and_promotion(
     # start -> menu
     assert (await ali.say("/start")).status_code == 200
     assert ali.last_text().startswith("سلام")
-    assert any(b["callback_data"] == "menu:open:workshops" for b in ali.buttons())
+    assert any(b["callback_data"] == "nav:go:bkg" for b in ali.buttons())
     assert fake_tg.calls[-1][0] == "sendMessage"
 
     # menu -> list -> item: each callback edits the message that carried the button
-    await ali.press(ali.data_with("menu:open:workshops"))
+    await ali.press(ali.data_with("nav:go:bkg"))
     assert fake_tg.calls[-1][0] == "editMessageText" and fake_tg.calls[-1][1]["message_id"] == 77
     assert "کارگاه عکاسی" in ali.last_text() or any("کارگاه عکاسی" in b["text"] for b in ali.buttons())
     await ali.press(ali.data_with(f"{CAP}:item:"))
@@ -252,7 +252,7 @@ async def test_text_message_outside_a_form_shows_the_menu(
 ) -> None:
     chat = Chat(tg_client, bot, fake_tg, 603)
     await chat.say("یک پیام تصادفی")
-    assert any(b["callback_data"].startswith("menu:open:") for b in chat.buttons())
+    assert any(b["callback_data"].startswith("nav:go:") for b in chat.buttons())
 
 
 async def test_hostile_user_text_never_reaches_telegram_unescaped(

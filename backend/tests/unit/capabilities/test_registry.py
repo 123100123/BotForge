@@ -13,6 +13,7 @@ from app.botspec.validate import validate_spec
 from app.capabilities.registry import CATEGORY_ORDER, REGISTRY, REGISTRY_BY_ID, REGISTRY_IDS, unique_key
 from app.capabilities.resolve import find_cycle
 from app.capabilities.service import catalog_markdown, list_capabilities
+from app.runtime.nav import compile_user_home, virtual_menu
 from app.testing.derive import derive_scenarios
 from app.testing.runner import run_scenarios
 
@@ -136,7 +137,8 @@ async def test_default_ops_apply_validate_and_pass_derived_tests(workshop: BotSp
     assert not [i for i in validate_spec(spec) if i.severity == "error"]
     keys = cap.matches(spec)
     assert keys, f"{cap_id}: the default ops must realise the capability"
-    assert any(m.capability in keys for m in spec.menu), f"{cap_id}: needs a menu item"
+    assert spec.menu == workshop.menu, f"{cap_id}: toggles no longer write menu items"
+    assert any(e.capability in keys for e in virtual_menu(spec)), f"{cap_id}: must be reachable"
     report = await run_scenarios(spec, derive_scenarios(spec))
     assert report.failed == 0, [r.scenario_id for r in report.results if not r.passed]
     assert apply_patch(workshop, ops) == spec  # deterministic
@@ -162,7 +164,11 @@ def test_events_default_shape(workshop: BotSpec) -> None:
         "location",
         "capacity",
     ]
-    assert any(m.capability == "events" and m.label == "رویدادها" for m in spec.menu)
+    home = compile_user_home(spec, "customer")
+    assert [(e.key, e.label) for e in home if e.capability == "events"] == [
+        ("evt", "📅 رویدادها"),
+        ("evt.mine", "🗓 ثبت‌نام‌های من"),
+    ]
 
 
 def test_events_key_suffixed_when_taken(workshop: BotSpec) -> None:

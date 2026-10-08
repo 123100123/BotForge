@@ -218,8 +218,8 @@ async def test_events_staff_orders_copilot_and_overview(demo: Demo) -> None:
     # (3) A customer RSVPs in Telegram; the events report and the Overview count it.
     customer = demo.chat(CUSTOMER)
     await customer.say("/start")
-    assert customer.data_with("menu:open:events")
-    await customer.press("menu:open:events")
+    assert customer.data_with("nav:go:evt")
+    await customer.press("nav:go:evt")
     assert "کارگاه عکاسی" in customer.last_text()
     await customer.press(f"events:book:{event_id}")
     rsvps = (await demo.get("/data/events"))["items"]
@@ -263,7 +263,7 @@ async def test_events_staff_orders_copilot_and_overview(demo: Demo) -> None:
         sandbox = PgStore(session, demo.bot.id, "sandbox", "owner")
         item = (await sandbox.create_record("product", {"title": "قهوه", "price": 120000}, now=start)).id
         await session.commit()
-    assert "قهوه" in texts(await demo.sim("ali", "menu:open:orders"), "ali")
+    assert "قهوه" in texts(await demo.sim("ali", "nav:go:shop"), "ali")
     await demo.sim("ali", f"orders:add:{item}")
     assert "۱۲۰٬۰۰۰ تومان" in texts(await demo.sim("ali", "orders:cart:"), "ali")
     placed = await demo.sim("ali", "orders:chk:")

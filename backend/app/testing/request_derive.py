@@ -17,8 +17,8 @@ test that fails must mean a real bug). Emitted templates:
                             first reachable owner action
   item_tied                 (``item_resource``) the request is tied to the picked (second) item
 
-A capability with no main menu item is skipped: users cannot reach it. "mine" is checked only when
-the menu has a ``mine`` item for the capability.
+A capability with no main entry in ``nav.virtual_menu`` is skipped: users cannot reach it. "mine" is
+checked only when there is a ``mine`` entry for the capability.
 """
 
 from collections import deque

@@ -185,11 +185,15 @@ WORKSHOP_NEGATIVE: list[tuple[str, Mutator, str, list[str] | None]] = [
         "invalid_placeholder",
         ["capabilities", "book_workshop", "texts", "confirmed", "value"],
     ),
-    ("empty menu", lambda d: d.update(menu=[]), "menu_empty", None),
-    ("menu too long", _many_menu, "menu_too_long", None),
     ("no capabilities", lambda d: d.update(capabilities=[], menu=[]), "no_capabilities", None),
     ("resource/capability key collision", _key_collision, "key_collision", ["resources", "workshop"]),
     ("reserved key", _reserved, "reserved_key", ["capabilities", "menu"]),
+    (
+        "reserved nav key",
+        lambda d: (cap(d, "info").update(key="nav"), menu(d, "about").update(capability="nav")),
+        "reserved_key",
+        ["capabilities", "nav"],
+    ),
     (
         "reserved overview key",
         lambda d: (cap(d, "info").update(key="overview"), menu(d, "about").update(capability="overview")),
@@ -264,19 +268,16 @@ def test_item_resource_must_exist(repair_data: dict[str, Any]) -> None:
     assert "unknown_resource" in {i.code for i in check_spec(repair_data)}
 
 
-def test_cancel_without_mine_is_warning(workshop_data: dict[str, Any]) -> None:
-    workshop_data["menu"] = [m for m in workshop_data["menu"] if m["key"] != "my_bookings"]
-    issues = check_spec(workshop_data)
-    assert [(i.code, i.severity) for i in issues] == [("cancel_without_mine", "warning")]
-    assert not has_errors(issues)
-
-
-def test_unreachable_capability_is_warning(workshop_data: dict[str, Any]) -> None:
-    workshop_data["menu"] = [m for m in workshop_data["menu"] if m["key"] != "about"]
-    issues = check_spec(workshop_data)
-    assert [(i.code, i.severity, i.path) for i in issues] == [
-        ("capability_unreachable", "warning", ["capabilities", "info"])
-    ]
+def test_menu_rules_no_longer_apply(workshop_data: dict[str, Any]) -> None:
+    """Navigation is compiled from the capabilities (runtime/nav.py): no mine item, an unreferenced
+    capability, a long menu or an empty menu are all valid and warning-free."""
+    workshop_data["menu"] = [m for m in workshop_data["menu"] if m["key"] not in ("my_bookings", "about")]
+    assert check_spec(workshop_data) == []
+    _many_menu(workshop_data)
+    assert check_spec(workshop_data) == []
+    workshop_data["menu"] = []
+    assert check_spec(workshop_data) == []
+    assert not has_errors(check_spec(workshop_data))
 
 
 def test_valid_text_override_passes(workshop_data: dict[str, Any]) -> None:

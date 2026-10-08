@@ -9,9 +9,12 @@ from app.runtime.ctx import Ctx
 from app.runtime.engines import EngineUnavailable, get_engine, override_engine
 from app.runtime.engines.base import EngineBase
 from app.runtime.texts import common
+from app.runtime.texts import nav as nav_texts
 from tests.unit.runtime.harness import T0, Harness, button_data, text
 
-WORKSHOP_MENU = ["menu:open:workshops", "menu:open:my_bookings", "menu:open:about"]
+# The customer home is compiled from the capabilities (runtime/nav.py), not from spec.menu.
+WORKSHOP_MENU = ["nav:go:bkg", "nav:go:bkg.mine", "nav:go:info"]
+WORKSHOP_LABELS = ["📅 کارگاه‌ها", "🗓 رزروهای من", "ℹ️ دربارهٔ ما"]
 
 
 class RecordingEngine(EngineBase):
@@ -53,7 +56,7 @@ async def test_start_shows_welcome_and_menu(workshop_h: Harness, workshop: BotSp
     m = r.messages[0]
     assert m.to_actor_id == "ali" and m.text == workshop.bot.welcome_text and m.edit is False
     assert button_data(r) == WORKSHOP_MENU
-    assert [b[0].label for b in m.buttons] == [i.label for i in workshop.menu]
+    assert [b[0].label for b in m.buttons] == WORKSHOP_LABELS
     assert await workshop_h.store.get_session("ali") is None
     assert "ali" in workshop_h.store.users
     assert r.outcomes == [] and r.effects == []
@@ -66,11 +69,12 @@ async def test_text_without_session_shows_menu(workshop_h: Harness, workshop: Bo
     assert "sara" in workshop_h.store.users
 
 
-async def test_menu_home(workshop_h: Harness) -> None:
-    r = await workshop_h.tap("ali", "menu:home:")
-    assert text(r) == common.MENU_HEADER
-    assert button_data(r) == WORKSHOP_MENU
-    assert r.messages[0].edit is True
+async def test_menu_home(workshop_h: Harness, workshop: BotSpec) -> None:
+    for data in ("menu:home:", "nav:go:home"):  # legacy and nav: both the role home
+        r = await workshop_h.tap("ali", data)
+        assert text(r).startswith(f"🏠 {workshop.bot.name}\n")
+        assert button_data(r) == WORKSHOP_MENU
+        assert r.messages[0].edit is True
 
 
 async def test_workshop_booking_menu_without_engine_is_controlled(
@@ -78,7 +82,7 @@ async def test_workshop_booking_menu_without_engine_is_controlled(
 ) -> None:
     with pytest.raises(EngineUnavailable):
         get_engine("booking")
-    for data in ("menu:open:workshops", "menu:open:my_bookings", "book_workshop:list:0"):
+    for data in ("menu:open:workshops", "menu:open:my_bookings", "nav:go:bkg", "book_workshop:list:0"):
         r = await workshop_h.tap("ali", data)
         assert text(r) == common.NOT_AVAILABLE
         assert button_data(r) == WORKSHOP_MENU
@@ -96,16 +100,39 @@ async def test_workshop_booking_menu_without_engine_is_controlled(
         "nope:show:x",  # unknown capability
         "info:list:0",  # action not valid for info
         "info:book:1",
-        "menu:open:nope",  # unknown menu item
-        "menu:show:about",
         "info:show:nope",  # unknown page
         "Info:show:about",
         "x" * 70,
     ],
 )
 async def test_stale_callbacks_never_raise(workshop_h: Harness, data: str | None) -> None:
+    """Stale capability data: a NEW message (never an edit of the pressed one) with the notice and
+    one button to the current menu."""
     r = await workshop_h.tap("ali", data)  # type: ignore[arg-type]
-    assert text(r) == common.STALE
+    assert len(r.messages) == 1 and r.messages[0].edit is False
+    assert text(r) == nav_texts.STALE
+    assert button_data(r) == ["nav:go:home"]
+    assert r.outcomes == []
+
+
+@pytest.mark.parametrize(
+    "data",
+    [
+        "menu:open:nope",
+        "menu:show:about",
+        "nav:go:nope",
+        "nav:go:bkg~9",
+        "nav:go:mgr",
+        "nav:open:x",
+        "nav:go:",
+    ],
+)
+async def test_stale_navigation_sends_the_home_as_a_new_message(workshop_h: Harness, data: str) -> None:
+    """Unknown, out-of-range or forbidden navigation is forgiving: the role home as a NEW message
+    under the stale notice; the pressed message is left alone."""
+    r = await workshop_h.tap("ali", data)
+    assert len(r.messages) == 1 and r.messages[0].edit is False
+    assert text(r).startswith(nav_texts.STALE + "\n")
     assert button_data(r) == WORKSHOP_MENU
     assert r.outcomes == []
 
@@ -136,7 +163,7 @@ async def test_garbage_session_is_discarded(workshop_h: Harness) -> None:
 async def test_info_engine_text_with_its_session_drops_it(workshop_h: Harness) -> None:
     await workshop_h.store.set_session("ali", {"capability": "info", "step": "x", "vars": {}})
     r = await workshop_h.send("ali", "متن")
-    assert text(r) == common.MENU_HEADER
+    assert text(r).startswith("🏠 ") and button_data(r) == WORKSHOP_MENU
     assert await workshop_h.store.get_session("ali") is None
 
 
@@ -239,7 +266,7 @@ async def test_admin_bad_data_rejected(repair: BotSpec, data: str, reason: str) 
 
 async def test_admin_malformed_data_is_stale(repair: BotSpec) -> None:
     r = await Harness(repair).admin("not callback data")
-    assert text(r) == common.STALE and r.outcomes == []
+    assert text(r) == nav_texts.STALE and r.outcomes == []
 
 
 async def test_every_event_upserts_actor(workshop_h: Harness) -> None:

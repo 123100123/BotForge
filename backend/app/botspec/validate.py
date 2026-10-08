@@ -8,11 +8,11 @@ Issue codes (stable; the UI and tests key on them):
   schema_<pydantic type>   schema-level error from parse_spec (e.g. schema_missing,
                            schema_extra_forbidden, schema_string_pattern_mismatch)
   duplicate_key            key repeated within one collection
-  reserved_key             a resource or capability uses the reserved key "menu"
+  reserved_key             a resource or capability uses a reserved key ("menu", "nav", "overview")
   key_collision            a resource key equals a capability key (they share the record
                            collection namespace)
   unknown_resource         resource / item_resource reference does not exist
-  unknown_capability       menu item references a missing capability
+  unknown_capability       (legacy) menu item references a missing capability
   unknown_field            title_field / detail_fields / start_field / upcoming_only_field /
                            sort_field / capacity.field / category_field / price_field /
                            stock_field missing on the resource
@@ -31,21 +31,26 @@ Issue codes (stable; the UI and tests key on them):
   value_out_of_range       negative hours, max_active_per_user < 1, reminder_hours_before
                            outside 1..720
   too_many_checkout_fields orders checkout_fields has more than MAX_CHECKOUT_FIELDS fields
-  mine_view_unsupported    "mine" menu item on an info or catalog capability
+  mine_view_unsupported    (legacy) "mine" menu item on an info or catalog capability
   unknown_status           initial_status / from_statuses / to_status / cancellable_statuses not
                            in statuses
   callback_too_long        an owner action's callback data could exceed 64 bytes
   unknown_text_key         texts key not declared for the capability type
   invalid_placeholder      texts value uses a placeholder not whitelisted for its key
-  menu_empty               no menu item reaches an enabled capability
-  menu_too_long            more than MAX_MENU_ITEMS menu items reach enabled capabilities
   no_capabilities          the spec has no capability at all
-  cancel_without_mine      (warning) booking allows cancellation but has no "mine" menu item
-  capability_unreachable   (warning) enabled capability not referenced by any menu item
+  no_enabled_capabilities  every capability is disabled (the bot would offer nothing; this was
+                           ``menu_empty`` while the menu drove navigation)
 
-Disabled capabilities (``enabled=False``) are still fully validated; only the menu rules above
-ignore them. A menu item pointing at a missing capability counts as enabled for the menu rules
-(it is already an ``unknown_capability`` error).
+Disabled capabilities (``enabled=False``) are still fully validated.
+
+The menu (2026-10-08): Telegram navigation is compiled from the enabled capabilities and the
+actor's role (``runtime/nav.py``); ``spec.menu`` is only a legacy lookup for old ``menu:open:<key>``
+buttons. An empty menu is therefore valid and the menu rules that assumed the menu drives navigation
+are gone (``menu_empty``, ``menu_too_long``, and the warnings ``cancel_without_mine`` and
+``capability_unreachable``: every enabled capability, its "mine" view included, is reachable).
+Items that are present must still be well-formed (``duplicate_key``, ``unknown_capability``,
+``mine_view_unsupported``). ``nav`` is reserved like ``menu``: it is the callback namespace of the
+navigation routes.
 """
 
 from collections import Counter
@@ -75,9 +80,8 @@ from app.botspec.records import RecordValueError, coerce_value
 from app.botspec.text_keys import allowed_placeholders, placeholders_in
 from app.runtime.callbacks import ACT_OWN, CallbackError, make_callback  # leaf module, no cycle
 
-# "menu": callback namespace; "overview": would shadow GET /bots/{id}/reports/overview.
-RESERVED_KEYS = frozenset({"menu", "overview"})
-MAX_MENU_ITEMS = 8
+# "menu", "nav": callback namespaces; "overview": would shadow GET /bots/{id}/reports/overview.
+RESERVED_KEYS = frozenset({"menu", "nav", "overview"})
 MAX_REMINDER_HOURS = 720
 # Largest record id we budget for in owner-action callback data ("own" arg = "<id>.<action>").
 _MAX_RECORD_ID_TOKEN = "999999999999"
@@ -273,13 +277,6 @@ def _check_booking(c: _Collector, spec: BotSpec, cap: BookingCapability, base: l
         if not 1 <= cap.reminder_hours_before <= MAX_REMINDER_HOURS:
             c.error(rpath, "value_out_of_range", f"reminder_hours_before must be 1..{MAX_REMINDER_HOURS}")
     _check_field_ref(c, [*base, "category_field"], res, cap.category_field, want=FieldType.choice)
-
-    if cap.cancellation.enabled and not any(m.capability == cap.key and m.view == "mine" for m in spec.menu):
-        c.warn(
-            base,
-            "cancel_without_mine",
-            "cancellation is enabled but no 'mine' menu item lets users reach their bookings",
-        )
     _check_texts(c, [*base, "texts"], cap.type, cap.texts)
 
 
@@ -342,11 +339,6 @@ def _check_orders(c: _Collector, spec: BotSpec, cap: OrdersCapability, base: lis
     _check_texts(c, [*base, "texts"], cap.type, cap.texts)
 
 
-def _menu_target_enabled(by_key: dict[str, AnyCapability], cap_key: str) -> bool:
-    target = by_key.get(cap_key)
-    return target is None or target.enabled
-
-
 def validate_spec(spec: BotSpec) -> list[SpecIssue]:
     """Every semantic issue of a schema-valid spec, errors and warnings."""
     c = _Collector()
@@ -374,6 +366,8 @@ def validate_spec(spec: BotSpec) -> list[SpecIssue]:
     # Capabilities
     if not spec.capabilities:
         c.error(["capabilities"], "no_capabilities", "the bot needs at least one capability")
+    elif not any(cap.enabled for cap in spec.capabilities):
+        c.error(["capabilities"], "no_enabled_capabilities", "the bot needs at least one enabled capability")
     for cap in spec.capabilities:
         base = ["capabilities", cap.key]
         if cap.type == "info":
@@ -387,13 +381,8 @@ def validate_spec(spec: BotSpec) -> list[SpecIssue]:
         elif isinstance(cap, OrdersCapability):
             _check_orders(c, spec, cap, base)
 
-    # Menu (only items reaching an enabled capability count; unknown targets count as enabled)
+    # Legacy menu items: optional, but well-formed when present (module docstring)
     by_key: dict[str, AnyCapability] = {cap.key: cap for cap in spec.capabilities}
-    live_items = [m for m in spec.menu if _menu_target_enabled(by_key, m.capability)]
-    if not live_items:
-        c.error(["menu"], "menu_empty", "the menu needs at least one item that reaches an enabled capability")
-    elif len(live_items) > MAX_MENU_ITEMS:
-        c.error(["menu"], "menu_too_long", f"the menu allows at most {MAX_MENU_ITEMS} items")
     for m in spec.menu:
         target = by_key.get(m.capability)
         if target is None:
@@ -407,13 +396,5 @@ def validate_spec(spec: BotSpec) -> list[SpecIssue]:
                 ["menu", m.key, "view"],
                 "mine_view_unsupported",
                 f"'mine' view needs a booking, request or orders capability, not {target.type}",
-            )
-    referenced = {m.capability for m in spec.menu}
-    for cap in spec.capabilities:
-        if cap.enabled and cap.key not in referenced:
-            c.warn(
-                ["capabilities", cap.key],
-                "capability_unreachable",
-                f"capability '{cap.key}' is not reachable from the menu",
             )
     return c.issues

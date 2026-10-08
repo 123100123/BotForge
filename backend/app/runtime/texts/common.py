@@ -5,13 +5,14 @@
 Engine text modules include them with ``**FORM_TEXTS``.
 """
 
-HOME = "منوی اصلی"
-BACK = "بازگشت"
+# Navigation chrome is central copy (texts/nav.py), re-exported here for the engines.
+from app.runtime.texts.nav import BACK as BACK
+from app.runtime.texts.nav import HOME as HOME
+
 NEXT = "بعدی ›"
 PREVIOUS = "‹ قبلی"
 
-MENU_HEADER = "منوی اصلی\nیکی از گزینه‌های زیر را انتخاب کنید."
-STALE = "این گزینه دیگر در دسترس نیست."
+STALE = "این گزینه دیگر در دسترس نیست."  # forms and web-admin rejections; navigation: texts/nav.py
 NOT_AVAILABLE = "این بخش هنوز در دسترس نیست. لطفاً بعداً دوباره امتحان کنید."
 NOT_ALLOWED = "این کار فقط برای مدیر ربات مجاز است."
 PAGE_INDICATOR = "صفحهٔ {page} از {pages}"

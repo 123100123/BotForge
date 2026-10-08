@@ -1,6 +1,7 @@
 """Revisions service: drafts, activation rules, rollback, sample data. Needs TEST_DATABASE_URL."""
 
 import asyncio
+import copy
 import uuid
 from typing import Any
 
@@ -149,25 +150,83 @@ async def test_bot_with_token_goes_live_on_activation(
         assert bot is not None and bot.status == "live"
 
 
-async def test_second_revision_supersedes_first_and_clears_live_sessions(
+FORM = {"capability": "book_workshop", "step": "form", "vars": {"field": "x", "answers": {}, "data": {}}}
+
+
+async def live_sessions(session_factory: SessionFactory, bot_id: uuid.UUID, *actors: str) -> dict[str, Any]:
+    async with session_factory() as session:
+        store = PgStore(session, bot_id, "live")
+        return {a: await store.get_session(a) for a in actors}
+
+
+async def test_second_revision_supersedes_first_and_keeps_sessions_it_can_continue(
+    session_factory: SessionFactory, golden_spec: dict[str, Any]
+) -> None:
+    """Activation deletes only the live sessions the new spec cannot continue: a form of a removed,
+    disabled or retyped capability. A form of a capability that is still enabled survives (a
+    capability toggle elsewhere must not break it), and so does an idle session."""
+    bot_id = await new_bot(session_factory)
+    r1 = await draft(session_factory, bot_id, golden_spec)
+    await do_activate(session_factory, r1)
+    async with session_factory() as session:
+        live = PgStore(session, bot_id, "live")
+        await live.set_session("ali", FORM)
+        await live.set_session("sara", {**FORM, "capability": "gone"})
+        await live.set_session("reza", {"s": 1})
+        await live.set_session("mina", {**FORM, "capability": "info"})
+        await PgStore(session, bot_id, "sandbox").set_session("ali", {"s": 2})
+        await session.commit()
+
+    without_info = {
+        **golden_spec,
+        "capabilities": [c for c in golden_spec["capabilities"] if c["key"] != "info"],
+    }
+    without_info["menu"] = [m for m in golden_spec["menu"] if m["capability"] != "info"]
+    r2 = await draft(session_factory, bot_id, without_info, parent_id=r1)
+    await do_activate(session_factory, r2)
+
+    active, statuses = await state(session_factory, bot_id)
+    assert active == r2 and statuses == {1: "superseded", 2: "active"}
+    assert await live_sessions(session_factory, bot_id, "ali", "sara", "reza", "mina") == {
+        "ali": FORM,  # still enabled: survives
+        "sara": None,  # unknown capability
+        "reza": {"s": 1},  # idle
+        "mina": None,  # removed in r2
+    }
+    async with session_factory() as session:
+        assert await PgStore(session, bot_id, "sandbox").get_session("ali") == {"s": 2}
+
+    disabled = copy.deepcopy(without_info)
+    next(c for c in disabled["capabilities"] if c["key"] == "book_workshop")["enabled"] = False
+    r3 = await draft(session_factory, bot_id, disabled, parent_id=r2)
+    await do_activate(session_factory, r3)
+    assert await live_sessions(session_factory, bot_id, "ali", "reza") == {"ali": None, "reza": {"s": 1}}
+
+
+async def test_activation_drops_sessions_of_a_retyped_capability(
     session_factory: SessionFactory, golden_spec: dict[str, Any]
 ) -> None:
     bot_id = await new_bot(session_factory)
     r1 = await draft(session_factory, bot_id, golden_spec)
     await do_activate(session_factory, r1)
     async with session_factory() as session:
-        await PgStore(session, bot_id, "live").set_session("ali", {"s": 1})
-        await PgStore(session, bot_id, "sandbox").set_session("ali", {"s": 2})
+        await PgStore(session, bot_id, "live").set_session("ali", {**FORM, "capability": "info"})
         await session.commit()
-
-    r2 = await draft(session_factory, bot_id, golden_spec, parent_id=r1)
+    retyped = copy.deepcopy(golden_spec)
+    info = next(c for c in retyped["capabilities"] if c["key"] == "info")
+    retyped["capabilities"].remove(info)
+    retyped["capabilities"].append(
+        {
+            "type": "catalog",
+            "key": "info",
+            "title": "فهرست",
+            "resource": "workshop",
+            "detail_fields": ["title"],
+        }
+    )
+    r2 = await draft(session_factory, bot_id, retyped, parent_id=r1)
     await do_activate(session_factory, r2)
-
-    active, statuses = await state(session_factory, bot_id)
-    assert active == r2 and statuses == {1: "superseded", 2: "active"}
-    async with session_factory() as session:
-        assert await PgStore(session, bot_id, "live").get_session("ali") is None
-        assert await PgStore(session, bot_id, "sandbox").get_session("ali") == {"s": 2}
+    assert await live_sessions(session_factory, bot_id, "ali") == {"ali": None}
 
 
 async def test_stale_base_is_refused(session_factory: SessionFactory, golden_spec: dict[str, Any]) -> None:
@@ -226,15 +285,15 @@ async def test_rollback(session_factory: SessionFactory, golden_spec: dict[str, 
     with pytest.raises(InvalidRevisionState):
         await do_activate(session_factory, r1)
     async with session_factory() as session:
-        await PgStore(session, bot_id, "live").set_session("ali", {"s": 1})
+        await PgStore(session, bot_id, "live").set_session("ali", {**FORM, "capability": "gone"})
+        await PgStore(session, bot_id, "live").set_session("sara", FORM)
         await session.commit()
 
     rolled = await do_activate(session_factory, r1, rollback=True)
     assert rolled.status == "active"
     active, statuses = await state(session_factory, bot_id)
     assert active == r1 and statuses == {1: "active", 2: "superseded", 3: "draft"}  # no new revision
-    async with session_factory() as session:
-        assert await PgStore(session, bot_id, "live").get_session("ali") is None
+    assert await live_sessions(session_factory, bot_id, "ali", "sara") == {"ali": None, "sara": FORM}
 
     with pytest.raises(StaleBase):  # r3 was based on r2, which is no longer active
         await do_activate(session_factory, r3)

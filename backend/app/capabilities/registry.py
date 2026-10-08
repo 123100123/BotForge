@@ -12,7 +12,9 @@ Ids are a contract (frontend, agent, reports use them): see ``REGISTRY_IDS``.
 ``default_ops(spec)`` returns deterministic ``PatchOp``s that add the capability with sensible
 defaults, or ``None`` when the owner's judgment is needed (the caller then hands
 ``handoff_prompt`` to the agent). Every default op list must apply cleanly to a valid spec (unit
-tested against ``examples/workshop.botspec.json``).
+tested against ``examples/workshop.botspec.json``). The ops never touch ``spec.menu``: Telegram
+navigation is compiled from the enabled capabilities (``runtime/nav.py``), so a new capability
+appears in the role homes by itself and a "full menu" can no longer block a toggle.
 
 Matching rules worth knowing:
   forms    any ``request`` capability EXCEPT the keys owned by the more specific entries
@@ -39,7 +41,6 @@ from app.botspec.models import (
     RequestCapability,
 )
 from app.botspec.patch import PatchOp
-from app.botspec.validate import MAX_MENU_ITEMS
 
 Category = Literal["commerce", "operations", "team", "intelligence", "customer"]
 Kind = Literal["spec", "module"]
@@ -140,40 +141,6 @@ def _entity_keys(spec: BotSpec) -> set[str]:
     return {c.key for c in spec.capabilities} | {r.key for r in spec.resources}
 
 
-def _menu_room(spec: BotSpec) -> int:
-    enabled = {c.key for c in spec.capabilities if c.enabled}
-    unknown = {m.capability for m in spec.menu} - {c.key for c in spec.capabilities}
-    live = [m for m in spec.menu if m.capability in enabled or m.capability in unknown]
-    return MAX_MENU_ITEMS - len(live)
-
-
-def _menu_ops(spec: BotSpec, cap_key: str, main_label: str, mine_label: str | None) -> list[PatchOp] | None:
-    """Menu items for a new capability: main always, mine when there is room. None: menu full."""
-    room = _menu_room(spec)
-    if room < 1:
-        return None
-    taken = {m.key for m in spec.menu}
-    main_key = unique_key(cap_key, taken)
-    taken.add(main_key)
-    ops = [
-        PatchOp(
-            op="add",
-            path=["menu"],
-            value={"key": main_key, "label": main_label, "capability": cap_key, "view": "main"},
-        )
-    ]
-    if mine_label is not None and room >= 2:
-        mine_key = unique_key(f"my_{cap_key}"[:24], taken)
-        ops.append(
-            PatchOp(
-                op="add",
-                path=["menu"],
-                value={"key": mine_key, "label": mine_label, "capability": cap_key, "view": "mine"},
-            )
-        )
-    return ops
-
-
 def _field(
     key: str, label: str, type_: str, *, required: bool = True, choices: list[str] | None = None
 ) -> dict:
@@ -237,9 +204,6 @@ def _orders_ops(spec: BotSpec) -> list[PatchOp] | None:
     if price is None:
         return None
     key = unique_key("orders", _entity_keys(spec))
-    menu = _menu_ops(spec, key, "سفارش و خرید", "سفارش‌های من")
-    if menu is None:
-        return None
     cap = {
         "type": "orders",
         "key": key,
@@ -255,7 +219,7 @@ def _orders_ops(spec: BotSpec) -> list[PatchOp] | None:
         "notify_owner_on": ["placed", "cancelled"],
         "notify_user_on": ["status_changed"],
     }
-    return [_add_capability(cap), *menu]
+    return [_add_capability(cap)]
 
 
 EVENT_CATEGORIES = ["آموزشی", "سازمانی", "اجتماعی"]  # training / company / social
@@ -266,9 +230,6 @@ def _events_ops(spec: BotSpec) -> list[PatchOp] | None:
     resource_key = unique_key("event", taken)
     taken.add(resource_key)
     cap_key = unique_key("events", taken)
-    menu = _menu_ops(spec, cap_key, "رویدادها", "ثبت‌نام‌های رویداد من")
-    if menu is None:
-        return None
     resource = {
         "key": resource_key,
         "label": "رویداد",
@@ -300,31 +261,25 @@ def _events_ops(spec: BotSpec) -> list[PatchOp] | None:
         "reminder_hours_before": 24,
         "category_field": "category",
     }
-    return [PatchOp(op="add", path=["resources"], value=resource), _add_capability(cap), *menu]
+    return [PatchOp(op="add", path=["resources"], value=resource), _add_capability(cap)]
 
 
 def _info_ops(spec: BotSpec) -> list[PatchOp] | None:
     key = unique_key("info", _entity_keys(spec))
-    menu = _menu_ops(spec, key, "دربارهٔ ما", None)
-    if menu is None:
-        return None
     cap = {
         "type": "info",
         "key": key,
         "title": "دربارهٔ ما",
         "pages": [{"key": "about", "title": "دربارهٔ ما", "body": spec.bot.welcome_text}],
     }
-    return [_add_capability(cap), *menu]
+    return [_add_capability(cap)]
 
 
-def _fixed_key_request(key: str, build: Callable[[], dict[str, Any]], label: str) -> DefaultOps:
+def _fixed_key_request(key: str, build: Callable[[], dict[str, Any]]) -> DefaultOps:
     def ops(spec: BotSpec) -> list[PatchOp] | None:
         if key in _entity_keys(spec):
             return None  # the fixed key is taken by something else; a suffixed key would never match
-        menu = _menu_ops(spec, key, label, None)
-        if menu is None:
-            return None
-        return [_add_capability({"type": "request", "key": key, **build()}), *menu]
+        return [_add_capability({"type": "request", "key": key, **build()})]
 
     return ops
 
@@ -627,7 +582,7 @@ REGISTRY: tuple[CapabilityDef, ...] = (
         handoff_prompt="بخش پشتیبانی به ربات اضافه کن تا مشتری‌ها درخواست ثبت کنند و من پاسخ بدهم",
         realised_by="spec capability type=request with key 'support'",
         matcher=_match(lambda c: isinstance(c, RequestCapability) and c.key == "support"),
-        ops_builder=_fixed_key_request("support", _support, "پشتیبانی"),
+        ops_builder=_fixed_key_request("support", _support),
     ),
     CapabilityDef(
         id="feedback",
@@ -642,7 +597,7 @@ REGISTRY: tuple[CapabilityDef, ...] = (
         handoff_prompt="بخش ثبت نظر و امتیازدهی مشتری به ربات اضافه کن",
         realised_by="spec capability type=request with key 'feedback'",
         matcher=_match(lambda c: isinstance(c, RequestCapability) and c.key == "feedback"),
-        ops_builder=_fixed_key_request("feedback", _feedback, "ثبت نظر"),
+        ops_builder=_fixed_key_request("feedback", _feedback),
     ),
 )
 

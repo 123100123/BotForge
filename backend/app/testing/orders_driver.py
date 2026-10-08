@@ -45,6 +45,7 @@ from app.testing.drivers import (
     _last_outcome,
     _missing_button,
     find_button,
+    has_entry,
     open_menu,
     reach_item,
     register_driver,
@@ -217,7 +218,7 @@ class OrdersDriver:
             raise StepFailure(
                 f"{ctx.name(actor)} سفارشی شامل «{ctx.item_title(step.item)}» ندارد که لغو شود."
             )
-        if any(m.capability == cap.key and m.view == "mine" for m in ctx.spec.menu):
+        if has_entry(ctx, cap, "mine"):
             resp = await open_menu(ctx, actor, cap, "mine")
         else:
             await ctx.send(actor, "start")

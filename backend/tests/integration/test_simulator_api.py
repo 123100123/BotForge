@@ -59,7 +59,7 @@ async def test_start_against_the_active_revision(
     assert set(body) == {"messages", "outcomes", "effects"}
     [message] = body["messages"]
     assert message["to_actor_id"] == "ali" and message["text"].startswith("سلام")
-    assert [b["data"] for row in message["buttons"] for b in row][:1] == ["menu:open:workshops"]
+    assert [b["data"] for row in message["buttons"] for b in row][:1] == ["nav:go:bkg"]
     assert fake_tg.calls == []  # the sandbox never talks to Telegram
 
 

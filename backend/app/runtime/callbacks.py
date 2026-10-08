@@ -1,7 +1,7 @@
 """Telegram callback data format and action vocabulary (frozen contract, WP0).
 
 Format: ``"<capability_key>:<action>:<arg>"``, at most 64 bytes UTF-8 (Telegram's limit).
-``menu`` is a reserved pseudo-capability. Parsing splits on the first two ':' only, so an arg may
+``menu`` and ``nav`` are reserved pseudo-capabilities. Parsing splits on the first two ':' only, so an arg may
 contain ':' or '.'; the arg may be empty (the data then ends with ':').
 
 Engines and drivers build and parse callback data only through ``make_callback`` /
@@ -23,6 +23,11 @@ Vocabulary (capability type -> action -> arg):
                  own   -> "<record_id>.<owner_action_key>"
                  home / open / show -> reserved for the orders engine (W1-ORD defines the arg)
   form (any)     ans   -> choice index              skip -> ""        stop -> ""
+  nav (pseudo)   go    -> route: "<route id>[~<n>][.<arg>...]" (runtime/nav.py)
+
+``nav`` (additive, 2026-10-08): stable navigation routes that never depend on LLM-chosen menu keys.
+``make_callback("nav", "go", route)`` also requires the route to be ASCII machine ids only
+(``[a-z0-9_.~]``, never a label). Legacy ``menu:home:`` and ``menu:open:<key>`` stay valid.
 
 The actions add/cart/dec/chk exist only for orders; other types' action sets are unchanged.
 """
@@ -31,6 +36,7 @@ import re
 
 MAX_CALLBACK_BYTES = 64
 MENU = "menu"
+NAV = "nav"
 
 ACT_HOME = "home"
 ACT_OPEN = "open"
@@ -50,10 +56,12 @@ ACT_ADD = "add"  # orders only
 ACT_CART = "cart"  # orders only
 ACT_DEC = "dec"  # orders only
 ACT_CHK = "chk"  # orders only
+ACT_GO = "go"  # nav only
 
 FORM_ACTIONS = frozenset({ACT_ANS, ACT_SKIP, ACT_STOP})
 ACTIONS_BY_TYPE: dict[str, frozenset[str]] = {
     MENU: frozenset({ACT_HOME, ACT_OPEN}),
+    NAV: frozenset({ACT_GO}),
     "info": frozenset({ACT_SHOW}),
     "catalog": frozenset({ACT_LIST, ACT_ITEM}),
     "booking": frozenset({ACT_LIST, ACT_ITEM, ACT_BOOK, ACT_MINE, ACT_CANCEL}) | FORM_ACTIONS,
@@ -79,6 +87,7 @@ ACTIONS_BY_TYPE: dict[str, frozenset[str]] = {
 ALL_ACTIONS: frozenset[str] = frozenset().union(*ACTIONS_BY_TYPE.values())
 
 _CAP_RE = re.compile(r"^[a-z][a-z0-9_]{0,23}$")  # same as botspec Key; "menu" also matches
+_NAV_ROUTE_RE = re.compile(r"^[a-z0-9_.~]+$")  # nav routes: ASCII machine ids only
 
 
 class CallbackError(ValueError):
@@ -90,6 +99,8 @@ def make_callback(capability_key: str, action: str, arg: str = "") -> str:
         raise CallbackError(f"invalid capability key {capability_key!r}")
     if action not in ALL_ACTIONS:
         raise CallbackError(f"unknown callback action {action!r}")
+    if capability_key == NAV and not _NAV_ROUTE_RE.fullmatch(arg):
+        raise CallbackError(f"invalid nav route {arg!r}")
     data = f"{capability_key}:{action}:{arg}"
     if len(data.encode("utf-8")) > MAX_CALLBACK_BYTES:
         raise CallbackError(f"callback data exceeds {MAX_CALLBACK_BYTES} bytes: {data!r}")
