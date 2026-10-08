@@ -1,41 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import { Bell, Check, Copy, ExternalLink, RefreshCw } from "lucide-react";
-import { Badge } from "@/components/ui/badge";
+import { useState } from "react";
+import { CircleCheck, CircleDashed, CircleSlash, ExternalLink, RefreshCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { StatusBadge } from "@/components/ui/status-badge";
 import type { TelegramStatus } from "@/lib/types";
+import { CopyButton, LinkBox, PanelSection, SettingsPanel } from "./settings-panel";
 
 interface OwnerLinkProps {
   status: TelegramStatus;
   onRefresh: () => Promise<void>;
 }
 
-async function copyText(text: string): Promise<boolean> {
-  try {
-    await navigator.clipboard.writeText(text);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
 /** The deep link the owner opens in Telegram so alerts (new bookings, requests) reach them. */
 export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
-  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
-
-  async function copy() {
-    if (!status.owner_link) return;
-    setCopied((await copyText(status.owner_link)) ? "yes" : "no");
-    if (timer.current) clearTimeout(timer.current);
-    timer.current = setTimeout(() => setCopied(null), 2500);
-  }
 
   async function refresh() {
     setRefreshing(true);
@@ -46,74 +25,78 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
     }
   }
 
+  // Three states once connected: linked, link ready, nothing to show. Not connected has no link yet.
+  const badge = !status.connected ? (
+    <StatusBadge tone="neutral" icon={<CircleSlash strokeWidth={1.75} aria-hidden />}>
+      منتظر اتصال ربات
+    </StatusBadge>
+  ) : status.owner_linked ? (
+    <StatusBadge tone="success" icon={<CircleCheck strokeWidth={1.75} aria-hidden />}>
+      متصل است
+    </StatusBadge>
+  ) : status.owner_link ? (
+    <StatusBadge tone="warning" icon={<CircleDashed strokeWidth={1.75} aria-hidden />}>
+      هنوز متصل نشده
+    </StatusBadge>
+  ) : (
+    <StatusBadge tone="neutral" icon={<CircleSlash strokeWidth={1.75} aria-hidden />}>
+      پیوندی در دسترس نیست
+    </StatusBadge>
+  );
+
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <Bell className="size-5 text-muted-foreground" />
-          دریافت اعلان‌ها در تلگرام
-          {status.connected && (
-            <Badge variant={status.owner_linked ? "success" : "warning"} className="ms-auto">
-              {status.owner_linked ? "متصل شد" : "هنوز متصل نشده"}
-            </Badge>
-          )}
-        </CardTitle>
-        <CardDescription>
-          با باز کردن پیوند زیر در تلگرام، شما مدیر ربات می‌شوید و ثبت‌نام‌ها و درخواست‌های جدید را همان‌جا می‌گیرید.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-4">
-        {!status.connected ? (
-          <p className="text-sm leading-7 text-muted-foreground">
-            پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
+    <SettingsPanel
+      title="دریافت اعلان‌ها در تلگرام"
+      description="با باز کردن پیوند زیر در تلگرام، شما مدیر ربات می‌شوید و ثبت‌نام‌ها و درخواست‌های جدید را همان‌جا می‌گیرید."
+      status={badge}
+    >
+      {!status.connected ? (
+        <PanelSection>
+          <p className="text-small text-fg-secondary">
+            پس از اتصال ربات به تلگرام (پنل بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
           </p>
-        ) : status.owner_linked ? (
-          // No link while an owner is linked: the code was used, and a code never replaces a linked
-          // owner. Disconnecting unlinks the owner; the next connect returns a fresh link (shown below).
-          <div className="flex flex-col gap-3">
-            <p role="status" className="flex items-start gap-2 rounded-sm bg-success-soft p-3 text-sm leading-7 text-success-text">
-              <Check className="mt-1.5 size-4 shrink-0" />
-              حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
-            </p>
-            <p className="text-sm leading-7 text-muted-foreground">
-              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای دریافت اعلان‌ها در حساب تلگرام دیگری، اتصال ربات را قطع کنید و توکن را
-              دوباره وارد کنید. با قطع اتصال، این حساب هم از مدیریت ربات جدا می‌شود و پس از اتصال دوباره، پیوند تازه‌ای همین‌جا نمایش داده
-              می‌شود که باید آن را با حساب جدید باز کنید.
-            </p>
-          </div>
-        ) : !status.owner_link ? (
-          <p className="text-sm leading-7 text-muted-foreground">
+        </PanelSection>
+      ) : status.owner_linked ? (
+        // No link while an owner is linked: the code was used, and a code never replaces a linked
+        // owner. Disconnecting unlinks the owner; the next connect returns a fresh link.
+        <PanelSection>
+          <p role="status" className="rounded-sm bg-success-soft p-3 text-small text-success-text">
+            حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
+          </p>
+          <p className="max-w-prose text-small text-fg-secondary">
+            پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای دریافت اعلان‌ها در حساب تلگرام دیگری، اتصال ربات را قطع کنید و توکن را
+            دوباره وارد کنید. با قطع اتصال، این حساب هم از مدیریت ربات جدا می‌شود و پس از اتصال دوباره، پیوند تازه‌ای همین‌جا نمایش داده
+            می‌شود که باید آن را با حساب جدید باز کنید.
+          </p>
+        </PanelSection>
+      ) : !status.owner_link ? (
+        <PanelSection>
+          <p className="text-small text-fg-secondary">
             الان پیوندی در دسترس نیست. با وارد کردن دوبارهٔ توکن ربات (پس از قطع اتصال)، یک پیوند تازه ساخته می‌شود.
           </p>
-        ) : (
-          <>
-            <div className="rounded-sm border bg-muted/40 p-3 text-sm break-all" dir="ltr">
-              {status.owner_link}
-            </div>
-            <div className="flex flex-wrap gap-2">
-              <Button asChild>
-                <a href={status.owner_link} target="_blank" rel="noreferrer">
-                  <ExternalLink />
-                  باز کردن در تلگرام
-                </a>
-              </Button>
-              <Button variant="outline" onClick={copy}>
-                {copied === "yes" ? <Check /> : <Copy />}
-                {copied === "yes" ? "کپی شد" : "کپی پیوند"}
-              </Button>
-              <Button variant="ghost" onClick={refresh} disabled={refreshing}>
-                <RefreshCw className={refreshing ? "animate-spin" : undefined} />
-                بررسی وضعیت
-              </Button>
-            </div>
-            {copied === "no" && <p role="status" className="text-sm text-danger-text">کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.</p>}
-            <p className="text-sm leading-7 text-muted-foreground">
-              پیوند را فقط خودتان باز کنید: نخستین حسابی که آن را باز کند مدیر ربات می‌شود و اعلان‌ها را دریافت می‌کند. پیوند فقط یک بار
-              کار می‌کند.
-            </p>
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </PanelSection>
+      ) : (
+        <PanelSection title="پیوند شما">
+          <LinkBox value={status.owner_link} />
+          <div className="flex flex-wrap gap-2">
+            <Button asChild>
+              <a href={status.owner_link} target="_blank" rel="noreferrer">
+                <ExternalLink strokeWidth={1.75} />
+                باز کردن در تلگرام
+              </a>
+            </Button>
+            <CopyButton value={status.owner_link} />
+            <Button variant="ghost" onClick={() => void refresh()} loading={refreshing}>
+              <RefreshCw strokeWidth={1.75} />
+              بررسی وضعیت
+            </Button>
+          </div>
+          <p className="max-w-prose text-small text-fg-secondary">
+            پیوند را فقط خودتان باز کنید: نخستین حسابی که آن را باز کند مدیر ربات می‌شود و اعلان‌ها را دریافت می‌کند. پیوند فقط یک بار
+            کار می‌کند.
+          </p>
+        </PanelSection>
+      )}
+    </SettingsPanel>
   );
 }

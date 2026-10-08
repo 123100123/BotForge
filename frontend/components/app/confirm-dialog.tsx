@@ -15,6 +15,12 @@ interface ConfirmDialogProps {
   destructive?: boolean;
   /** Throw to keep the dialog open and show the (Persian) error message. */
   onConfirm: () => Promise<void>;
+  /** Disables the confirm button (for example until a form inside the dialog is complete). */
+  confirmDisabled?: boolean;
+  /** Hides the cancel button (a result dialog that only closes). */
+  hideCancel?: boolean;
+  /** Optional body between the description and the buttons (a form, a notice). */
+  children?: ReactNode;
 }
 
 /** Confirmation with an inline error: the backend's refusal message is shown inside the dialog. */
@@ -33,6 +39,9 @@ function ConfirmBody({
   description,
   confirmLabel,
   destructive,
+  confirmDisabled,
+  hideCancel,
+  children,
   onConfirm,
   onClose,
 }: Omit<ConfirmDialogProps, "open" | "onOpenChange"> & { onClose: () => void }) {
@@ -57,14 +66,17 @@ function ConfirmBody({
         <DialogTitle>{title}</DialogTitle>
         <DialogDescription>{description}</DialogDescription>
       </DialogHeader>
+      {children}
       {error && <ErrorNote>{error}</ErrorNote>}
       <DialogFooter>
-        <Button variant={destructive ? "destructive" : "default"} onClick={confirm} disabled={busy}>
+        <Button variant={destructive ? "danger" : "primary"} onClick={confirm} disabled={busy || confirmDisabled}>
           {busy ? "در حال انجام…" : confirmLabel}
         </Button>
-        <Button variant="outline" onClick={onClose} disabled={busy}>
-          انصراف
-        </Button>
+        {!hideCancel && (
+          <Button variant="secondary" onClick={onClose} disabled={busy}>
+            انصراف
+          </Button>
+        )}
       </DialogFooter>
     </>
   );

@@ -1,18 +1,20 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { Megaphone, MessagesSquare } from "lucide-react";
+import { CircleCheck, CircleSlash, Megaphone, MessagesSquare } from "lucide-react";
 import { ErrorNote, InfoNote } from "@/components/app/state-blocks";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { EmptyState } from "@/components/ui/empty-state";
 import { Label } from "@/components/ui/label";
 import { Select } from "@/components/ui/select";
+import { Skeleton } from "@/components/ui/skeleton";
+import { StatusBadge } from "@/components/ui/status-badge";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import { formatDate } from "@/lib/format";
+import { fa, formatDate } from "@/lib/format";
 import type { DataCollection, DataRecord, GroupOut } from "@/lib/types";
-import { ConfirmDialog } from "./confirm-dialog";
+import { SettingsPanel } from "./settings-panel";
 
 const KIND_LABELS: Record<GroupOut["kind"], string> = { group: "گروه", supergroup: "سوپرگروه", channel: "کانال" };
 
@@ -22,7 +24,7 @@ function recordTitle(rec: DataRecord, col: DataCollection | undefined): string {
   return typeof candidate === "string" && candidate.trim() ? candidate : `رکورد ${rec.id}`;
 }
 
-/** The groups the bot was added to, with a publish action that posts an event card to a group. */
+/** The groups and channels the bot is a member of, with a publish action that posts an event card to a group. */
 export function GroupsSection({ botId }: { botId: string }) {
   const [groups, setGroups] = useState<GroupOut[] | null>(null);
   const [collections, setCollections] = useState<DataCollection[]>([]);
@@ -46,49 +48,66 @@ export function GroupsSection({ botId }: { botId: string }) {
   }, [botId]);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle className="flex items-center gap-2">
-          <MessagesSquare className="size-5 text-muted-foreground" />
-          گروه‌ها
-        </CardTitle>
-        <CardDescription>گروه‌ها و کانال‌هایی که ربات به آن‌ها اضافه شده است؛ می‌توانید کارت یک رویداد را در آن‌ها منتشر کنید.</CardDescription>
-      </CardHeader>
-      <CardContent className="flex flex-col gap-3">
-        {error && <ErrorNote>{error}</ErrorNote>}
-        {!groups ? (
-          !error && <div role="status" aria-label="در حال بارگذاری" className="h-20 animate-pulse rounded-md bg-border" />
-        ) : groups.length === 0 ? (
-          <p className="text-sm leading-7 text-muted-foreground">
-            هنوز ربات در هیچ گروهی نیست. در تلگرام وارد گروه یا کانال خود شوید، ربات را از بخش افزودن عضو اضافه کنید (برای کانال، ربات باید
-            مدیر باشد) و بعد این صفحه را دوباره باز کنید.
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y rounded-sm border">
-            {groups.map((g) => (
-              <li key={g.chat_id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-3 py-3">
-                <div className="flex min-w-0 flex-1 flex-col gap-1">
-                  <span className="truncate text-sm font-medium">{g.title}</span>
-                  <span className="text-caption text-muted-foreground">
-                    {KIND_LABELS[g.kind]} · اضافه‌شده در {formatDate(g.added_at)}
-                  </span>
-                </div>
-                <Badge variant={g.active ? "success" : "secondary"}>{g.active ? "فعال" : "غیرفعال"}</Badge>
-                <Button variant="outline" size="sm" disabled={!g.active} onClick={() => setPublishing(g)}>
-                  <Megaphone />
-                  انتشار رویداد
-                </Button>
-              </li>
-            ))}
-          </ul>
-        )}
-      </CardContent>
+    <SettingsPanel
+      title="گروه‌ها و کانال‌ها"
+      description="گروه‌ها و کانال‌هایی که ربات عضو آن‌هاست. می‌توانید کارت یک رویداد را در آن‌ها منتشر کنید."
+    >
+      {error && (
+        <div className="border-t border-border p-5">
+          <ErrorNote>{error}</ErrorNote>
+        </div>
+      )}
+      {!groups ? (
+        !error && (
+          <div role="status" aria-label="در حال بارگذاری" className="border-t border-border p-5">
+            <Skeleton className="h-16 rounded-sm" />
+          </div>
+        )
+      ) : groups.length === 0 ? (
+        <div className="border-t border-border">
+          <EmptyState
+            icon={<MessagesSquare strokeWidth={1.75} />}
+            title="ربات هنوز در هیچ گروه یا کانالی نیست"
+            description="برای افزودن، در تلگرام وارد گروه یا کانال خود شوید و ربات را از بخش افزودن عضو اضافه کنید. در کانال، ربات باید مدیر (administrator) باشد. بعد این صفحه را دوباره باز کنید."
+          />
+        </div>
+      ) : (
+        <ul className="flex flex-col">
+          {groups.map((g) => (
+            <li key={g.chat_id} className="flex flex-wrap items-center gap-x-4 gap-y-3 border-t border-border px-5 py-4">
+              <div className="flex min-w-0 flex-1 basis-56 flex-col gap-0.5">
+                <span className="truncate text-body font-medium text-fg">{g.title}</span>
+                <span className="text-small text-fg-muted">
+                  {KIND_LABELS[g.kind]} · اضافه‌شده در {formatDate(g.added_at)}
+                </span>
+              </div>
+              {g.active ? (
+                <StatusBadge tone="success" icon={<CircleCheck strokeWidth={1.75} aria-hidden />}>
+                  فعال
+                </StatusBadge>
+              ) : (
+                <StatusBadge tone="neutral" icon={<CircleSlash strokeWidth={1.75} aria-hidden />}>
+                  غیرفعال
+                </StatusBadge>
+              )}
+              <Button variant="secondary" size="sm" disabled={!g.active} onClick={() => setPublishing(g)}>
+                <Megaphone strokeWidth={1.75} />
+                انتشار رویداد
+              </Button>
+            </li>
+          ))}
+          <li className="border-t border-border px-5 py-3 text-small text-fg-muted">
+            {fa(groups.length)} گروه یا کانال. تاریخچهٔ انتشارها هنوز در دسترس نیست.
+          </li>
+        </ul>
+      )}
       {publishing && <PublishDialog botId={botId} group={publishing} collections={collections} onClose={() => setPublishing(null)} />}
-    </Card>
+    </SettingsPanel>
   );
 }
 
-function PublishDialog({
+/** Publishes the card of an event (record) to a group in three steps inside one dialog: pick, confirm, result. */
+export function PublishDialog({
   botId,
   group,
   collections,
@@ -155,84 +174,88 @@ function PublishDialog({
 
   const title = chosen && col ? recordTitle(chosen, col) : "";
   const confirming = step === "confirm" && !!chosen;
-
-  if (done) {
-    return (
-      <ConfirmDialog
-        open
-        title="انتشار رویداد"
-        description={`در «${group.title}»`}
-        confirmLabel="بستن"
-        hideCancel
-        onConfirm={onClose}
-        onCancel={onClose}
-      >
-        <InfoNote>{done}</InfoNote>
-      </ConfirmDialog>
-    );
-  }
-
-  if (confirming) {
-    return (
-      <ConfirmDialog
-        open
-        title="انتشار در گروه؟"
-        description={`کارت «${title}» در «${group.title}» ارسال می‌شود و همهٔ اعضای گروه آن را می‌بینند.`}
-        confirmLabel="انتشار"
-        busy={busy}
-        onConfirm={publish}
-        onCancel={() => setStep("pick")}
-      />
-    );
-  }
+  const heading = done ? "انتشار رویداد" : confirming ? "انتشار در گروه؟" : "انتشار رویداد";
+  const lead = done
+    ? `در «${group.title}»`
+    : confirming
+      ? `کارت «${title}» در «${group.title}» ارسال می‌شود و همهٔ اعضای گروه آن را می‌بینند.`
+      : `کارت یک رویداد را در «${group.title}» منتشر کنید.`;
 
   return (
-    <ConfirmDialog
-      open
-      title="انتشار رویداد"
-      description={`کارت یک رویداد را در «${group.title}» منتشر کنید.`}
-      confirmLabel="ادامه"
-      confirmDisabled={!chosen}
-      onConfirm={() => setStep("confirm")}
-      onCancel={onClose}
-    >
-      <div className="flex flex-col gap-3">
-        {error && <ErrorNote>{error}</ErrorNote>}
-        {candidates.length === 0 ? (
-          <p className="text-sm leading-7 text-muted-foreground">برای انتشار باید حداقل یک مجموعهٔ داده (مثلاً رویدادها) داشته باشید.</p>
+    <Dialog open onOpenChange={(next) => !next && !busy && onClose()}>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>{heading}</DialogTitle>
+          <DialogDescription>{lead}</DialogDescription>
+        </DialogHeader>
+
+        {done ? (
+          <InfoNote>{done}</InfoNote>
         ) : (
           <>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="publish-collection">مجموعه</Label>
-              <Select id="publish-collection" value={collection} onChange={(e) => setPicked(e.target.value)}>
-                {candidates.map((c) => (
-                  <option key={c.key} value={c.key}>
-                    {c.label_plural || c.label}
-                  </option>
-                ))}
-              </Select>
-            </div>
-            <div className="flex flex-col gap-1.5">
-              <Label htmlFor="publish-record">رویداد</Label>
-              {recordError ? (
-                <ErrorNote>{recordError}</ErrorNote>
-              ) : !items ? (
-                <div className="h-9 animate-pulse rounded-sm bg-border" role="status" aria-label="در حال بارگذاری" />
-              ) : items.length === 0 ? (
-                <p className="text-sm leading-7 text-muted-foreground">این مجموعه هنوز رکوردی ندارد.</p>
+            {error && <ErrorNote>{error}</ErrorNote>}
+            {!confirming &&
+              (candidates.length === 0 ? (
+                <p className="text-small text-fg-secondary">برای انتشار باید حداقل یک مجموعهٔ داده (مثلاً رویدادها) داشته باشید.</p>
               ) : (
-                <Select id="publish-record" value={recordId} onChange={(e) => setRecordId(e.target.value)}>
-                  {items.map((r) => (
-                    <option key={r.id} value={r.id}>
-                      {recordTitle(r, col)}
-                    </option>
-                  ))}
-                </Select>
-              )}
-            </div>
+                <div className="flex flex-col gap-3">
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="publish-collection">مجموعه</Label>
+                    <Select id="publish-collection" value={collection} onChange={(e) => setPicked(e.target.value)}>
+                      {candidates.map((c) => (
+                        <option key={c.key} value={c.key}>
+                          {c.label_plural || c.label}
+                        </option>
+                      ))}
+                    </Select>
+                  </div>
+                  <div className="flex flex-col gap-1.5">
+                    <Label htmlFor="publish-record">رویداد</Label>
+                    {recordError ? (
+                      <ErrorNote>{recordError}</ErrorNote>
+                    ) : !items ? (
+                      <Skeleton className="h-10 rounded-sm" />
+                    ) : items.length === 0 ? (
+                      <p className="text-small text-fg-secondary">این مجموعه هنوز رکوردی ندارد.</p>
+                    ) : (
+                      <Select id="publish-record" value={recordId} onChange={(e) => setRecordId(e.target.value)}>
+                        {items.map((r) => (
+                          <option key={r.id} value={r.id}>
+                            {recordTitle(r, col)}
+                          </option>
+                        ))}
+                      </Select>
+                    )}
+                  </div>
+                </div>
+              ))}
           </>
         )}
-      </div>
-    </ConfirmDialog>
+
+        <DialogFooter>
+          {done ? (
+            <Button onClick={onClose}>بستن</Button>
+          ) : confirming ? (
+            <>
+              <Button onClick={() => void publish()} loading={busy}>
+                انتشار
+              </Button>
+              <Button variant="secondary" onClick={() => setStep("pick")} disabled={busy}>
+                انصراف
+              </Button>
+            </>
+          ) : (
+            <>
+              <Button onClick={() => setStep("confirm")} disabled={!chosen}>
+                ادامه
+              </Button>
+              <Button variant="secondary" onClick={onClose}>
+                انصراف
+              </Button>
+            </>
+          )}
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
   );
 }
