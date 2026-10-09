@@ -54,7 +54,7 @@ export const mockApi: Api = {
     call(() => tabs.runRecordAction(botId, collection, recordId, action)),
 
   getTelegram: (botId) => call(() => tabs.getTelegram(botId)),
-  connectTelegram: (botId, token) => call(() => tabs.connectTelegram(botId, token)),
+  connectTelegram: (botId, token, platform) => call(() => tabs.connectTelegram(botId, token, platform)),
   disconnectTelegram: (botId) => call(() => tabs.disconnectTelegram(botId)),
 
   listCapabilities: () => call(() => capabilities.listCapabilities()),

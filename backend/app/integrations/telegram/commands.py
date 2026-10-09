@@ -3,7 +3,9 @@
 Default scope: ``/start`` ``/menu`` ``/help``. The owner's private chat adds ``/panel`` through a
 ``BotCommandScopeChat`` (set when the owner links, ``api/webhook.py``). The runtime handles the
 commands (``runtime/runtime.py``). Registration is best effort: a Telegram failure is logged and
-swallowed, so it can never break connecting a bot or linking its owner.
+swallowed, so it can never break connecting a bot or linking its owner. Bale documents neither
+``setMyCommands`` nor ``setChatMenuButton``, so nothing is registered for a Bale bot (its users type
+the commands; the runtime handles them the same way).
 """
 
 import logging
@@ -21,9 +23,15 @@ OWNER_COMMANDS: list[dict[str, str]] = [*DEFAULT_COMMANDS, {"command": "panel", 
 MENU_BUTTON: dict[str, str] = {"type": "commands"}
 
 
+def _registers_commands(client: TelegramApi) -> bool:
+    return getattr(client, "platform", "telegram") == "telegram"
+
+
 async def register_default_commands(client: TelegramApi) -> None:
     """Default-scope commands and the default menu button (every private chat). Never raises
     ``TelegramError``."""
+    if not _registers_commands(client):
+        return
     try:
         await client.set_my_commands(DEFAULT_COMMANDS)
     except TelegramError as exc:
@@ -37,6 +45,8 @@ async def register_default_commands(client: TelegramApi) -> None:
 async def register_owner_commands(client: TelegramApi, chat_id: int) -> None:
     """The default commands plus ``/panel`` for the owner's private chat only. Never raises
     ``TelegramError``."""
+    if not _registers_commands(client):
+        return
     try:
         await client.set_my_commands(OWNER_COMMANDS, scope={"type": "chat", "chat_id": chat_id})
     except TelegramError as exc:

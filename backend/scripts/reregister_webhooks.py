@@ -14,6 +14,11 @@ owner. This script moves the webhooks instead: for every bot with a stored Teleg
 setWebhook with the new URL and the bot's EXISTING webhook secret. It never writes the token, the
 secret, the linked owner or the owner-link code.
 
+Bale bots (``bots.platform = 'bale'``) are moved the same way to ``{PUBLIC_BASE_URL}/bale/{bot_id}/
+{secret}`` with setWebhook's ``url`` only; their line shows the URL with the secret replaced by
+``[REDACTED]``. In polling mode the script exits before reading anything, Bale bots included: after
+moving such a server, Bale owners reconnect their bot.
+
 One line per bot: the bot id, the new webhook URL, then "ok" or the error. (The previous URL is not
 shown: the Telegram client has no getWebhookInfo.) Unlike ``connect``, setWebhook is sent with
 ``drop_pending_updates=False``: updates Telegram queued while the old address was unreachable (customer
@@ -69,6 +74,7 @@ from app.integrations.telegram.onboarding import (
     webhook_base_url,
     webhook_url,
 )
+from app.integrations.telegram.platforms import DEFAULT_PLATFORM, Platform, as_platform, is_invalid_token
 from app.security.crypto import TokenCryptoError, TokenDecryptError, TokenKeyError, decrypt_token
 from app.security.redact import install_log_redaction, redact
 from app.services.dispatch import MAX_ERROR_CHARS
@@ -100,6 +106,7 @@ class Target:
     id: uuid.UUID
     token_enc: str = field(repr=False)
     secret: str | None = field(repr=False)
+    platform: Platform = DEFAULT_PLATFORM
 
 
 @dataclass(frozen=True)
@@ -175,10 +182,16 @@ async def reregister_webhooks(
     _say(f"{len(targets)} connected bot(s); new webhook URLs are {base}/tg/<bot id> ({mode})")
     failed = 0
     for target in targets:
-        url = webhook_url(base, target.id)
+        try:  # a Bale URL holds the secret ("-" when none is stored: _move fails it before any call)
+            url = webhook_url(base, target.id, target.platform, target.secret or "-")
+        except OnboardingError as exc:  # Bale refuses this host's port
+            failed += 1
+            _say(f"{target.id}  ({target.platform})  error: {exc.code}")
+            continue
         outcome = await _move(sessions, provider, target, url, dry_run=dry_run)
         failed += not outcome.ok
-        _say(f"{target.id}  {url}  {outcome.text}")
+        shown = url if target.platform == "telegram" else f"{url.rsplit('/', 1)[0]}/[REDACTED]"
+        _say(f"{target.id}  {shown}  {outcome.text}")
     succeeded = len(targets) - failed
     if dry_run:
         _say(f"dry run: {succeeded} would be re-registered, {failed} would fail")
@@ -191,12 +204,16 @@ async def _connected_bots(
     sessions: async_sessionmaker[AsyncSession], bot_id: uuid.UUID | None
 ) -> list[Target]:
     """Every bot with a stored token (what ``status_of`` calls connected), oldest first."""
-    query = select(Bot.id, Bot.tg_token_enc, Bot.tg_webhook_secret).where(Bot.tg_token_enc.is_not(None))
+    query = select(Bot.id, Bot.tg_token_enc, Bot.tg_webhook_secret, Bot.platform).where(
+        Bot.tg_token_enc.is_not(None)
+    )
     if bot_id is not None:
         query = query.where(Bot.id == bot_id)
     async with sessions() as session:
         rows = (await session.execute(query.order_by(Bot.created_at, Bot.id))).all()
-    return [Target(row.id, row.tg_token_enc, row.tg_webhook_secret) for row in rows]
+    return [
+        Target(row.id, row.tg_token_enc, row.tg_webhook_secret, as_platform(row.platform)) for row in rows
+    ]
 
 
 def _decryptable(target: Target) -> bool:
@@ -239,7 +256,7 @@ async def _move(
     if isinstance(credentials, Failure):
         failure: Failure | None = credentials
     else:
-        failure = await _set_webhook(provider, url, *credentials)
+        failure = await _set_webhook(provider, url, *credentials, target.platform)
 
     try:
         stored = await _record(sessions, target, failure)
@@ -255,16 +272,20 @@ async def _move(
     return Outcome(True, "ok")
 
 
-async def _set_webhook(provider: TelegramProvider, url: str, token: str, secret: str) -> Failure | None:
+async def _set_webhook(
+    provider: TelegramProvider, url: str, token: str, secret: str, platform: Platform = DEFAULT_PLATFORM
+) -> Failure | None:
     """``setWebhook`` with the bot's existing secret; ``None`` on success. Pending updates are kept:
-    messages customers sent while the host moved are delivered to the new URL."""
+    messages customers sent while the host moved are delivered to the new URL. (Bale: the secret is
+    in ``url`` and setWebhook gets nothing else.)"""
     try:
-        await provider(token).set_webhook(url, secret, drop_pending_updates=False)
+        header_secret = secret if platform == "telegram" else None
+        await provider(token, platform).set_webhook(url, header_secret, drop_pending_updates=False)
     except TelegramError as exc:
         error = redact(str(exc))  # "setWebhook: <Telegram's description>"; never holds the token
         if exc.network:
             return Failure(f"{error} (Telegram unreachable; run again later)", error)
-        if exc.error_code in (401, 404):
+        if is_invalid_token(platform, exc.error_code):
             hint = "the token is revoked or invalid; the owner must reconnect the bot"
             return Failure(f"{error} ({hint})", error)
         return Failure(error, error)
@@ -345,13 +366,13 @@ async def run(bot_id: uuid.UUID | None, dry_run: bool, provider: TelegramProvide
 def _telegram_over(http: httpx.AsyncClient) -> TelegramProvider:
     """The existing Telegram client for each token, all on one HTTP client that ``run`` closes."""
 
-    def provider(token: str) -> TelegramApi:
-        return TelegramClient(token, http=http)
+    def provider(token: str, platform: Platform = DEFAULT_PLATFORM) -> TelegramApi:
+        return TelegramClient(token, platform=platform, http=http)
 
     return provider
 
 
-def _no_telegram(token: str) -> TelegramApi:
+def _no_telegram(token: str, platform: Platform = DEFAULT_PLATFORM) -> TelegramApi:
     """The provider of a dry run, which builds no client: calling it is a bug."""
     raise RuntimeError("a dry run never calls Telegram")
 

@@ -18,8 +18,10 @@ keyboard included, with the callback query, while the callback data is what the 
 that is not one of the message's buttons (a modified client) is ignored, and a message without a
 readable keyboard (an inaccessible one) is not an edit target (``origin.message_id`` is None).
 
-Outbound: ``send_out_message`` performs one ``OutMessage`` with the right Bot API call. All text is
-HTML-escaped (``parse_mode=HTML``); button labels are plain text and are not escaped. The chat id of
+Outbound: ``send_out_message`` performs one ``OutMessage`` with the right Bot API call. All text goes
+through ``render_text`` for the client's platform: HTML-escaped on Telegram (``parse_mode=HTML``),
+Markdown-neutralised plain text on Bale (``platforms.render_bale``); button labels are plain text and
+are not escaped. The chat id of
 a recipient is its actor id (a private chat); group delivery rules live in ``services/dispatch.py``.
 """
 
@@ -31,7 +33,9 @@ from datetime import datetime
 from typing import Any
 
 from app.integrations.telegram.client import TelegramApi, TelegramError
+from app.integrations.telegram.platforms import DEFAULT_PLATFORM, as_platform, localize, render_bale
 from app.runtime.contracts import Actor, OutMessage, RuntimeEvent
+from app.runtime.texts import nav as nav_texts
 
 log = logging.getLogger(__name__)
 
@@ -246,11 +250,21 @@ def _parse(
 # --- outbound -----------------------------------------------------------------------------------
 
 
-def render_text(text: str) -> str:
-    """Escape for ``parse_mode=HTML`` (and cap the length). Every outbound text goes through here."""
+def render_text(text: str, platform: str = DEFAULT_PLATFORM) -> str:
+    """Every outbound text goes through here (the length is capped first). Telegram: escaped for
+    ``parse_mode=HTML``. Bale: plain text whose Markdown control characters are neutralised, so user
+    content can add no link or formatting, and the runtime's fixed notice naming Telegram names Bale."""
     if len(text) > MAX_TEXT_CHARS:
         text = text[: MAX_TEXT_CHARS - 1] + "…"
+    if as_platform(platform) == "bale":
+        text = text.replace(nav_texts.COMING_SOON, localize(nav_texts.COMING_SOON, platform))
+        return render_bale(text)
     return html.escape(text, quote=False)
+
+
+def client_platform(client: object) -> str:
+    """The platform a client talks to (Telegram for a client that does not say)."""
+    return as_platform(getattr(client, "platform", DEFAULT_PLATFORM))
 
 
 def reply_markup(message: OutMessage) -> dict[str, Any] | None:
@@ -280,7 +294,7 @@ async def send_out_message(
     if chat_id is None:
         log.warning("skipping message for non-Telegram recipient %r", message.to_actor_id)
         return
-    text = render_text(message.text)
+    text = render_text(message.text, client_platform(client))
     markup = reply_markup(message)
     if (
         message.edit

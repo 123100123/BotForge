@@ -32,7 +32,8 @@ from typing import Any, Protocol
 
 import httpx
 
-API_BASE = "https://api.telegram.org"
+from app.integrations.telegram.platforms import API_BASES, DEFAULT_PLATFORM, Platform, as_platform
+
 TIMEOUT = httpx.Timeout(10.0, connect=5.0)
 MAX_RETRY_AFTER = 5.0  # seconds; a longer 429 is raised instead of stalling the caller
 # The update types BotForge handles (app.api.webhook); setWebhook and getUpdates ask for exactly these.
@@ -104,12 +105,15 @@ def valid_file_path(path: object) -> bool:
 
 
 class TelegramApi(Protocol):
-    """What the rest of the backend needs from Telegram. Implemented by the real and fake clients."""
+    """What the rest of the backend needs from Telegram (or Bale, ``platform``). Implemented by the
+    real and fake clients."""
+
+    platform: Platform
 
     async def get_me(self) -> dict[str, Any]: ...
 
     async def set_webhook(
-        self, url: str, secret_token: str, *, drop_pending_updates: bool = True
+        self, url: str, secret_token: str | None, *, drop_pending_updates: bool = True
     ) -> None: ...
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None: ...
@@ -145,8 +149,9 @@ class TelegramApi(Protocol):
     async def download_file(self, file_path: str, max_bytes: int) -> bytes: ...
 
 
-# Builds a client for a bot token. Dependency-injected so tests can substitute the fake.
-TelegramProvider = Callable[[str], TelegramApi]
+# Builds a client for a bot token on a platform: ``provider(token, platform)``. Dependency-injected so
+# tests can substitute the fake.
+TelegramProvider = Callable[[str, Platform], TelegramApi]
 
 _shared_http: httpx.AsyncClient | None = None
 
@@ -160,12 +165,23 @@ def shared_http_client() -> httpx.AsyncClient:
 
 
 class TelegramClient:
-    def __init__(self, token: str, *, http: httpx.AsyncClient | None = None) -> None:
+    """The Bot API client for Telegram and for Bale (``platform``; see ``platforms.py`` for what
+    differs: the host, ``setWebhook``'s parameters, no ``parse_mode``)."""
+
+    def __init__(
+        self, token: str, *, platform: Platform = DEFAULT_PLATFORM, http: httpx.AsyncClient | None = None
+    ) -> None:
         self.__token = token  # name-mangled on purpose: keeps it out of casual vars() dumps
+        self.platform: Platform = as_platform(platform)
+        self._api = API_BASES[self.platform]
         self._http = http
 
+    @property
+    def _bale(self) -> bool:
+        return self.platform == "bale"
+
     def __repr__(self) -> str:
-        return "TelegramClient(<token hidden>)"
+        return f"TelegramClient({self.platform}, <token hidden>)"
 
     async def _call(
         self,
@@ -178,7 +194,7 @@ class TelegramClient:
         """One Bot API call. ``timeout`` replaces the client's for this request; ``retry=False`` raises
         the first network error or 429 instead of retrying once (the poller backs off by itself)."""
         http = self._http or shared_http_client()
-        url = f"{API_BASE}/bot{self.__token}/{method}"
+        url = f"{self._api}/bot{self.__token}/{method}"
         extra: dict[str, Any] = {"timeout": timeout} if timeout is not None else {}
         for attempt in (1, 2) if retry else (2,):
             try:
@@ -212,9 +228,15 @@ class TelegramClient:
     async def get_me(self) -> dict[str, Any]:
         return await self._call("getMe")
 
-    async def set_webhook(self, url: str, secret_token: str, *, drop_pending_updates: bool = True) -> None:
+    async def set_webhook(
+        self, url: str, secret_token: str | None, *, drop_pending_updates: bool = True
+    ) -> None:
         """Connect keeps the default (a fresh connect must not replay old updates); moving a bot to a
-        new hostname passes False so updates queued meanwhile are delivered afterwards."""
+        new hostname passes False so updates queued meanwhile are delivered afterwards. Bale takes
+        ``url`` only: its secret is part of the URL and nothing else is sent."""
+        if self._bale:
+            await self._call("setWebhook", {"url": url})
+            return
         await self._call(
             "setWebhook",
             {
@@ -227,7 +249,10 @@ class TelegramClient:
 
     async def delete_webhook(self, *, drop_pending_updates: bool = False) -> None:
         """Keeps queued updates by default (the poller then takes them with getUpdates). A polling-mode
-        connect passes True, as the webhook-mode connect's setWebhook drops them."""
+        connect passes True, as the webhook-mode connect's setWebhook drops them. Bale: no parameters."""
+        if self._bale:
+            await self._call("deleteWebhook")
+            return
         await self._call("deleteWebhook", {"drop_pending_updates": drop_pending_updates})
 
     async def get_webhook_info(self) -> dict[str, Any]:
@@ -243,7 +268,9 @@ class TelegramClient:
         ``offset`` confirms every update below it (connect's probe passes none, so nothing is
         confirmed, and ``limit=1``). Fails with error code 409 while a webhook is set, and for the
         older of two concurrent consumers ("terminated by other getUpdates request")."""
-        payload: dict[str, Any] = {"timeout": timeout, "allowed_updates": allowed_updates}
+        payload: dict[str, Any] = {"timeout": timeout}
+        if not self._bale:  # not documented by Bale
+            payload["allowed_updates"] = allowed_updates
         if offset is not None:
             payload["offset"] = offset
         if limit is not None:
@@ -255,7 +282,9 @@ class TelegramClient:
     async def send_message(
         self, chat_id: int | str, text: str, reply_markup: dict[str, Any] | None = None
     ) -> dict[str, Any]:
-        payload: dict[str, Any] = {"chat_id": chat_id, "text": text, "parse_mode": "HTML"}
+        payload: dict[str, Any] = {"chat_id": chat_id, "text": text}
+        if not self._bale:  # Bale has no parse_mode (always Markdown; see render_text)
+            payload["parse_mode"] = "HTML"
         if reply_markup:
             payload["reply_markup"] = reply_markup
         return await self._call("sendMessage", payload)
@@ -267,8 +296,9 @@ class TelegramClient:
             "chat_id": chat_id,
             "message_id": message_id,
             "text": text,
-            "parse_mode": "HTML",
         }
+        if not self._bale:
+            payload["parse_mode"] = "HTML"
         if reply_markup:
             payload["reply_markup"] = reply_markup
         return await self._call("editMessageText", payload)
@@ -324,7 +354,7 @@ class TelegramClient:
         if not valid_file_path(file_path):
             raise TelegramError(DOWNLOAD_METHOD, "invalid file path")
         http = self._http or shared_http_client()
-        url = f"{API_BASE}/file/bot{self.__token}/{file_path}"
+        url = f"{self._api}/file/bot{self.__token}/{file_path}"
         chunks: list[bytes] = []
         total = 0
         try:
@@ -388,8 +418,8 @@ def _json(response: httpx.Response) -> dict[str, Any]:
     return body if isinstance(body, dict) else {}
 
 
-def default_provider(token: str) -> TelegramApi:
-    return TelegramClient(token)
+def default_provider(token: str, platform: Platform = DEFAULT_PLATFORM) -> TelegramApi:
+    return TelegramClient(token, platform=platform)
 
 
 def get_telegram_provider() -> TelegramProvider:
@@ -401,7 +431,9 @@ class FakeTelegramClient:
     """Records every call; never touches the network. Shared by all bots in a test.
 
     ``calls`` holds ``(method, kwargs)`` tuples in order; ``tokens`` the tokens the provider was
-    asked for. ``fail_methods`` maps a method name to the ``TelegramError`` description to raise.
+    asked for and ``platforms`` the platform of each request; ``platform`` is the latest one (or the
+    constructor's), which is what the outbound text is rendered for. ``fail_methods`` maps a method
+    name to the ``TelegramError`` description to raise.
 
     Polling: ``push_updates`` queues updates for ``get_updates``, which behaves like Telegram's
     (an ``offset`` confirms and drops every queued update below it; with nothing queued it waits up
@@ -413,7 +445,11 @@ class FakeTelegramClient:
     client (``TelegramFileTooLarge``). Both are recorded (``getFile``, ``downloadFile``).
     """
 
-    def __init__(self, *, bot_id: int = 424242, username: str = "fake_bot") -> None:
+    def __init__(
+        self, *, bot_id: int = 424242, username: str = "fake_bot", platform: Platform = DEFAULT_PLATFORM
+    ) -> None:
+        self.platform: Platform = platform
+        self.platforms: list[str] = []
         self.bot_id = bot_id
         self.username = username
         self.calls: list[tuple[str, dict[str, Any]]] = []
@@ -435,8 +471,10 @@ class FakeTelegramClient:
 
     # --- provider / inspection helpers -------------------------------------------------------
 
-    def provider(self, token: str) -> "FakeTelegramClient":
+    def provider(self, token: str, platform: Platform = DEFAULT_PLATFORM) -> "FakeTelegramClient":
         self.tokens.append(token)
+        self.platforms.append(platform)
+        self.platform = platform
         return self
 
     def calls_to(self, method: str) -> list[dict[str, Any]]:
@@ -459,7 +497,9 @@ class FakeTelegramClient:
             raise self.get_me_error
         return {"id": self.bot_id, "is_bot": True, "username": self.username, "first_name": "Fake"}
 
-    async def set_webhook(self, url: str, secret_token: str, *, drop_pending_updates: bool = True) -> None:
+    async def set_webhook(
+        self, url: str, secret_token: str | None, *, drop_pending_updates: bool = True
+    ) -> None:
         self._record(
             "setWebhook", url=url, secret_token=secret_token, drop_pending_updates=drop_pending_updates
         )

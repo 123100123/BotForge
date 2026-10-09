@@ -1,4 +1,7 @@
-"""Telegram connection settings: status, connect (token), disconnect, retry after a polling conflict.
+"""Messenger connection settings: status, connect (token), disconnect, retry after a polling conflict.
+
+The bot runs on Telegram or on Bale (``platform`` of the connect body, stored in ``bots.platform``;
+see ``app.integrations.telegram.platforms``); the routes keep their ``/telegram`` names.
 
 The response never contains the token or the webhook secret; ``connected`` is derived from the
 stored (encrypted) token and the links are built from the public bot username.
@@ -17,15 +20,18 @@ from app.db.models import Bot
 from app.db.session import get_session
 from app.integrations.telegram import onboarding, texts
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
+from app.integrations.telegram.platforms import DEFAULT_PLATFORM, Platform
 
 router = APIRouter(tags=["telegram"])
 
 
 class ConnectBody(BaseModel):
     token: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=200)]
+    platform: Platform = DEFAULT_PLATFORM
 
 
 class TelegramStatusOut(BaseModel):
+    platform: Platform
     connected: bool
     username: str | None
     bot_link: str | None
@@ -37,6 +43,7 @@ class TelegramStatusOut(BaseModel):
 def _out(bot: Bot) -> TelegramStatusOut:
     status = onboarding.status_of(bot)
     return TelegramStatusOut(
+        platform=status.platform,
         connected=status.connected,
         username=status.username,
         bot_link=status.bot_link,
@@ -67,6 +74,7 @@ async def telegram_connect(
             telegram,
             public_base_url=settings.PUBLIC_BASE_URL,
             mode=settings.TELEGRAM_MODE,
+            platform=body.platform,
         )
     except onboarding.OnboardingError as exc:
         raise HTTPException(exc.status, detail={"code": exc.code, "message": exc.message}) from None

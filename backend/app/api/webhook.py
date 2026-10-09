@@ -1,4 +1,9 @@
-"""The shared Telegram webhook: ``POST /tg/{bot_id}`` (public; authenticated by the secret header).
+"""The shared Telegram webhook: ``POST /tg/{bot_id}`` (public; authenticated by the secret header),
+and the Bale webhook: ``POST /bale/{bot_id}/{secret}`` (Bale sends no secret header, so the secret
+is the last path segment; ``app.integrations.telegram.platforms``). Each route serves only bots of
+its own platform (404 otherwise), and both continue in ``process_update``. SECURITY: the Bale path
+holds the secret; uvicorn's access line is redacted (``app.security.redact``) and nothing here logs
+the path.
 
 Order of checks: unknown bot -> 404; secret mismatch -> 403 (``verify_webhook_secret``, constant
 time); body over 1 MiB -> 413. After that the answer is ALWAYS 200: Telegram retries anything else,
@@ -51,6 +56,7 @@ from app.integrations.telegram.adapter import ParsedUpdate, parse_update
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
 from app.integrations.telegram.commands import register_owner_commands
 from app.integrations.telegram.onboarding import armed_owner_code
+from app.integrations.telegram.platforms import as_platform
 from app.roles import TEAM_ROLES
 from app.roles.service import (
     STAFF_JOINED,
@@ -104,20 +110,22 @@ async def _read_body(request: Request) -> bytes:
     return b"".join(chunks)
 
 
-@router.post("/tg/{bot_id}")
-async def telegram_webhook(
+async def _receive(
+    session: AsyncSession,
     bot_id: str,
+    secret: str | None,
+    platform: str,
     request: Request,
-    secret: str | None = Header(None, alias=SECRET_HEADER),
-    session: AsyncSession = Depends(get_session),
-    telegram: TelegramProvider = Depends(get_telegram_provider),
+    telegram: TelegramProvider,
 ) -> dict[str, bool]:
+    """The checks both webhook routes share: the bot exists and runs on ``platform`` (404), the secret
+    matches in constant time (403), the body fits (413); then ``process_update``."""
     try:
         bot_uuid = uuid.UUID(bot_id)
     except ValueError:
         raise _error(404, "bot_not_found", "ربات پیدا نشد.") from None
     bot = await session.get(Bot, bot_uuid)
-    if bot is None:
+    if bot is None or as_platform(bot.platform) != platform:
         raise _error(404, "bot_not_found", "ربات پیدا نشد.")
     if not verify_webhook_secret(bot.tg_webhook_secret, secret):
         raise _error(403, "forbidden", "دسترسی مجاز نیست.")
@@ -127,6 +135,28 @@ async def telegram_webhook(
     if update is not None:
         await process_update(session, bot, update, telegram)
     return {"ok": True}
+
+
+@router.post("/tg/{bot_id}")
+async def telegram_webhook(
+    bot_id: str,
+    request: Request,
+    secret: str | None = Header(None, alias=SECRET_HEADER),
+    session: AsyncSession = Depends(get_session),
+    telegram: TelegramProvider = Depends(get_telegram_provider),
+) -> dict[str, bool]:
+    return await _receive(session, bot_id, secret, "telegram", request, telegram)
+
+
+@router.post("/bale/{bot_id}/{secret}")
+async def bale_webhook(
+    bot_id: str,
+    secret: str,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+    telegram: TelegramProvider = Depends(get_telegram_provider),
+) -> dict[str, bool]:
+    return await _receive(session, bot_id, secret, "bale", request, telegram)
 
 
 async def process_update(

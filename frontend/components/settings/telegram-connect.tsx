@@ -11,7 +11,8 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import type { TelegramStatus } from "@/lib/types";
+import { PLATFORMS, platformName } from "@/lib/platform";
+import type { BotPlatform, TelegramStatus } from "@/lib/types";
 
 interface TelegramConnectProps {
   botId: string;
@@ -25,6 +26,10 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // The messenger chosen for the next connect; a connected bot shows its own.
+  const [choice, setChoice] = useState<BotPlatform>(status.platform);
+  const platform = status.connected ? status.platform : choice;
+  const name = platformName(platform);
 
   async function connect(e: FormEvent) {
     e.preventDefault();
@@ -36,7 +41,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
     setBusy(true);
     setError(null);
     try {
-      const next = await api.connectTelegram(botId, value);
+      const next = await api.connectTelegram(botId, value, choice);
       setToken(""); // the token is never kept after a successful request
       onChanged(next);
     } catch (err) {
@@ -51,12 +56,12 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Send className="size-5 text-muted-foreground" />
-          اتصال به تلگرام
+          اتصال به {name}
           <Badge variant={status.connected ? "success" : "secondary"} className="ms-auto">
             {status.connected ? "وصل است" : "وصل نیست"}
           </Badge>
         </CardTitle>
-        <CardDescription>مشتری‌ها از طریق ربات تلگرام خودتان با کسب‌وکار شما صحبت می‌کنند.</CardDescription>
+        <CardDescription>مشتری‌ها از طریق ربات {name} خودتان با کسب‌وکار شما صحبت می‌کنند.</CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {status.last_error && <ErrorNote>آخرین خطا: {status.last_error}</ErrorNote>}
@@ -64,6 +69,8 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
         {status.connected ? (
           <>
             <dl className="grid gap-3 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-6">
+              <dt className="text-muted-foreground">پیام‌رسان</dt>
+              <dd>{name}</dd>
               <dt className="text-muted-foreground">نام کاربری ربات</dt>
               <dd>
                 <span dir="ltr">@{status.username}</span>
@@ -94,8 +101,8 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
             <ConfirmDialog
               open={confirmOpen}
               onOpenChange={setConfirmOpen}
-              title="قطع اتصال از تلگرام"
-              description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد و حساب تلگرام مدیر هم از ربات جدا می‌شود. داده‌ها و نسخه‌های ربات حفظ می‌شود. پس از اتصال دوباره، پیوند تازهٔ دریافت اعلان‌ها را در تلگرام باز کنید."
+              title={`قطع اتصال از ${name}`}
+              description={`ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد و حساب ${name} مدیر هم از ربات جدا می‌شود. داده‌ها و نسخه‌های ربات حفظ می‌شود. پس از اتصال دوباره، پیوند تازهٔ دریافت اعلان‌ها را در ${name} باز کنید.`}
               confirmLabel="قطع اتصال"
               destructive
               onConfirm={async () => onChanged(await api.disconnectTelegram(botId))}
@@ -103,17 +110,44 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
           </>
         ) : (
           <form onSubmit={connect} noValidate className="flex flex-col gap-4">
-            <ol className="list-[persian] space-y-1.5 ps-5 text-sm leading-7">
-              <li>
-                در تلگرام با <span dir="ltr">@BotFather</span> گفتگو را شروع کنید.
-              </li>
-              <li>
-                دستور <span dir="ltr">/newbot</span> را بفرستید و نام و نام کاربری ربات را انتخاب کنید.
-              </li>
-              <li>توکنی که BotFather می‌فرستد را کپی کنید و در کادر زیر بچسبانید.</li>
-            </ol>
+            <div className="flex flex-wrap items-center gap-2" role="group" aria-label="پیام‌رسان ربات">
+              <span className="text-sm text-muted-foreground">پیام‌رسان:</span>
+              {PLATFORMS.map((p) => (
+                <Button
+                  key={p}
+                  type="button"
+                  size="sm"
+                  variant={choice === p ? "secondary" : "ghost"}
+                  aria-pressed={choice === p}
+                  onPress={() => setChoice(p)}
+                >
+                  {platformName(p)}
+                </Button>
+              ))}
+            </div>
+            {choice === "bale" ? (
+              <ol className="list-[persian] space-y-1.5 ps-5 text-sm leading-7">
+                <li>
+                  پیام‌رسان «بله» را باز کنید و <span dir="ltr">@botfather</span> را جستجو کنید.
+                </li>
+                <li>
+                  دستور <span dir="ltr">/newbot</span> را بفرستید و نام و نام کاربری ربات را انتخاب کنید.
+                </li>
+                <li>توکنی که botfather بله می‌فرستد را کپی کنید و در کادر زیر بچسبانید.</li>
+              </ol>
+            ) : (
+              <ol className="list-[persian] space-y-1.5 ps-5 text-sm leading-7">
+                <li>
+                  در تلگرام با <span dir="ltr">@BotFather</span> گفتگو را شروع کنید.
+                </li>
+                <li>
+                  دستور <span dir="ltr">/newbot</span> را بفرستید و نام و نام کاربری ربات را انتخاب کنید.
+                </li>
+                <li>توکنی که BotFather می‌فرستد را کپی کنید و در کادر زیر بچسبانید.</li>
+              </ol>
+            )}
             <div className="grid gap-1.5">
-              <Label htmlFor="tg-token">توکن ربات</Label>
+              <Label htmlFor="tg-token">توکن ربات {name}</Label>
               <Input
                 id="tg-token"
                 type="password"

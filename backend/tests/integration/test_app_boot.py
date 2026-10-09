@@ -215,7 +215,16 @@ async def test_error_body_when_database_is_not_configured() -> None:
 
 # Routes reachable without a session. The Telegram webhook authenticates by its secret header; the
 # auth routes are how a session is obtained (and ended).
-PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}", "/auth/signup", "/auth/login", "/auth/logout"}
+# The Bale webhook authenticates by the secret in its path (Bale sends no secret header).
+PUBLIC_ROUTES = {
+    "/healthz",
+    "/tg/{bot_id}",
+    "/bale/{bot_id}/{secret}",
+    "/auth/signup",
+    "/auth/login",
+    "/auth/logout",
+}
+WEBHOOK_ROUTES = {"/tg/{bot_id}", "/bale/{bot_id}/{secret}"}
 STATE_CHANGING = {"post", "put", "patch", "delete"}
 # FastAPI's own docs pages and schema: outside the schema, public whenever served, and a map of every
 # route. They exist only with API_DOCS_ENABLED (local development).
@@ -277,7 +286,7 @@ async def test_every_state_changing_route_requires_the_csrf_header() -> None:
     checked = 0
     async with make_client(app) as client:
         for template, operations in app.openapi()["paths"].items():
-            if template == "/tg/{bot_id}":
+            if template in WEBHOOK_ROUTES:
                 continue
             path = re.sub(r"\{[^}]+\}", str(uuid.uuid4()), template)
             for method in sorted(set(operations) & STATE_CHANGING):

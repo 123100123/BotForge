@@ -7,6 +7,7 @@ import { ApiError, ERROR_CODES } from "@/lib/errors";
 import { countsOf, detailOf, hasNoStoredTests, specOf, type StoredRevision } from "@/lib/fixtures/revisions";
 import { reportOf } from "@/lib/fixtures/scenarios";
 import { getDb, newId, persist } from "@/lib/mock/engine";
+import { platformLinkBase } from "@/lib/platform";
 import { resetSandbox, simulate } from "@/lib/mock/simulator";
 import type {
   BookingCapability,
@@ -25,6 +26,7 @@ import type {
   SimulatorEventBody,
   SimulatorResetResult,
   TelegramStatus,
+  BotPlatform,
   TestReport,
 } from "@/lib/types";
 
@@ -544,19 +546,22 @@ function statusOf(botId: string): TelegramStatus {
   if (!bot) throw new ApiError("bot_not_found", "ربات پیدا نشد.", 404);
   const connected = bot.tg_username !== null;
   const code = bot.owner_linked ? null : bot.owner_link_code; // onboarding.armed_owner_code
+  const platform: BotPlatform = bot.platform === "bale" ? "bale" : "telegram"; // older stored demo data has none
+  const base = platformLinkBase(platform);
   return {
+    platform,
     connected,
     username: bot.tg_username,
-    bot_link: connected ? `https://t.me/${bot.tg_username}` : null,
+    bot_link: connected ? `${base}/${bot.tg_username}` : null,
     owner_linked: bot.owner_linked,
-    owner_link: connected && code ? `https://t.me/${bot.tg_username}?start=owner_${code}` : null,
+    owner_link: connected && code ? `${base}/${bot.tg_username}?start=owner_${code}` : null,
     last_error: d.telegramErrors[botId] ?? null,
   };
 }
 
 export const getTelegram = statusOf;
 
-export function connectTelegram(botId: string, token: string): TelegramStatus {
+export function connectTelegram(botId: string, token: string, platform: BotPlatform = "telegram"): TelegramStatus {
   const d = getDb();
   const bot = d.bots.find((b) => b.id === botId);
   if (!bot) throw new ApiError("bot_not_found", "ربات پیدا نشد.", 404);
@@ -564,6 +569,7 @@ export function connectTelegram(botId: string, token: string): TelegramStatus {
   // A rejected token changes nothing, not even the last error.
   if (!match) throw new ApiError("invalid_token", "توکن ربات نامعتبر است. توکن را دقیقاً از BotFather کپی کنید.", 400);
   delete d.telegramErrors[botId];
+  bot.platform = platform;
   bot.tg_username = `demo${match[1].slice(-4)}_bot`;
   bot.status = bot.status === "paused" ? "paused" : bot.active_revision_id ? "live" : "draft";
   // Every connect starts a new owner link: the owner is unlinked and a fresh code is armed.

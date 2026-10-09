@@ -1,5 +1,5 @@
-"""Log redaction: Telegram bot tokens, session cookies, ``Bearer`` credentials and JWTs never reach
-log output.
+"""Log redaction: Telegram and Bale bot tokens, the secret in Bale webhook paths, session cookies,
+``Bearer`` credentials and JWTs never reach log output.
 
 ``install_log_redaction()`` (called by ``create_app``) wraps the log-record factory, so
 ``RedactingFilter`` runs on every record of every logger at the moment the record is created. That
@@ -42,6 +42,11 @@ _TELEGRAM_TOKEN = re.compile(_BOT_ID + _GAP + _COLON + _GAP + _SECRET)
 # '"1234567 :AAAA… HTTP/1.1"', and collapsing those arguments breaks uvicorn's access formatter.
 _TELEGRAM_TOKEN_COMPACT = re.compile(_BOT_ID + _COLON + _SECRET)
 
+# The Bale webhook path "/bale/<bot id>/<secret>" (app.api.webhook): Bale sends no secret header, so
+# the secret is in the URL and would otherwise reach uvicorn's access log. Everything after the bot id
+# segment up to a query, fragment, quote or whitespace is replaced.
+_BALE_WEBHOOK = re.compile(r"(/bale/[^/\s?#\"']+/)[^\s?#\"']+")
+
 _formatter = logging.Formatter()
 
 
@@ -50,6 +55,7 @@ def redact(text: str) -> str:
     text = _BEARER.sub(lambda m: f"{m.group(1)} {REDACTED}", text)
     text = _JWT.sub(REDACTED, text)
     text = _SESSION_COOKIE.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
+    text = _BALE_WEBHOOK.sub(lambda m: f"{m.group(1)}{REDACTED}", text)
     return _TELEGRAM_TOKEN.sub(REDACTED, text)
 
 

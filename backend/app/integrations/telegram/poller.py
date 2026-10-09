@@ -272,8 +272,11 @@ class TelegramPoller:
         self._last_prune = now
 
     async def _connected_bots(self) -> dict[uuid.UUID, tuple[str, str | None]]:
-        """Bot id -> (encrypted token, last error) of every bot with a stored token."""
-        query = select(Bot.id, Bot.tg_token_enc, Bot.tg_last_error).where(Bot.tg_token_enc.is_not(None))
+        """Bot id -> (encrypted token, last error) of every Telegram bot with a stored token (Bale bots
+        always use their webhook: polling is Telegram-only)."""
+        query = select(Bot.id, Bot.tg_token_enc, Bot.tg_last_error).where(
+            Bot.tg_token_enc.is_not(None), Bot.platform == "telegram"
+        )
         if self._only is not None:
             query = query.where(Bot.id.in_(self._only))
         async with self._sessions() as session:
@@ -372,7 +375,7 @@ class TelegramPoller:
 
     async def _client(self, bot_id: uuid.UUID, token_enc: str) -> TelegramApi | None:
         try:
-            return self._provider(decrypt_token(token_enc))
+            return self._provider(decrypt_token(token_enc), "telegram")
         except TokenKeyError:
             log.error("TOKEN_ENC_KEY is missing or invalid; bot %s is not polled", bot_id)
         except TokenDecryptError:

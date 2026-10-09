@@ -15,6 +15,7 @@ from app.db.models import Bot, Revision
 from app.db.session import get_session
 from app.integrations.telegram.client import TelegramProvider, get_telegram_provider
 from app.integrations.telegram.onboarding import drop_webhook
+from app.integrations.telegram.platforms import Platform, as_platform
 
 router = APIRouter(tags=["bots"])
 
@@ -38,6 +39,7 @@ class BotOut(BaseModel):
     id: uuid.UUID
     name: str
     status: str
+    platform: Platform  # the messenger the bot runs on: "telegram" or "bale"
     tg_username: str | None
     active_revision_id: uuid.UUID | None
     active_revision_number: int | None
@@ -51,6 +53,7 @@ def _bot_out(bot: Bot, active_number: int | None) -> BotOut:
         id=bot.id,
         name=bot.name,
         status=bot.status,
+        platform=as_platform(bot.platform),
         tg_username=bot.tg_username,
         active_revision_id=bot.active_revision_id,
         active_revision_number=active_number,
@@ -130,7 +133,7 @@ async def delete_bot(
     telegram: TelegramProvider = Depends(get_telegram_provider),
 ) -> Response:
     if bot.tg_token_enc:  # best effort: Telegram stops calling a webhook that no longer exists
-        await drop_webhook(bot.tg_token_enc, telegram)
+        await drop_webhook(bot.tg_token_enc, telegram, as_platform(bot.platform))
     # Rows in every child table go with the bot through ON DELETE CASCADE.
     await session.execute(delete(Bot).where(Bot.id == bot.id).execution_options(synchronize_session=False))
     session.expunge(bot)

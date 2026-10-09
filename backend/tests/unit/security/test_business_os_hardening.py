@@ -41,6 +41,7 @@ from app.spreadsheets.inspect import column_signature
 from app.spreadsheets.storage import LocalFileStorage
 
 WEBHOOK_PATH = "/tg/{bot_id}"
+BALE_WEBHOOK_PATH = "/bale/{bot_id}/{secret}"  # authenticated by the secret in its path
 
 
 class StubSession:
@@ -379,7 +380,8 @@ def _dependencies(route: APIRoute) -> set[Any]:
 
 
 def test_every_route_of_a_bot_resolves_the_bot_through_get_owned_bot() -> None:
-    routes = [r for r in _api_routes() if "{bot_id}" in r.path and r.path != WEBHOOK_PATH]
+    webhooks = (WEBHOOK_PATH, BALE_WEBHOOK_PATH)
+    routes = [r for r in _api_routes() if "{bot_id}" in r.path and r.path not in webhooks]
     assert len(routes) > 40  # the Business OS routers are all included
     unguarded = [f"{sorted(r.methods)} {r.path}" for r in routes if get_owned_bot not in _dependencies(r)]
     assert unguarded == []
@@ -387,5 +389,5 @@ def test_every_route_of_a_bot_resolves_the_bot_through_get_owned_bot() -> None:
 
 def test_no_route_under_a_body_limit_exempt_prefix_parses_a_body_before_authentication() -> None:
     exempt = [r for r in _api_routes() if r.path.startswith(EXEMPT_PREFIXES)]
-    assert {r.path for r in exempt} == {"/uploads/bots/{bot_id}", WEBHOOK_PATH}
+    assert {r.path for r in exempt} == {"/uploads/bots/{bot_id}", WEBHOOK_PATH, BALE_WEBHOOK_PATH}
     assert all(r.body_field is None for r in exempt)  # raw-stream readers only, under their own caps

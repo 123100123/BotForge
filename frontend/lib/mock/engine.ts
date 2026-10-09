@@ -237,6 +237,7 @@ export function createBot(name: string): Bot {
     id: newId("bot"),
     name,
     status: "draft",
+    platform: "telegram",
     active_revision_id: null,
     active_revision_number: null,
     tg_username: null,

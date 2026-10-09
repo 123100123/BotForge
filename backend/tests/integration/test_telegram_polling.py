@@ -51,7 +51,7 @@ class Telegram:
     def __init__(self) -> None:
         self.by_token: dict[str, FakeTelegramClient] = {}
 
-    def __call__(self, token: str) -> FakeTelegramClient:
+    def __call__(self, token: str, platform: str = "telegram") -> FakeTelegramClient:
         if token not in self.by_token:
             fake = FakeTelegramClient()
             fake.poll_wait = 0.02
@@ -413,7 +413,7 @@ async def test_alternating_success_and_competitor_conflicts_still_park_the_bot(
     # Two servers sharing a token: each long poll often succeeds (with an update) between conflicts,
     # so "three in a row" would never be reached. The window counts them regardless.
     fake = ScriptedTelegram(["ok", "409", "ok", "409", "ok", "409"])
-    poller = make_poller(bot.id, provider=lambda _token: fake, clock=lambda: 100.0)
+    poller = make_poller(bot.id, provider=lambda _token, _platform="telegram": fake, clock=lambda: 100.0)
     await poller.sync_once()
     await eventually(lambda: parked_with_error(session_factory, bot.id))
     await eventually(lambda: not poller.polling)
@@ -428,7 +428,7 @@ async def test_two_conflicts_with_successful_polls_between_do_not_park(
     session_factory: SessionFactory,
 ) -> None:
     fake = ScriptedTelegram(["409", "ok", "409", "ok", "ok"])
-    poller = make_poller(bot.id, provider=lambda _token: fake, clock=lambda: 100.0)
+    poller = make_poller(bot.id, provider=lambda _token, _platform="telegram": fake, clock=lambda: 100.0)
     await poller.sync_once()
     await eventually(lambda: len(polls(fake)) >= 8)
     assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
@@ -446,7 +446,7 @@ async def test_conflicts_spread_wider_than_the_window_with_successes_between_do_
         return clock[0]
 
     fake = ScriptedTelegram(["ok", "409", "ok", "409", "ok", "409", "ok", "409", "ok"])
-    poller = make_poller(bot.id, provider=lambda _token: fake, clock=tick)
+    poller = make_poller(bot.id, provider=lambda _token, _platform="telegram": fake, clock=tick)
     await poller.sync_once()
     await eventually(lambda: len(polls(fake)) >= 12)
     assert bot.id in poller.polling and not await parked_with_error(session_factory, bot.id)
@@ -939,7 +939,7 @@ async def test_a_polling_cycle_logs_no_token(
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(telegram_api)) as http:
 
-        def real_client(token: str) -> TelegramApi:
+        def real_client(token: str, platform: str = "telegram") -> TelegramApi:
             return TelegramClient(token, http=http)
 
         poller = make_poller(bot.id, provider=real_client)

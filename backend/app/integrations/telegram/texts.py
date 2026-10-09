@@ -24,3 +24,6 @@ TELEGRAM_UNREACHABLE = "ارتباط با تلگرام برقرار نشد. کم
 TELEGRAM_REJECTED = "تلگرام درخواست را نپذیرفت: {description}"
 PUBLIC_URL_MISSING = "آدرس عمومی سرور (PUBLIC_BASE_URL) تنظیم نشده است؛ اتصال به تلگرام ممکن نیست."
 SERVER_MISCONFIGURED = "تنظیمات رمزنگاری سرور کامل نیست؛ اتصال به تلگرام ممکن نیست."
+BALE_PORT_UNSUPPORTED = (
+    "بله فقط به درگاه‌های ۴۴۳ و ۸۸ پیام می‌فرستد؛ آدرس عمومی سرور (PUBLIC_BASE_URL) درگاه دیگری دارد."
+)
