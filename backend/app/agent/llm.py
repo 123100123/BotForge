@@ -467,23 +467,53 @@ class AnthropicLLM:
             history.append({"role": "user", "content": turn.results})
 
 
+class UnavailableLLM:
+    """Stands in for a provider that cannot be built, so the app still starts; every call fails
+    with the configuration problem as its message."""
+
+    strong_model = fast_model = "unavailable"
+
+    def __init__(self, message: str) -> None:
+        self.message = message
+
+    def model_for(self, tier: Tier) -> str:
+        return self.strong_model
+
+    async def structured(self, **kwargs: Any) -> tuple[BaseModel, Usage]:
+        raise LLMError("api_error", self.message)
+
+    async def tool_loop(self, **kwargs: Any) -> LoopResult:
+        raise LLMError("api_error", self.message)
+
+
 def make_llm() -> LLMClient:
     """The selected provider; every phase uses this same boundary."""
-    from app.config import get_settings
+    from app.config import LLM_PROVIDERS, get_settings
 
-    if get_settings().LLM_PROVIDER == "claude_cli":
+    settings = get_settings()
+    provider = settings.LLM_PROVIDER
+    if provider == "claude_cli":
         from app.agent.llm_claude_code import ClaudeCodeLLM
 
         return ClaudeCodeLLM()
-    if get_settings().LLM_PROVIDER == "liara":
+    if provider == "liara":
         from app.agent.llm_liara import LiaraLLM
 
         return LiaraLLM()
-    if get_settings().LLM_PROVIDER == "top_tools":
+    if provider == "top_tools":
         from app.agent.llm_top_tools import TopToolsLLM
 
         return TopToolsLLM()
-    return AnthropicLLM()
+    if provider in ("gemini", "chain"):
+        from app.agent.llm_chain import make_chain
+
+        # Gemini alone is a chain of its keys, so a rate-limited key falls through to the next.
+        return make_chain(settings.llm_chain if provider == "chain" else ["gemini"], settings=settings)
+    if provider == "anthropic":
+        return AnthropicLLM()
+    return UnavailableLLM(
+        f"LLM_PROVIDER={provider[:40]!r} is not supported; use one of: {', '.join(LLM_PROVIDERS)}."
+    )
 
 
 # --------------------------------------------------------------------------- fake

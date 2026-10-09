@@ -311,7 +311,7 @@ async def main() -> int:
     )
     parser.add_argument(
         "--provider",
-        choices=["anthropic", "claude_cli", "liara", "top_tools"],
+        choices=["anthropic", "claude_cli", "liara", "top_tools", "gemini", "chain"],
         default=get_settings().LLM_PROVIDER,
         help="model provider (default: LLM_PROVIDER); claude_cli uses the Claude Code login, no API key",
     )
@@ -346,6 +346,13 @@ async def main() -> int:
             file=sys.stderr,
         )
         return 2
+    if args.provider in ("gemini", "chain") and not settings.provider_configured(args.provider):
+        print(
+            "Gemini needs GEMINI_API_KEYS (or GEMINI_API_KEY); a chain needs at least one configured "
+            "provider in LLM_CHAIN. This evaluation calls the live models.",
+            file=sys.stderr,
+        )
+        return 2
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
     llm: LLMClient
     if args.provider == "claude_cli":
@@ -363,6 +370,11 @@ async def main() -> int:
 
         top_tools = TopToolsLLM()
         llm, models = top_tools, f"strong={top_tools.strong_model} fast={top_tools.fast_model}"
+    elif args.provider in ("gemini", "chain"):
+        from app.agent.llm_chain import make_chain
+
+        chain = make_chain(settings.llm_chain if args.provider == "chain" else ["gemini"], settings=settings)
+        llm, models = chain, f"strong={chain.strong_model} fast={chain.fast_model}"
     else:
         api = AnthropicLLM()
         llm, models = api, f"strong={api.strong_model} fast={api.fast_model}"

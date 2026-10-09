@@ -61,6 +61,8 @@ class ProviderConfig:
     timeout_seconds: float
     max_retries: int
     rates: Mapping[str, Mapping[str, float]]
+    # Gemini reports thinking tokens only in total_tokens; the excess is billed as output.
+    hidden_reasoning_in_total: bool = False
 
     def __post_init__(self) -> None:
         if self.key is not None:
@@ -74,6 +76,14 @@ class ProviderConfig:
     @property
     def configured(self) -> bool:
         return bool(self.key and self.base_url and self.strong_model and self.fast_model)
+
+
+class ProviderError(LLMError):
+    """A failed request; ``status`` is the last HTTP status, or None when no response arrived."""
+
+    def __init__(self, code: str, usage: Usage, status: int | None) -> None:
+        super().__init__(code, _ERRORS[code], usage=usage)
+        self.status = status
 
 
 def _error(code: str, usage: Usage | None = None) -> LLMError:
@@ -125,14 +135,20 @@ def _integer(value: Any) -> int:
     return value
 
 
-def _token_usage(body: dict[str, Any], rates: Mapping[str, float] | None) -> Usage:
+def _token_usage(
+    body: dict[str, Any], rates: Mapping[str, float] | None, hidden_reasoning: bool = False
+) -> Usage:
     data = body.get("usage")
     if not isinstance(data, dict):
         raise _error("invalid_output")
     prompt = _integer(data.get("prompt_tokens"))
     output = _integer(data.get("completion_tokens"))
-    if "total_tokens" in data and _integer(data["total_tokens"]) != prompt + output:
-        raise _error("invalid_output")
+    if "total_tokens" in data:
+        total = _integer(data["total_tokens"])
+        if hidden_reasoning and total > prompt + output:
+            output = total - prompt
+        elif total != prompt + output:
+            raise _error("invalid_output")
     prompt_details = data.get("prompt_tokens_details")
     completion_details = data.get("completion_tokens_details")
     if prompt_details is not None and not isinstance(prompt_details, dict):
@@ -291,12 +307,26 @@ class OpenAICompatibleLLM:
         format_fallback: bool = False,
         on_usage: UsageHook | None = None,
     ) -> dict[str, Any] | None:
-        config = self._config
+        return await self._send(
+            self._config, params, total, format_fallback=format_fallback, on_usage=on_usage
+        )
+
+    async def _send(
+        self,
+        config: ProviderConfig,
+        params: dict[str, Any],
+        total: Usage,
+        *,
+        format_fallback: bool = False,
+        on_usage: UsageHook | None = None,
+        retry_statuses: frozenset[int] = _RETRYABLE,
+    ) -> dict[str, Any] | None:
         if not config.configured:
-            raise _error("api_error")
+            raise ProviderError("api_error", total, None)
         assert config.key is not None and config.base_url is not None
         # No redirect, implicit proxy or ambient credentials can change the destination.
         error_code = None
+        status = None
         body = None
         try:
             async with httpx.AsyncClient(
@@ -308,11 +338,13 @@ class OpenAICompatibleLLM:
             ) as client:
                 retries = 0
                 while True:
+                    status = None
                     async with asyncio.timeout(config.timeout_seconds):
                         response = await client.post(
                             config.base_url + "/chat/completions",
                             json=params,
                         )
+                    status = response.status_code
                     # Successful completions must have valid usage. Error responses often have no
                     # usage; if present, validate and charge it before any retry or compatibility call.
                     body = None
@@ -324,7 +356,9 @@ class OpenAICompatibleLLM:
                     if response.status_code == 200 or (isinstance(body, dict) and "usage" in body):
                         if not isinstance(body, dict):
                             raise _error("invalid_output")
-                        usage = _token_usage(body, config.rates.get(params["model"]))
+                        usage = _token_usage(
+                            body, config.rates.get(params["model"]), config.hidden_reasoning_in_total
+                        )
                         charged = total + usage
                         for key, value in charged.model_dump().items():
                             setattr(total, key, value)
@@ -334,7 +368,7 @@ class OpenAICompatibleLLM:
                         params = {k: v for k, v in params.items() if k != "response_format"}
                         format_fallback = False
                         continue
-                    if response.status_code not in _RETRYABLE or retries >= config.max_retries:
+                    if response.status_code not in retry_statuses or retries >= config.max_retries:
                         if response.status_code != 200:
                             raise _error("api_error")
                         break
@@ -346,7 +380,7 @@ class OpenAICompatibleLLM:
             # Raise outside the exception handler: no raw provider exception remains in the chain.
             error_code = "api_error"
         if error_code is not None:
-            raise _error(error_code, total)
+            raise ProviderError(error_code, total, status)
         assert isinstance(body, dict)
         return body
 
@@ -421,11 +455,12 @@ class OpenAICompatibleLLM:
                 total,
             )
         except LLMError as exc:
-            error_code = exc.code
+            error_code, message = exc.code, exc.message
         except Exception:
-            error_code = "invalid_output"
+            error_code, message = "invalid_output", _ERRORS["invalid_output"]
         # The cumulative object is updated in place before parsing or dispatching each response.
-        raise _error(error_code, total)
+        # Keep the static or per-provider message, never a raw provider exception.
+        raise LLMError(error_code, message, usage=total)
 
     async def _tool_loop(
         self,

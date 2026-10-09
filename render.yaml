@@ -76,10 +76,15 @@ services:
       - key: FRONTEND_ORIGIN_REGEX   # optional, leave empty unless deploy previews must reach this API (README step 5)
         sync: false
       # --- LLM ---
-      # Keep Anthropic as the deployed default. Liara and Top Tools require their own server-only
-      # credentials; claude_cli is intended for local development.
+      # "chain" tries the providers of LLM_CHAIN in order for every model call: each Gemini key in turn,
+      # then Top Tools. Each provider needs its own server-only credentials below. "anthropic", "gemini",
+      # "liara" and "top_tools" select a single provider; claude_cli is for local development only.
       - key: LLM_PROVIDER
-        value: "anthropic"
+        value: "chain"
+      - key: LLM_CHAIN
+        value: "gemini,top_tools"
+      - key: LLM_COOLDOWN_SECONDS      # a key/provider that hit a quota or auth error is skipped this long
+        value: "60"
       - key: LLM_MODEL_STRONG
         sync: false
       - key: LLM_MODEL_FAST
@@ -100,6 +105,18 @@ services:
         value: "2"
       - key: LIARA_TOKEN_PRICES_JSON   # optional model price map; leave blank when unpriced
         sync: false
+      - key: GEMINI_API_KEYS            # secret, comma-separated Google AI Studio keys (up to 5), tried in turn
+        sync: false
+      - key: GEMINI_BASE_URL
+        value: "https://generativelanguage.googleapis.com/v1beta/openai"
+      - key: GEMINI_MODEL_STRONG        # free-tier keys: Pro models return 429
+        value: "gemini-flash-latest"
+      - key: GEMINI_MODEL_FAST
+        value: "gemini-flash-latest"
+      - key: GEMINI_TIMEOUT_SECONDS
+        value: "90"
+      - key: GEMINI_MAX_RETRIES
+        value: "1"
       - key: TOP_TOOLS_API_KEY          # secret Top Tools API key
         sync: false
       - key: TOP_TOOLS_BASE_URL         # documented endpoint; https://top-tools-ai.com/v1 also supported
