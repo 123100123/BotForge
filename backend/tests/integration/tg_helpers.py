@@ -47,6 +47,7 @@ async def make_live_bot(
     *,
     owner: str = "alice",
     owner_actor_id: str | None = None,
+    platform: str = "telegram",
 ) -> LiveBot:
     """A bot of the test account ``<owner>@example.com`` with an encrypted token, a webhook secret and
     (if ``spec``) an active revision."""
@@ -59,6 +60,7 @@ async def make_live_bot(
             owner_id=owner_id,
             name="ربات تست",
             status="live",
+            platform=platform,
             tg_bot_id=tg_id,
             tg_username="workshop_test_bot",
             tg_token_enc=encrypt_token(token),

@@ -36,6 +36,7 @@ async def test_status_of_an_unconnected_bot(tg_client: httpx.AsyncClient, make_b
     response = await tg_client.get(f"/bots/{bot_id}/telegram", headers=ALICE)
     assert response.status_code == 200
     assert response.json() == {
+        "platform": "telegram",
         "connected": False,
         "username": None,
         "bot_link": None,

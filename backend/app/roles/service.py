@@ -37,6 +37,7 @@ from sqlalchemy.orm.attributes import flag_modified
 
 from app.botspec.models import Role
 from app.db.models import Bot, BotUser
+from app.integrations.telegram.platforms import bot_link
 from app.roles import ROLES, TEAM_ROLES, parse_role, role_after_staff_link
 from app.runtime.pg_store import Env, advisory_lock
 from app.schemas.business import TeamMemberOut, TeamOut
@@ -199,10 +200,11 @@ async def change_member_role(session: AsyncSession, bot: Bot, actor_id: str, rol
 
 
 def staff_link(bot: Bot) -> str | None:
-    """The staff deep link, or None while the bot is not connected to Telegram or has no code."""
+    """The staff deep link (``t.me`` or, for a Bale bot, ``ble.ir``), or None while the bot is not
+    connected or has no code."""
     if bot.tg_token_enc is None or not bot.tg_username or not bot.staff_link_code:
         return None
-    return f"https://t.me/{bot.tg_username}?start={STAFF_PAYLOAD_PREFIX}{bot.staff_link_code}"
+    return bot_link(bot.platform, bot.tg_username, f"{STAFF_PAYLOAD_PREFIX}{bot.staff_link_code}")
 
 
 def staff_code_from_payload(payload: str | None) -> str | None:

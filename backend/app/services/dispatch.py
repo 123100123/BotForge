@@ -61,11 +61,13 @@ from app.integrations.telegram import texts
 from app.integrations.telegram.adapter import (
     NOT_MODIFIED,
     TelegramOrigin,
+    client_platform,
     render_text,
     reply_markup,
     send_out_message,
 )
 from app.integrations.telegram.client import TelegramApi, TelegramError, TelegramProvider, default_provider
+from app.integrations.telegram.platforms import DEFAULT_PLATFORM, as_platform, localize
 from app.roles.service import get_role
 from app.runtime import nav
 from app.runtime.callbacks import MAX_CALLBACK_BYTES
@@ -119,7 +121,7 @@ async def dispatch(
         event = _with_owner_flag(event, owner_actor_id)
         event = _with_role(event, await get_role(session, current.id, "live", event.actor.id))
     # Plain values: a rollback or commit may expire the ORM object, and async lazy loads fail.
-    target = _Target(current.id, current.tg_token_enc, current.tg_last_error)
+    target = _Target.of(current)
     store = PgStore(session, current.id, event.env, owner_actor_id=owner_actor_id)
     try:
         response = await BotRuntime().handle(event, spec, store)
@@ -171,15 +173,21 @@ class _Target:
     id: uuid.UUID
     token_enc: str | None
     last_error: str | None
+    platform: str = DEFAULT_PLATFORM
+
+    @classmethod
+    def of(cls, bot: Bot) -> "_Target":
+        return cls(bot.id, bot.tg_token_enc, bot.tg_last_error, as_platform(bot.platform))
 
 
 def _client_for(target: _Target, provider: TelegramProvider) -> TelegramApi | None:
-    """A client with the decrypted token, or ``None`` (logged) if the bot has no usable token."""
+    """A client with the decrypted token for the bot's platform, or ``None`` (logged) if the bot has
+    no usable token."""
     if not target.token_enc:
         log.warning("bot %s has no Telegram token; nothing delivered", target.id)
         return None
     try:
-        return provider(decrypt_token(target.token_enc))
+        return provider(decrypt_token(target.token_enc), as_platform(target.platform))
     except TokenCryptoError as exc:
         log.error("bot %s: Telegram token unusable (%s)", target.id, type(exc).__name__)
         return None
@@ -188,7 +196,7 @@ def _client_for(target: _Target, provider: TelegramProvider) -> TelegramApi | No
 def client_for_bot(bot: Bot, telegram: TelegramProvider | None = None) -> TelegramApi | None:
     """A Telegram client with ``bot``'s decrypted token (the webhook's document download), or ``None``
     (logged) when the bot has no usable token. The token never leaves the client."""
-    return _client_for(_Target(bot.id, bot.tg_token_enc, bot.tg_last_error), telegram or default_provider)
+    return _client_for(_Target.of(bot), telegram or default_provider)
 
 
 async def _answer_callback_best_effort(
@@ -248,7 +256,7 @@ async def _deliver(
     attempts = 0
     client = _client_for(bot, provider)
     if client is None:
-        await _record_error(session, bot, NO_TOKEN)
+        await _record_error(session, bot, localize(NO_TOKEN, bot.platform))
         return
 
     if origin is not None and origin.callback_query_id is not None:
@@ -336,7 +344,7 @@ async def _deliver_group(
     attempts = 0
     client = _client_for(bot, provider)
     if client is None:
-        await _record_error(session, bot, NO_TOKEN)
+        await _record_error(session, bot, localize(NO_TOKEN, bot.platform))
         return
 
     if origin is not None and origin.callback_query_id is not None:
@@ -354,7 +362,8 @@ async def _deliver_group(
             markup = reply_markup(OutMessage(to_actor_id=event.actor.id, text=text, buttons=buttons))
             attempts += 1
             try:
-                await client.edit_message_text(origin.chat_id, origin.message_id, render_text(text), markup)
+                rendered = render_text(text, client_platform(client))
+                await client.edit_message_text(origin.chat_id, origin.message_id, rendered, markup)
             except TelegramError as exc:
                 if NOT_MODIFIED not in exc.description.lower():  # else the card already shows it
                     _log_failure(bot, exc)
@@ -392,7 +401,7 @@ async def answer_callback(
     to a group button press that never reaches the runtime). Best effort like ``reply_plain``."""
     if origin is None or origin.callback_query_id is None:
         return
-    target = _Target(bot.id, bot.tg_token_enc, bot.tg_last_error)
+    target = _Target.of(bot)
     client = _client_for(target, telegram or default_provider)
     if client is None:
         return
@@ -415,9 +424,10 @@ async def reply_plain(
     origin: TelegramOrigin | None = None,
 ) -> None:
     """Send one fixed text (the webhook's "not ready" and owner-link replies) and answer the pressed
-    button, if any. Best effort like ``dispatch`` delivery: failures are logged and recorded."""
+    button, if any. Best effort like ``dispatch`` delivery: failures are logged and recorded. The text
+    is ours, never user content, so on Bale its mentions of Telegram name Bale (``localize``)."""
     provider = telegram or default_provider
-    target = _Target(bot.id, bot.tg_token_enc, bot.tg_last_error)
+    target = _Target.of(bot)
     client = _client_for(target, provider)
     if client is None:
         return
@@ -425,7 +435,8 @@ async def reply_plain(
     try:
         if origin is not None and origin.callback_query_id is not None:
             await client.answer_callback_query(origin.callback_query_id)
-        await client.send_message(chat_id, render_text(text))
+        platform = client_platform(client)
+        await client.send_message(chat_id, render_text(localize(text, platform), platform))
     except TelegramError as exc:
         _log_failure(target, exc)
         error = f"{exc.method}: {exc.description}"

@@ -38,7 +38,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from app.config import Settings, get_settings
 from app.db.models import Bot, OutboundMessageRow
-from app.integrations.telegram.adapter import render_text, reply_markup
+from app.integrations.telegram.adapter import client_platform, render_text, reply_markup
 from app.integrations.telegram.client import (
     TelegramApi,
     TelegramError,
@@ -46,6 +46,7 @@ from app.integrations.telegram.client import (
     default_provider,
     parse_retry_after,
 )
+from app.integrations.telegram.platforms import as_platform
 from app.notifications import outbox
 from app.notifications.generators import Generator, discover
 from app.runtime.contracts import OutMessage
@@ -188,14 +189,16 @@ class NotificationTicker:
         """A client per bot, ``None`` (logged) when the bot has no usable token."""
         if not bot_ids:
             return {}
-        rows = (await session.execute(select(Bot.id, Bot.tg_token_enc).where(Bot.id.in_(bot_ids)))).all()
+        rows = (
+            await session.execute(select(Bot.id, Bot.tg_token_enc, Bot.platform).where(Bot.id.in_(bot_ids)))
+        ).all()
         clients: dict[uuid.UUID, TelegramApi | None] = dict.fromkeys(bot_ids)
-        for bot_id, token_enc in rows:
+        for bot_id, token_enc, platform in rows:
             if not token_enc:
                 log.warning("bot %s: no Telegram token; outbox messages not sent", bot_id)
                 continue
             try:
-                clients[bot_id] = self._provider(decrypt_token(token_enc))
+                clients[bot_id] = self._provider(decrypt_token(token_enc), as_platform(platform))
             except TokenCryptoError as exc:
                 log.error("bot %s: Telegram token unusable (%s); outbox not sent", bot_id, type(exc).__name__)
         return clients
@@ -214,7 +217,8 @@ class NotificationTicker:
         await self._throttle(row.bot_id, row.chat_id)
         try:
             message = OutMessage(to_actor_id=str(row.chat_id), text=row.text, buttons=row.buttons or [])
-            await client.send_message(row.chat_id, render_text(message.text), reply_markup(message))
+            text = render_text(message.text, client_platform(client))
+            await client.send_message(row.chat_id, text, reply_markup(message))
         except TelegramError as exc:
             self._failed(row, exc)
             return 0

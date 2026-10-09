@@ -277,7 +277,14 @@ async def test_the_own_login_routes_still_exist_in_local_mode(
 
 # Routes reachable without a login (tests/integration/test_app_boot.py has the same list for the own
 # login). In supabase mode the /auth routes answer 404 (see above).
-PUBLIC_ROUTES = {"/healthz", "/tg/{bot_id}", "/auth/signup", "/auth/login", "/auth/logout"}
+PUBLIC_ROUTES = {
+    "/healthz",
+    "/tg/{bot_id}",
+    "/bale/{bot_id}/{secret}",
+    "/auth/signup",
+    "/auth/login",
+    "/auth/logout",
+}
 
 
 async def test_every_api_route_requires_a_bearer_token(

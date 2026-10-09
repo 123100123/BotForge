@@ -23,6 +23,7 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 MAX_BODY_BYTES = 1024 * 1024
 EXEMPT_PREFIXES = (
     "/tg/",  # the webhook limits its body itself, after the secret check
+    "/bale/",  # the same for the Bale webhook
     "/uploads/",  # the raw-body upload route enforces its own cap (UPLOAD_MAX_BYTES), after auth + CSRF
 )
 

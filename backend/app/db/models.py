@@ -7,6 +7,7 @@ from typing import Any
 from sqlalchemy import (
     BigInteger,
     Boolean,
+    CheckConstraint,
     DateTime,
     ForeignKey,
     Index,
@@ -72,6 +73,9 @@ class Bot(Base):
     __table_args__ = (
         Index("ix_bots_owner_id", "owner_id"),
         Index("ux_bots_staff_link_code", "staff_link_code", unique=True),
+        # A messenger bot id belongs to one BotForge bot per platform (Telegram and Bale ids may clash).
+        UniqueConstraint("platform", "tg_bot_id", name="uq_bots_platform_tg_bot_id"),
+        CheckConstraint("platform IN ('telegram', 'bale')", name="ck_bots_platform"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -91,7 +95,12 @@ class Bot(Base):
         ),
         nullable=True,
     )
-    tg_bot_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True, unique=True)
+    # The messenger the bot runs on (app.integrations.telegram.platforms). The tg_* columns, the owner
+    # link and the webhook secret hold that platform's values (Bale's API mirrors Telegram's).
+    platform: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="telegram", server_default="telegram"
+    )
+    tg_bot_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     tg_username: Mapped[str | None] = mapped_column(String, nullable=True)
     tg_token_enc: Mapped[str | None] = mapped_column(Text, nullable=True)
     tg_webhook_secret: Mapped[str | None] = mapped_column(String, nullable=True)

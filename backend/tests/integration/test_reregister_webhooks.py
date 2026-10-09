@@ -575,7 +575,7 @@ async def test_the_real_client_sends_the_existing_secret_and_leaks_nothing(
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(telegram_api)) as http:
 
-        def real_client(token: str) -> TelegramClient:
+        def real_client(token: str, platform: str = "telegram") -> TelegramClient:
             return TelegramClient(token, http=http)
 
         code = await script.reregister_webhooks(db, lambda: real_client, public_base_url=NEW_BASE)
