@@ -1,19 +1,17 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { CircleAlert, CircleCheck, CircleSlash, ExternalLink, RefreshCw, Unplug } from "lucide-react";
+import { ExternalLink, Send, Unplug } from "lucide-react";
 import { ConfirmDialog } from "@/components/app/confirm-dialog";
 import { ErrorNote } from "@/components/app/state-blocks";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { StatusBadge } from "@/components/ui/status-badge";
-import { invalidateAttention } from "@/lib/adapters/attention";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
-import { isPollingConflict, pollingConflictMessage } from "@/lib/telegram";
 import type { TelegramStatus } from "@/lib/types";
-import { DANGER_OUTLINE, FieldRow, PanelSection, SettingsPanel } from "./settings-panel";
 
 interface TelegramConnectProps {
   botId: string;
@@ -22,29 +20,11 @@ interface TelegramConnectProps {
   onChanged: (status: TelegramStatus) => void;
 }
 
-/** Settings › Telegram › connection: status, bot username and link, the connect form, and disconnect. */
 export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }: TelegramConnectProps) {
   const [token, setToken] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmOpen, setConfirmOpen] = useState(false);
-  const [retrying, setRetrying] = useState(false);
-  const [retryError, setRetryError] = useState<string | null>(null);
-  const conflict = isPollingConflict(status.last_error);
-
-  async function retry() {
-    setRetrying(true);
-    setRetryError(null);
-    try {
-      const next = await api.retryTelegram(botId);
-      invalidateAttention(botId); // the Overview item «دریافت پیام‌های تلگرام متوقف شده است» is stale now
-      onChanged(next);
-    } catch (err) {
-      setRetryError(errorMessage(err));
-    } finally {
-      setRetrying(false);
-    }
-  }
 
   async function connect(e: FormEvent) {
     e.preventDefault();
@@ -67,105 +47,63 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
   }
 
   return (
-    <SettingsPanel
-      title="اتصال به تلگرام"
-      description="مشتری‌ها از طریق ربات تلگرام خودتان با کسب‌وکار شما صحبت می‌کنند."
-      status={
-        status.connected ? (
-          <StatusBadge tone="success" icon={<CircleCheck strokeWidth={1.75} aria-hidden />}>
-            وصل است
-          </StatusBadge>
-        ) : (
-          <StatusBadge tone="neutral" icon={<CircleSlash strokeWidth={1.75} aria-hidden />}>
-            وصل نیست
-          </StatusBadge>
-        )
-      }
-    >
-      {conflict && status.last_error && (
-        <PanelSection>
-          <div role="alert" className="flex flex-col gap-3 rounded-sm bg-danger-soft p-4 text-danger-text">
-            <div className="flex items-start gap-2.5">
-              <CircleAlert className="mt-0.5 size-5 shrink-0" strokeWidth={1.75} aria-hidden />
-              <div className="flex min-w-0 flex-col gap-1">
-                <p className="text-body font-semibold">دریافت پیام‌های تلگرام متوقف شده است</p>
-                <p className="text-small">{pollingConflictMessage(status.last_error)}</p>
-              </div>
-            </div>
-            <div>
-              <Button variant="secondary" className={DANGER_OUTLINE} loading={retrying} onClick={retry}>
-                <RefreshCw strokeWidth={1.75} />
-                تلاش دوباره
-              </Button>
-            </div>
-            {retryError && <p className="text-small">{retryError}</p>}
-          </div>
-        </PanelSection>
-      )}
-      {status.last_error && !conflict && (
-        <PanelSection>
-          <ErrorNote>آخرین خطا: {status.last_error}</ErrorNote>
-        </PanelSection>
-      )}
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Send className="size-5 text-muted-foreground" />
+          اتصال به تلگرام
+          <Badge variant={status.connected ? "success" : "secondary"} className="ms-auto">
+            {status.connected ? "وصل است" : "وصل نیست"}
+          </Badge>
+        </CardTitle>
+        <CardDescription>مشتری‌ها از طریق ربات تلگرام خودتان با کسب‌وکار شما صحبت می‌کنند.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-4">
+        {status.last_error && <ErrorNote>آخرین خطا: {status.last_error}</ErrorNote>}
 
-      {status.connected ? (
-        <>
-          <PanelSection>
-            <dl className="flex flex-col gap-3">
-              <FieldRow label="نام کاربری ربات">
-                <span dir="ltr" className="inline-block">
-                  @{status.username}
-                </span>
-              </FieldRow>
+        {status.connected ? (
+          <>
+            <dl className="grid gap-3 text-sm sm:grid-cols-[auto_1fr] sm:gap-x-6">
+              <dt className="text-muted-foreground">نام کاربری ربات</dt>
+              <dd>
+                <span dir="ltr">@{status.username}</span>
+              </dd>
               {status.bot_link && (
-                <FieldRow label="پیوند ربات">
-                  <a
-                    href={status.bot_link}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="inline-flex max-w-full items-center gap-1.5 rounded-xs text-brand-text hover:underline"
-                  >
-                    <span dir="ltr" className="min-w-0 break-all">
-                      {status.bot_link}
-                    </span>
-                    <ExternalLink className="size-4 shrink-0" strokeWidth={1.75} aria-hidden />
-                    <span className="sr-only">(باز می‌شود در تب جدید)</span>
-                  </a>
-                </FieldRow>
+                <>
+                  <dt className="text-muted-foreground">پیوند ربات</dt>
+                  <dd>
+                    <a href={status.bot_link} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 text-primary hover:underline">
+                      <span dir="ltr">{status.bot_link}</span>
+                      <ExternalLink className="size-3.5" />
+                    </a>
+                  </dd>
+                </>
               )}
             </dl>
             {!hasActiveRevision && (
-              <p role="status" className="rounded-sm bg-warning-soft p-3 text-small text-warning-text">
-                ربات هنوز نسخهٔ فعالی ندارد و به مشتری‌ها «آماده نیست» را نشان می‌دهد. نسخهٔ ربات را در بخش «تغییرات» تأیید کنید.
+              <p className="rounded-md bg-warning/15 p-3 text-sm leading-7 text-warning">
+                ربات هنوز نسخهٔ فعالی ندارد و به مشتری‌ها «آماده نیست» را نشان می‌دهد. نسخهٔ ربات را در بخش دستیار هوشمند تأیید کنید.
               </p>
             )}
-          </PanelSection>
-          <PanelSection
-            tone="danger"
-            title="قطع اتصال"
-            description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد. داده‌ها و نسخه‌های ربات حفظ می‌شود."
-          >
             <div>
-              <Button variant="secondary" className={DANGER_OUTLINE} onClick={() => setConfirmOpen(true)}>
-                <Unplug strokeWidth={1.75} />
-                قطع اتصال از تلگرام
+              <Button variant="outline" onPress={() => setConfirmOpen(true)}>
+                <Unplug />
+                قطع اتصال
               </Button>
             </div>
-          </PanelSection>
-          <ConfirmDialog
-            open={confirmOpen}
-            onOpenChange={setConfirmOpen}
-            title="قطع اتصال از تلگرام"
-            description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد و حساب تلگرام مدیر هم از ربات جدا می‌شود. داده‌ها و نسخه‌های ربات حفظ می‌شود. پس از اتصال دوباره، پیوند تازهٔ دریافت اعلان‌ها را در تلگرام باز کنید."
-            confirmLabel="قطع اتصال"
-            destructive
-            onConfirm={async () => onChanged(await api.disconnectTelegram(botId))}
-          />
-        </>
-      ) : (
-        <PanelSection title="اتصال ربات">
+            <ConfirmDialog
+              open={confirmOpen}
+              onOpenChange={setConfirmOpen}
+              title="قطع اتصال از تلگرام"
+              description="ربات دیگر به پیام‌های مشتری‌ها پاسخ نمی‌دهد و حساب تلگرام مدیر هم از ربات جدا می‌شود. داده‌ها و نسخه‌های ربات حفظ می‌شود. پس از اتصال دوباره، پیوند تازهٔ دریافت اعلان‌ها را در تلگرام باز کنید."
+              confirmLabel="قطع اتصال"
+              destructive
+              onConfirm={async () => onChanged(await api.disconnectTelegram(botId))}
+            />
+          </>
+        ) : (
           <form onSubmit={connect} noValidate className="flex flex-col gap-4">
-            <ol className="list-[persian] space-y-1 ps-5 text-body text-fg-secondary">
+            <ol className="list-[persian] space-y-1.5 ps-5 text-sm leading-7">
               <li>
                 در تلگرام با <span dir="ltr">@BotFather</span> گفتگو را شروع کنید.
               </li>
@@ -174,7 +112,7 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
               </li>
               <li>توکنی که BotFather می‌فرستد را کپی کنید و در کادر زیر بچسبانید.</li>
             </ol>
-            <div className="grid max-w-md gap-1.5">
+            <div className="grid gap-1.5">
               <Label htmlFor="tg-token">توکن ربات</Label>
               <Input
                 id="tg-token"
@@ -187,11 +125,8 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
                 value={token}
                 onChange={(e) => setToken(e.target.value)}
                 aria-invalid={error ? true : undefined}
-                aria-describedby={error ? "tg-token-help tg-token-error" : "tg-token-help"}
+                aria-describedby={error ? "tg-token-error" : undefined}
               />
-              <p id="tg-token-help" className="text-caption text-fg-muted">
-                توکن مثل یک رمز است: آن را فقط همین‌جا وارد کنید و برای کسی نفرستید.
-              </p>
             </div>
             {error && (
               <ErrorNote>
@@ -199,13 +134,13 @@ export function TelegramConnect({ botId, status, hasActiveRevision, onChanged }:
               </ErrorNote>
             )}
             <div>
-              <Button type="submit" loading={busy}>
+              <Button type="submit" isDisabled={busy}>
                 {busy ? "در حال اتصال…" : "اتصال"}
               </Button>
             </div>
           </form>
-        </PanelSection>
-      )}
-    </SettingsPanel>
+        )}
+      </CardContent>
+    </Card>
   );
 }

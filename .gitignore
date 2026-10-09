@@ -20,6 +20,9 @@ node_modules/
 out/
 *.tsbuildinfo
 next-env.d.ts
+test-results/
+playwright-report/
+frontend/ui-review/
 
 # Environment
 .env

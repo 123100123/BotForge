@@ -6,7 +6,7 @@ export function TabPlaceholder({ title, children }: { title: string; children?: 
   return (
     <Card>
       <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
-        <h3 className="text-h3">{title}</h3>
+        <h3 className="text-base font-semibold">{title}</h3>
         <p className="max-w-md text-sm leading-7 text-muted-foreground">
           {children ?? "این بخش در نسخهٔ بعدی اضافه می‌شود."}
         </p>

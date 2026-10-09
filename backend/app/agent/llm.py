@@ -468,13 +468,21 @@ class AnthropicLLM:
 
 
 def make_llm() -> LLMClient:
-    """The client for ``LLM_PROVIDER``: ``AnthropicLLM`` (default) or ``ClaudeCodeLLM`` (claude_cli)."""
+    """The selected provider; every phase uses this same boundary."""
     from app.config import get_settings
 
     if get_settings().LLM_PROVIDER == "claude_cli":
         from app.agent.llm_claude_code import ClaudeCodeLLM
 
         return ClaudeCodeLLM()
+    if get_settings().LLM_PROVIDER == "liara":
+        from app.agent.llm_liara import LiaraLLM
+
+        return LiaraLLM()
+    if get_settings().LLM_PROVIDER == "top_tools":
+        from app.agent.llm_top_tools import TopToolsLLM
+
+        return TopToolsLLM()
     return AnthropicLLM()
 
 

@@ -16,6 +16,31 @@ deploying the project.
 
 ## Repository layout
 
+The frontend uses HeroUI V3, bundled Vazirmatn and Persian RTL. Its light/dark/system control persists
+across visits. The landing, authentication, bot directory and all eight workspace sections share the
+new responsive design; below 1024px the workspace navigation opens in a keyboard-accessible drawer.
+
+For frontend checks, run these from `frontend/`:
+
+```sh
+npm ci
+npm run lint
+npm run typecheck
+npm run test:next-path
+npm run test:schema-parity
+npm run build
+```
+
+Browser regression tests require a separately running **mock** frontend (`NEXT_PUBLIC_MOCK=1`),
+then `npm run test:ui`. The suite uses installed Microsoft Edge; `UI_BASE_URL` overrides
+`http://127.0.0.1:3000`. Every mutating test checks for the mock notice before proceeding.
+Mock tests exercise local fixtures; they do not establish live Telegram, LLM or Supabase behavior.
+The redesign verification passed clean installation, lint, TypeScript, route/schema checks,
+production builds for mock/local/Supabase configurations and all 24 browser regression tests.
+The browser suite checks both themes at 375, 768, 1024 and 1440px, keyboard modal focus,
+200% CSS layout zoom, reduced motion and shared theme text contrast. Review screenshots are
+generated in the ignored `frontend/ui-review/` directory.
+
 | Path | Contents |
 |---|---|
 | `backend/app/` | FastAPI app: `api/` routes, `agent/` (LLM orchestration), `botspec/` (contracts), `runtime/` (bot engines, `PgStore`), `integrations/telegram/`, `simulator/`, `revisions/`, `testing/`, `security/`, `db/` |
@@ -89,8 +114,10 @@ $env:PUBLIC_BASE_URL = 'http://localhost:8000'
 $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 ```
 
-`ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG` and `LLM_MODEL_FAST` are needed only for agent runs. Owners
-sign in with the backend's own accounts (email and password, a `bf_session` cookie); see Run the API.
+LLM credentials and model settings are needed only for agent runs. The default provider is Anthropic;
+`LLM_PROVIDER=claude_cli` uses a local Claude Code login, `LLM_PROVIDER=liara` uses a Liara AI project,
+and `LLM_PROVIDER=top_tools` uses Top Tools AI. Owners sign in with the backend's own accounts (email and
+password, a `bf_session` cookie); see Run the API.
 
 Authentication has a switch: `AUTH_PROVIDER=local|supabase` on the backend and `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase`
 in the frontend build, both defaulting to `local`. Local development uses `local` (the own login above); `supabase`
@@ -206,6 +233,67 @@ uv run python scripts/seed_demo.py --bot-id <bot id>            # --reset remove
 ### Smoke test of the whole HTTP stack
 
 ```powershell
+### Running the agent through Liara AI
+
+Liara is a backend-only provider for bot creation and modification, spreadsheet analysis, and Copilot. It
+uses Liara's OpenAI-compatible AI project endpoint. Follow Liara's [quick-start guide](https://docs.liara.ir/ai/quick-start/)
+to create an AI project and a **project-scoped AI key**; do not use a Liara account API key.
+
+Set the project endpoint and select the provider, then restart the backend:
+
+```powershell
+$env:LLM_PROVIDER = 'liara'
+$env:LIARA_API_KEY = '<project-scoped AI key>'
+$env:LIARA_BASE_URL = 'https://ai.liara.ir/api/v1/<project-id>'
+```
+
+Liara defaults to `google/gemini-3.8-flash` for strong work and `deepseek/deepseek-v4-flash` for fast
+work. Override them with `LIARA_MODEL_STRONG` and `LIARA_MODEL_FAST`; the remaining settings are
+`LIARA_MAX_TOKENS=32000`, `LIARA_TIMEOUT_SECONDS=180`, `LIARA_MAX_RETRIES=2`, and optional
+`LIARA_TOKEN_PRICES_JSON`. The price map has the form
+`{"model":{"input":<USD/million>,"output":<USD/million>,"cache_read":<optional USD/million>}}`;
+if it is empty, BotForge reports a zero estimate as **unpriced**, not free. See Liara's
+[Gemini](https://docs.liara.ir/ai/google-gemini/) and [DeepSeek](https://docs.liara.ir/ai/deepseek/)
+model documentation.
+
+Use `LLM_PROVIDER=anthropic` to return to the default API provider, or `LLM_PROVIDER=claude_cli` for
+headless Claude Code, and restart the backend after every provider or credential change. This integration
+has offline mocked coverage only; it has not been tested against a funded Liara account or a live model.
+
+### Running the agent through Top Tools AI
+
+Top Tools is a backend-only provider for the same bot creation and modification, spreadsheet analysis, and
+Copilot features. Select it once for the server; there is no dashboard-level or per-feature provider switch.
+Follow the [Top Tools API documentation](https://top-tools-ai.com/docs) and configure an account-specific
+API key plus both model IDs, then restart the backend:
+
+```powershell
+$env:LLM_PROVIDER = 'top_tools'
+$env:TOP_TOOLS_API_KEY = '<Top Tools API key>'
+$env:TOP_TOOLS_MODEL_STRONG = '<confirmed strong model ID>'
+$env:TOP_TOOLS_MODEL_FAST = '<confirmed fast model ID>'
+# The default is https://top-tools-ai.com/api/v1. The explicitly supplied https://top-tools-ai.com/v1
+# endpoint is also supported when it is the endpoint assigned to your account.
+```
+
+`TOP_TOOLS_BASE_URL` defaults to `https://top-tools-ai.com/api/v1`; `https://top-tools-ai.com/v1` is also
+accepted. The requested “ClaudeOpus5” and “GPT5.6Sol” labels do not establish API model IDs; set the exact
+IDs enabled for the account instead of relying on an inferred default. `TOP_TOOLS_MAX_TOKENS=32000`,
+`TOP_TOOLS_TIMEOUT_SECONDS=180`, and `TOP_TOOLS_MAX_RETRIES=2` are the defaults.
+`TOP_TOOLS_TOKEN_PRICES_JSON` uses the same optional USD-per-million-token format as Liara; empty means a
+zero estimate is **unpriced**, not free. Each provider needs its own secret: do not reuse an Anthropic or
+Liara key with Top Tools.
+
+The local endpoint check on 2026-10-08 received HTML `403` responses from both `/api/v1` and `/v1`; it was
+not a successful compatibility test and does not establish a cause or live provider behavior. Offline
+verification passed: 174 focused tests cover both providers, including create/modify, spreadsheet analysis,
+Copilot, provider isolation and safe failures; 1789 available backend tests pass, with 445 database tests
+skipped and two existing Windows-incompatible permission checks excluded. Lint and independent reviews
+pass. The configured adapter's strong structured-output and fast tool-call live checks both returned
+HTTP 403, so live operation and the locally inferred model IDs remain unverified. Switch back with
+`LLM_PROVIDER=anthropic`, `liara`, or `claude_cli` and restart
+the backend after changing the provider, credentials, endpoint, or model IDs.
+
 uv run python scripts/dev_db.py start
 $env:DATABASE_URL = '<printed url>'
 uv run python scripts/smoke_local.py --local-defaults
@@ -246,7 +334,7 @@ same code with the product's own login.
 ### Deployment checklist
 
 Architecture: the web app (a Render Node service, or Vercel) calls the API (one always-on Render container)
-with a Supabase access token; the API talks to Supabase Postgres, the Anthropic API and Telegram, which
+with a Supabase access token; the API talks to Supabase Postgres, the configured LLM provider and Telegram, which
 posts webhooks to the API's public address. The API must run as a single instance with a single worker
 (agent runs, rate limits, the notification ticker and the Telegram webhook handler are in-process); never set
 `numInstances` above 1.
@@ -271,8 +359,13 @@ posts webhooks to the API's public address. The API must run as a single instanc
    auto-deploy off, free plan for testing and `starter` for the demo; and the `botforge-web` service of
    step 4). Fill the `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
    `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
-   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. The remaining variables have defaults in the Blueprint (agent
-   limits, `TELEGRAM_MODE=webhook`, the Business OS variables of step 7). Add `AUTH_PROVIDER=supabase` (step 6).
+   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. The Blueprint keeps `LLM_PROVIDER=anthropic` by default. To use
+   Liara, set `LLM_PROVIDER=liara` and supply `LIARA_API_KEY` plus `LIARA_BASE_URL` as the project endpoint;
+   the optional Liara model, limits, retry and price variables are also declared there. For Top Tools, set
+   `LLM_PROVIDER=top_tools`, `TOP_TOOLS_API_KEY`, `TOP_TOOLS_MODEL_STRONG`, and `TOP_TOOLS_MODEL_FAST`;
+   its documented base URL and optional limits, retry and price variables are declared in the Blueprint.
+   The remaining variables have defaults in the Blueprint (agent limits, `TELEGRAM_MODE=webhook`, the Business
+   OS variables of step 7). Add `AUTH_PROVIDER=supabase` (step 6).
    Check in the service settings that the Dockerfile path resolves to `backend/Dockerfile`.
 4. **The web app.** Render (the `botforge-web` service in `render.yaml`): a Node web service with root
    directory `frontend`, build `npm ci && npm run build`, start `npm start`, `NODE_VERSION=22`. Variables
@@ -429,7 +522,7 @@ cp .env.example .env && chmod 600 .env
 # generate the two secrets and paste them into .env
 openssl rand -hex 24                    # POSTGRES_PASSWORD
 TOKEN_ENC_KEY=x docker compose run --rm --no-deps backend python -m app.security.crypto generate-key   # TOKEN_ENC_KEY
-$EDITOR .env                            # SITE_HOST, ANTHROPIC_API_KEY and the rest; every variable is commented
+$EDITOR .env                            # SITE_HOST, LLM provider credentials and the rest; every variable is commented
 docker compose up -d --build
 ```
 

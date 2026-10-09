@@ -11,30 +11,29 @@ interface PersonaSwitcherProps {
   onChange: (persona: Persona) => void;
 }
 
-/** Who the owner is playing (segmented control). A counter marks messages that arrived for a persona that is not selected. */
+/** Who the owner is playing. A badge counts messages that arrived for a persona that is not selected. */
 export function PersonaSwitcher({ value, unread, onChange }: PersonaSwitcherProps) {
   return (
-    <div role="radiogroup" aria-label="کاربر آزمایشی" className="grid grid-cols-5 gap-0.5 rounded-sm border border-border bg-surface-sunken p-0.5">
+    <div role="group" aria-label="کاربر آزمایشی" className="grid grid-cols-2 gap-1.5 rounded-2xl bg-surface-secondary/70 p-1.5 sm:grid-cols-5 xl:grid-cols-2 2xl:grid-cols-3">
       {PERSONAS.map((p) => {
         const active = p.id === value;
         const count = unread[p.id];
         return (
           <button
             key={p.id}
-            role="radio"
             type="button"
-            aria-checked={active}
+            aria-pressed={active}
             onClick={() => onChange(p.id)}
             className={cn(
-              "relative min-h-9 rounded-xs border px-1 py-1 text-small font-medium transition-colors duration-fast",
-              active ? "border-border bg-surface text-fg" : "border-transparent text-fg-muted hover:text-fg",
+              "relative min-h-10 rounded-xl px-2 py-2 text-sm transition-colors outline-none focus-visible:ring-[3px] focus-visible:ring-ring/40",
+              active ? "bg-card font-semibold text-primary shadow-sm" : "text-muted-foreground hover:bg-card/60 hover:text-foreground",
             )}
           >
             {p.label}
             {count > 0 && (
               <span
                 aria-label={`${fa(count)} پیام خوانده‌نشده`}
-                className="absolute -top-2 -end-1 grid min-w-5 place-items-center rounded-xs bg-danger px-1 text-caption leading-5 font-medium text-on-brand"
+                className="absolute -top-1.5 -end-1 grid min-w-5 place-items-center rounded-full bg-destructive px-1 text-[11px] leading-5 font-medium text-white"
               >
                 {fa(count)}
               </span>

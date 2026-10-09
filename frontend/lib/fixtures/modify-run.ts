@@ -8,12 +8,8 @@ import { ev, waitFor, type ScriptContext, type ScriptItem } from "./types";
 export function modifyRunScript(ctx: ScriptContext): ScriptItem[] {
   const n = ctx.revisionNumber.toLocaleString("fa-IR");
   return [
-    // --- triage (every run on a live bot starts here; a change request moves on) ---
-    ev("phase_started", { phase: "triage" }, 400),
-    ev("phase_finished", { phase: "triage", ok: true, summary: "درخواست تغییر ربات است" }, 700),
-
     // --- understand ---
-    ev("phase_started", { phase: "understand" }, 400),
+    ev("phase_started", { phase: "understand" }, 500),
     ev("agent_message", { text: "درخواست تغییر را با نیازمندی‌ها و مشخصات فعلی ربات مقایسه می‌کنم." }, 700),
     ev("requirements", { requirements: workshopRequirements("ظرفیت همهٔ کارگاه‌ها یکسان و ۱۲ نفر است.") }, 1300),
     ev("phase_finished", { phase: "understand", ok: true, summary: "یک نیازمندی تغییر کرد: R3 (ظرفیت از ۱۰ به ۱۲)" }, 500),
@@ -120,10 +116,12 @@ export function modifyRunScript(ctx: ScriptContext): ScriptItem[] {
     ev("phase_finished", { phase: "review", ok: true, summary: "مقایسهٔ نسخه‌ها و آزمون‌ها آماده شد" }, 500),
 
     // --- await approval ---
+    ev("phase_started", { phase: "await_approval" }, 400),
     ev("agent_message", { text: "تغییر اعمال و آزمایش شد. ربات فعلی تا وقتی تأیید نکنید تغییری نمی‌کند." }, 300),
     // The pause follows `approval_requested` immediately, so the approve button never shows before the run waits.
     ev("approval_requested", { revision_id: ctx.revisionId, can_approve: true }, 300),
     waitFor("approve"),
+    ev("phase_finished", { phase: "await_approval", ok: true, summary: "تأیید شد" }, 400),
 
     // --- deploy ---
     ev("phase_started", { phase: "deploy" }, 400),

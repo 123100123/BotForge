@@ -1,62 +1,64 @@
 "use client";
 
-import { useState, type KeyboardEvent } from "react";
-import { SendHorizontal } from "lucide-react";
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { SendHorizontal, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 
-export interface ChatLine {
+export interface ChatItem {
   key: string;
-  from: "owner" | "agent";
-  text: string;
-  /** Delivery state of an owner message that is not in the conversation yet. */
-  note?: string;
+  node: ReactNode;
 }
 
-export function ChatMessage({ from, text, note }: { from: "owner" | "agent"; text: string; note?: string }) {
+export function ChatMessage({ from, text }: { from: "owner" | "agent"; text: string }) {
   const isOwner = from === "owner";
   return (
     <div className={cn("flex", isOwner ? "justify-start" : "justify-end")}>
       <div
         className={cn(
-          "max-w-[85%] rounded-md px-4 py-2.5 text-body whitespace-pre-wrap",
-          isOwner ? "bg-brand-soft text-fg" : "border border-border bg-surface-sunken text-fg",
+          "max-w-[92%] rounded-2xl px-4 py-3 text-sm leading-7 whitespace-pre-wrap shadow-sm sm:max-w-[82%]",
+          isOwner ? "rounded-ss-md bg-primary text-primary-foreground" : "rounded-se-md border border-border/70 bg-background",
         )}
       >
-        <div className="mb-0.5 text-caption text-fg-muted">{isOwner ? "شما" : "دستیار"}</div>
+        <div className={cn("mb-0.5 text-xs", isOwner ? "text-primary-foreground/70" : "text-muted-foreground")}>
+          {isOwner ? "شما" : "ایجنت"}
+        </div>
         {text}
-        {note && <div className="mt-1 text-caption text-fg-muted">{note}</div>}
       </div>
     </div>
   );
 }
 
-/** The conversation between the owner and the assistant (messages only; the cards live in the proposal). */
-export function ChatLog({ lines }: { lines: ChatLine[] }) {
-  if (lines.length === 0) return <p className="text-small text-fg-muted">هنوز پیامی رد و بدل نشده است.</p>;
-  return (
-    <ul className="flex flex-col gap-3" aria-label="گفتگو با دستیار">
-      {lines.map((line) => (
-        <li key={line.key}>
-          <ChatMessage from={line.from} text={line.text} note={line.note} />
-        </li>
-      ))}
-    </ul>
-  );
-}
-
-interface ChatInputProps {
+interface ChatThreadProps {
+  items: ChatItem[];
+  /** Shown when there are no items. */
+  empty?: ReactNode;
   onSend: (text: string) => void;
   /** When set the input is disabled and this text replaces the placeholder. */
   disabledReason?: string | null;
   placeholder: string;
-  label?: string;
+  /** Text to put in the input box (for example an example prompt); change `seedKey` to apply it again. */
+  seed?: { key: number; text: string } | null;
 }
 
-/** A message box: Enter sends, Shift+Enter adds a line. */
-export function ChatInput({ onSend, disabledReason, placeholder, label = "پیام شما" }: ChatInputProps) {
+/** Owner and agent messages (and inline cards) with the input box. */
+export function ChatThread({ items, empty, onSend, disabledReason, placeholder, seed }: ChatThreadProps) {
   const [draft, setDraft] = useState("");
+  const [appliedSeed, setAppliedSeed] = useState<number | null>(null);
+  const end = useRef<HTMLDivElement>(null);
+
+  // Apply a new seed during render (not in an effect) so it never flashes the old draft.
+  if (seed && seed.key !== appliedSeed) {
+    setAppliedSeed(seed.key);
+    setDraft(seed.text);
+  }
+
+  // Keep the newest item in view as the run progresses.
+  useEffect(() => {
+    if (items.length > 0) end.current?.scrollIntoView({ block: "end", behavior: "smooth" });
+  }, [items.length]);
+
   const disabled = Boolean(disabledReason);
 
   function submit() {
@@ -74,21 +76,30 @@ export function ChatInput({ onSend, disabledReason, placeholder, label = "پیا
   }
 
   return (
-    <div className="flex items-end gap-2">
-      <Textarea
-        value={draft}
-        onChange={(e) => setDraft(e.target.value)}
-        onKeyDown={onKeyDown}
-        disabled={disabled}
-        rows={2}
-        placeholder={disabledReason ?? placeholder}
-        aria-label={label}
-        className="max-h-40 resize-none"
-      />
-      <Button onClick={submit} disabled={disabled || draft.trim() === ""}>
-        <SendHorizontal strokeWidth={1.75} className="rtl:-scale-x-100" />
-        ارسال
-      </Button>
+    <div className="flex min-w-0 flex-col gap-3">
+      <div className="flex min-h-80 flex-col gap-5 py-3">
+        {items.length === 0 ? empty : items.map((item) => <div key={item.key}>{item.node}</div>)}
+        <div ref={end} className="scroll-mb-40" aria-hidden />
+      </div>
+      <div className="sticky bottom-0 z-10 rounded-2xl border border-border/70 bg-background/95 p-2 shadow-lg shadow-primary/5 backdrop-blur sm:p-3">
+        <div className="flex items-end gap-2">
+        <Textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={onKeyDown}
+          disabled={disabled}
+          rows={2}
+          placeholder={disabledReason ?? placeholder}
+          aria-label="پیام شما"
+          className="max-h-40 min-w-0 flex-1 resize-none border-0 bg-transparent shadow-none focus-visible:ring-0"
+        />
+        <Button onPress={submit} isDisabled={disabled || draft.trim() === ""} size="lg" className="shrink-0">
+          <SendHorizontal className="rtl:-scale-x-100" />
+          <span className="hidden sm:inline">ارسال</span>
+        </Button>
+        </div>
+        <p className="mt-1 flex items-center gap-1.5 px-1 text-[11px] text-muted-foreground"><ShieldCheck className="size-3.5" /> تغییرها پیش از فعال‌سازی به تأیید شما می‌رسند.</p>
+      </div>
     </div>
   );
 }

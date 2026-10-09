@@ -2,15 +2,16 @@
 
 import { useState, type FormEvent } from "react";
 import { Button } from "@/components/ui/button";
+import { Modal } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Select } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { ChoiceSelect, ToggleField } from "./controls";
 import { Textarea } from "@/components/ui/textarea";
 import { api } from "@/lib/api";
 import { ApiError, ERROR_CODES, errorMessage } from "@/lib/errors";
 import { toFaDigits } from "@/lib/format";
 import type { DataCollection, DataRecord, FieldDef } from "@/lib/types";
+import { ErrorNote } from "@/components/app/state-blocks";
 import { initialValues, splitFieldErrors, toPayload, type FormValue, type FormValues } from "./field-utils";
 import { JalaliDateTimeInput } from "./jalali-datetime-input";
 
@@ -19,20 +20,46 @@ interface RecordFormProps {
   collection: DataCollection;
   /** The record being edited, or null to create one. */
   record: DataRecord | null;
-  onCancel: () => void;
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
   onSaved: () => void;
 }
 
-/**
- * Create or edit form of a resource collection. It renders inside a RecordDrawer (the drawer owns the title);
- * mount it fresh for every open so the state starts clean.
- */
-export function RecordForm({ botId, collection, record, onCancel: onClose, onSaved }: RecordFormProps) {
+export function RecordForm({ botId, collection, record, open, onOpenChange, onSaved }: RecordFormProps) {
+  const [saving, setSaving] = useState(false);
+  // The dialog content is unmounted when closed, so state starts fresh for every open.
+  return (
+      <Modal.Backdrop isOpen={open} onOpenChange={(next) => !saving && onOpenChange(next)} isDismissable={!saving} isKeyboardDismissDisabled={saving}>
+        <Modal.Container size="lg" scroll="inside" className="max-h-[90dvh]">
+          <Modal.Dialog className="max-h-[90dvh] overflow-y-auto">
+            <RecordFormBody botId={botId} collection={collection} record={record} saving={saving} setSaving={setSaving} onClose={() => onOpenChange(false)} onSaved={onSaved} />
+          </Modal.Dialog>
+        </Modal.Container>
+      </Modal.Backdrop>
+  );
+}
+
+function RecordFormBody({
+  botId,
+  collection,
+  record,
+  onClose,
+  onSaved,
+  saving,
+  setSaving,
+}: {
+  botId: string;
+  collection: DataCollection;
+  record: DataRecord | null;
+  onClose: () => void;
+  onSaved: () => void;
+  saving: boolean;
+  setSaving: (saving: boolean) => void;
+}) {
   const fields = collection.fields;
   const [values, setValues] = useState<FormValues>(() => initialValues(fields, record?.data));
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [generalErrors, setGeneralErrors] = useState<string[]>([]);
-  const [saving, setSaving] = useState(false);
 
   const set = (key: string, value: FormValue) => {
     setValues((v) => ({ ...v, [key]: value }));
@@ -64,15 +91,21 @@ export function RecordForm({ botId, collection, record, onCancel: onClose, onSav
       } else {
         setGeneralErrors([errorMessage(err)]);
       }
+    } finally {
       setSaving(false);
     }
   }
 
+  const title = record ? `ویرایش ${collection.label}` : `افزودن ${collection.label}`;
+
   return (
     <form onSubmit={submit} noValidate className="grid gap-4">
-      <p className="text-small text-fg-muted">
-        {record ? "تغییرات بلافاصله در ربات اعمال می‌شود." : "پس از ذخیره، این مورد بلافاصله در ربات نمایش داده می‌شود."}
-      </p>
+      <Modal.Header>
+        <Modal.Heading>{title}</Modal.Heading>
+        <p className="text-sm leading-7 text-muted-foreground">
+          {record ? "تغییرات بلافاصله در ربات اعمال می‌شود." : "پس از ذخیره، این مورد بلافاصله در ربات نمایش داده می‌شود."}
+        </p>
+      </Modal.Header>
 
       {fields.map((f) => (
         <FieldInput
@@ -88,21 +121,19 @@ export function RecordForm({ botId, collection, record, onCancel: onClose, onSav
       {generalErrors.length > 0 && (
         <div className="flex flex-col gap-2">
           {generalErrors.map((m, i) => (
-            <p key={i} role="alert" className="rounded-sm bg-danger-soft p-3 text-small text-danger-text">
-              {m}
-            </p>
+            <ErrorNote key={i}>{m}</ErrorNote>
           ))}
         </div>
       )}
 
-      <div className="flex flex-row-reverse justify-start gap-2">
-        <Button type="submit" loading={saving}>
+      <Modal.Footer className="flex flex-wrap gap-2">
+        <Button type="submit" isDisabled={saving} isPending={saving}>
           {saving ? "در حال ذخیره…" : "ذخیره"}
         </Button>
-        <Button type="button" variant="secondary" onClick={onClose} disabled={saving}>
+        <Button type="button" variant="outline" onPress={onClose} isDisabled={saving}>
           انصراف
         </Button>
-      </div>
+      </Modal.Footer>
     </form>
   );
 }
@@ -159,21 +190,14 @@ function FieldInput({
     case "boolean":
       control = (
         <div className="flex items-center gap-2">
-          <Switch id={id} checked={value === true} onCheckedChange={onChange} aria-describedby={invalid ? errId : undefined} />
-          <span className="text-small text-fg-muted">{value === true ? "بله" : "خیر"}</span>
+          <ToggleField id={id} label={field.label} describedBy={invalid ? errId : undefined} isInvalid={invalid} value={value === true} onChange={onChange} />
+          <span className="text-sm text-muted-foreground">{value === true ? "بله" : "خیر"}</span>
         </div>
       );
       break;
     case "choice":
       control = (
-        <Select {...common} value={str} onChange={(e) => onChange(e.target.value)}>
-          <option value="">انتخاب کنید…</option>
-          {(field.choices ?? []).map((c) => (
-            <option key={c} value={c}>
-              {c}
-            </option>
-          ))}
-        </Select>
+        <ChoiceSelect id={id} label={field.label} describedBy={invalid ? errId : undefined} isInvalid={invalid} value={str} onChange={onChange} options={(field.choices ?? []).map((c) => ({ value: c, label: c }))} />
       );
       break;
     case "datetime":
@@ -196,11 +220,11 @@ function FieldInput({
     <div className="grid gap-1.5">
       <Label htmlFor={id}>
         {field.label}
-        {!field.required && <span className="font-normal text-fg-muted"> (اختیاری)</span>}
+        {!field.required && <span className="font-normal text-muted-foreground"> (اختیاری)</span>}
       </Label>
       {control}
       {error && (
-        <p id={errId} role="alert" className="text-small text-danger-text">
+        <p id={errId} role="alert" className="text-sm text-destructive">
           {error}
         </p>
       )}

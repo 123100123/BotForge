@@ -1,348 +1,107 @@
 @import "tailwindcss";
-@import "tw-animate-css";
-
-/* Design tokens. Authority and usage rules: frontend/DESIGN.md.
-   Layer 1 (below): semantic tokens, light on :root, dark on [data-theme="dark"]. Components use only these.
-   Layer 2: shadcn aliases, so older components keep working in both themes.
-   Layer 3: Tailwind exposure (@theme inline), type utilities, motion, focus, base styles. */
-
-/* Dark follows the data-theme attribute that the inline script in app/layout.tsx always sets
-   (system is resolved to light or dark there), so no media query is needed here. */
-@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
-
-:root {
-  color-scheme: light;
-
-  --bg: oklch(0.975 0.004 200);
-  --surface: oklch(0.995 0.002 200);
-  --surface-sunken: oklch(0.955 0.006 200);
-  --surface-raised: oklch(0.998 0.001 200);
-  --border: oklch(0.9 0.008 200);
-  --border-strong: oklch(0.82 0.01 200);
-  --text: oklch(0.24 0.02 220);
-  --text-secondary: oklch(0.42 0.015 220);
-  --text-muted: oklch(0.52 0.012 220);
-
-  --brand: oklch(0.5 0.09 195);
-  --brand-hover: oklch(0.45 0.09 195);
-  --brand-soft: oklch(0.94 0.03 195);
-  --brand-text: oklch(0.42 0.08 200);
-  --on-brand: oklch(0.99 0.005 195);
-
-  --success: oklch(0.52 0.13 145);
-  --success-soft: oklch(0.95 0.04 145);
-  --success-text: oklch(0.42 0.11 145);
-  --warning: oklch(0.62 0.14 70);
-  --warning-soft: oklch(0.95 0.05 80);
-  --warning-text: oklch(0.48 0.11 60);
-  --danger: oklch(0.55 0.19 27);
-  --danger-soft: oklch(0.95 0.03 27);
-  --danger-text: oklch(0.48 0.17 27);
-  --info: oklch(0.52 0.13 255);
-  --info-soft: oklch(0.95 0.03 255);
-  --info-text: oklch(0.45 0.12 255);
-
-  --chart-1: oklch(0.52 0.09 195);
-  --chart-2: oklch(0.55 0.12 260);
-  --chart-3: oklch(0.68 0.13 75);
-  --chart-4: oklch(0.58 0.15 10);
-  --chart-5: oklch(0.58 0.09 125);
-  --chart-grid: oklch(0.92 0.006 200);
-  --chart-label: oklch(0.45 0.015 220);
-  --chart-compare: oklch(0.62 0.01 220);
-
-  --scrim: oklch(0.15 0.01 220 / 0.45);
-  --shadow-float: 0 8px 24px -8px oklch(0.24 0.02 220 / 0.18), 0 1px 2px oklch(0.24 0.02 220 / 0.06);
-  /* Floating surfaces (menus, dialogs, sheets) add this border; transparent in light, where the shadow carries them. */
-  --float-border: var(--border);
-
-  /* Motion */
-  --duration-fast: 120ms;
-  --duration-base: 180ms;
-  --duration-slow: 240ms;
-  --ease-out: cubic-bezier(0.2, 0.8, 0.2, 1);
-  --ease-in: cubic-bezier(0.4, 0, 1, 1);
-
-  /* Legacy shadcn names, aliases of the semantic tokens above. Prefer the semantic names in new code. */
-  --background: var(--bg);
-  --foreground: var(--text);
-  --card: var(--surface);
-  --card-foreground: var(--text);
-  --popover: var(--surface-raised);
-  --popover-foreground: var(--text);
-  --primary: var(--brand);
-  --primary-foreground: var(--on-brand);
-  --secondary: var(--surface-sunken);
-  --secondary-foreground: var(--text);
-  --muted: var(--surface-sunken);
-  --muted-foreground: var(--text-muted);
-  --accent: var(--brand-soft);
-  --accent-foreground: var(--brand-text);
-  --destructive: var(--danger);
-  --input: var(--border-strong);
-  --ring: var(--brand);
-}
-
-[data-theme="dark"] {
-  color-scheme: dark;
-
-  --bg: oklch(0.17 0.008 220);
-  --surface: oklch(0.205 0.009 220);
-  --surface-sunken: oklch(0.185 0.008 220);
-  --surface-raised: oklch(0.245 0.01 220);
-  --border: oklch(0.3 0.01 220);
-  --border-strong: oklch(0.38 0.012 220);
-  --text: oklch(0.94 0.006 200);
-  --text-secondary: oklch(0.8 0.01 200);
-  --text-muted: oklch(0.68 0.01 200);
-
-  --brand: oklch(0.74 0.11 190);
-  --brand-hover: oklch(0.8 0.1 190);
-  --brand-soft: oklch(0.29 0.045 195);
-  --brand-text: oklch(0.82 0.09 190);
-  --on-brand: oklch(0.18 0.02 200);
-
-  --success: oklch(0.76 0.14 150);
-  --success-soft: oklch(0.28 0.05 150);
-  --success-text: oklch(0.8 0.12 150);
-  --warning: oklch(0.8 0.13 80);
-  --warning-soft: oklch(0.3 0.05 80);
-  --warning-text: oklch(0.84 0.11 80);
-  --danger: oklch(0.72 0.16 25);
-  --danger-soft: oklch(0.29 0.05 27);
-  --danger-text: oklch(0.78 0.13 25);
-  --info: oklch(0.74 0.12 250);
-  --info-soft: oklch(0.29 0.05 255);
-  --info-text: oklch(0.8 0.1 250);
-
-  --chart-1: oklch(0.74 0.11 190);
-  --chart-2: oklch(0.72 0.12 260);
-  --chart-3: oklch(0.8 0.12 80);
-  --chart-4: oklch(0.72 0.14 10);
-  --chart-5: oklch(0.74 0.09 125);
-  --chart-grid: oklch(0.28 0.01 220);
-  --chart-label: oklch(0.72 0.01 200);
-  --chart-compare: oklch(0.55 0.01 220);
-
-  --scrim: oklch(0.05 0.01 220 / 0.6);
-  --shadow-float: 0 12px 32px -8px oklch(0 0 0 / 0.55);
-  --float-border: var(--border-strong);
-}
+@import "@heroui/styles";
 
 @theme inline {
-  /* Semantic colors. Class names: bg-page, bg-surface, bg-surface-sunken, bg-surface-raised, border-border,
-     border-border-strong, text-fg, text-fg-secondary, text-fg-muted, bg-brand, bg-brand-soft, text-brand-text,
-     text-on-brand, bg-success-soft, text-success-text, bg-chart-1 ... */
-  --color-page: var(--bg);
-  --color-surface: var(--surface);
-  --color-surface-sunken: var(--surface-sunken);
-  --color-surface-raised: var(--surface-raised);
-  --color-border-strong: var(--border-strong);
-  --color-fg: var(--text);
-  --color-fg-secondary: var(--text-secondary);
-  --color-fg-muted: var(--text-muted);
-  --color-brand: var(--brand);
-  --color-brand-hover: var(--brand-hover);
-  --color-brand-soft: var(--brand-soft);
-  --color-brand-text: var(--brand-text);
-  --color-on-brand: var(--on-brand);
-  --color-success-soft: var(--success-soft);
-  --color-success-text: var(--success-text);
-  --color-warning-soft: var(--warning-soft);
-  --color-warning-text: var(--warning-text);
-  --color-danger: var(--danger);
-  --color-danger-soft: var(--danger-soft);
-  --color-danger-text: var(--danger-text);
-  --color-info: var(--info);
-  --color-info-soft: var(--info-soft);
-  --color-info-text: var(--info-text);
-  --color-scrim: var(--scrim);
-  --color-chart-1: var(--chart-1);
-  --color-chart-2: var(--chart-2);
-  --color-chart-3: var(--chart-3);
-  --color-chart-4: var(--chart-4);
-  --color-chart-5: var(--chart-5);
-  --color-chart-grid: var(--chart-grid);
-  --color-chart-label: var(--chart-label);
-  --color-chart-compare: var(--chart-compare);
-
-  /* Legacy shadcn names (aliases). */
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-card: var(--card);
-  --color-card-foreground: var(--card-foreground);
-  --color-popover: var(--popover);
-  --color-popover-foreground: var(--popover-foreground);
-  --color-primary: var(--primary);
-  --color-primary-foreground: var(--primary-foreground);
-  --color-secondary: var(--secondary);
-  --color-secondary-foreground: var(--secondary-foreground);
-  --color-muted: var(--muted);
-  --color-muted-foreground: var(--muted-foreground);
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
-  --color-destructive: var(--destructive);
-  --color-success: var(--success);
-  --color-warning: var(--warning);
-  --color-border: var(--border);
-  --color-input: var(--input);
-  --color-ring: var(--ring);
-
-  /* Radius by role: xs badges and small inputs, sm buttons and inputs, md panels, lg dialogs and sheets.
-     xl and 2xl exist only so stray legacy classes stay in the scale. */
-  --radius-xs: 6px;
-  --radius-sm: 8px;
-  --radius-md: 12px;
-  --radius-lg: 16px;
-  --radius-xl: 16px;
-  --radius-2xl: 16px;
-
   --font-sans: var(--font-vazirmatn), ui-sans-serif, system-ui, sans-serif;
   --font-mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 
-  --animate-skeleton: skeleton-pulse 1.4s ease-in-out infinite;
+  /* Existing Tailwind utility names point to HeroUI's theme tokens. */
+  --color-primary: var(--accent);
+  --color-primary-foreground: var(--accent-foreground);
+  --color-card: var(--surface);
+  --color-card-foreground: var(--surface-foreground);
+  --color-popover: var(--overlay);
+  --color-popover-foreground: var(--overlay-foreground);
+  --color-secondary: var(--surface-secondary);
+  --color-secondary-foreground: var(--surface-secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted);
+  --color-destructive: var(--danger);
+  --color-input: var(--border);
+  --color-ring: var(--focus);
+  --color-teal: var(--brand-teal);
+  --color-teal-soft: var(--brand-teal-soft);
 }
 
-/* Floating surfaces: `shadow-float` + `border border-float` (dark mode gets a visible border-strong). */
-@utility shadow-float {
-  box-shadow: var(--shadow-float);
-}
-@utility border-float {
-  border-color: var(--float-border);
-}
-
-/* Type scale (DESIGN.md). Persian line heights. Combine with a color class; font-weight can be overridden
-   with font-* utilities. Sizes in px because the scale is fixed. */
-@utility text-display {
-  font-size: 32px;
-  line-height: 1.3;
-  font-weight: 800;
-  text-wrap: balance;
-  @media (width >= 48rem) {
-    font-size: 44px;
+@layer theme {
+  :root,
+  .light,
+  [data-theme="light"] {
+    color-scheme: light;
+    --radius: 0.75rem;
+    --background: oklch(0.982 0.008 92);
+    --foreground: oklch(0.22 0.025 260);
+    --surface: oklch(0.998 0.004 94);
+    --surface-secondary: oklch(0.962 0.01 92);
+    --surface-tertiary: oklch(0.938 0.014 88);
+    --overlay: oklch(0.998 0.004 94);
+    --field-background: oklch(0.998 0.004 94);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.887 0.016 88);
+    --separator: oklch(0.912 0.016 88);
+    --muted: oklch(0.49 0.02 255);
+    --accent: oklch(0.55 0.18 247);
+    --accent-foreground: oklch(0.99 0 0);
+    --success: oklch(0.49 0.13 153);
+    --success-foreground: oklch(0.99 0 0);
+    --warning: oklch(0.53 0.13 72);
+    --warning-foreground: oklch(0.99 0 0);
+    --danger: oklch(0.52 0.19 26);
+    --danger-foreground: oklch(0.99 0 0);
+    --focus: var(--accent);
+    --brand-teal: oklch(0.5 0.11 184);
+    --brand-teal-soft: oklch(0.945 0.035 184);
+    --app-shadow: 0 18px 56px -36px oklch(0.35 0.07 252 / 0.24);
   }
-}
-@utility text-h1 {
-  font-size: 26px;
-  line-height: 1.45;
-  font-weight: 700;
-  text-wrap: balance;
-}
-@utility text-h2 {
-  font-size: 20px;
-  line-height: 1.5;
-  font-weight: 700;
-  text-wrap: balance;
-}
-@utility text-h3 {
-  font-size: 16.5px;
-  line-height: 1.6;
-  font-weight: 600;
-  text-wrap: balance;
-}
-@utility text-body {
-  font-size: 15px;
-  line-height: 1.8;
-  font-weight: 400;
-}
-@utility text-small {
-  font-size: 13.5px;
-  line-height: 1.75;
-}
-@utility text-caption {
-  font-size: 12.5px;
-  line-height: 1.7;
-  font-weight: 500;
-}
-@utility text-metric {
-  font-size: 28px;
-  line-height: 1.2;
-  font-weight: 700;
-}
-@utility text-metric-sm {
-  font-size: 22px;
-  line-height: 1.3;
-  font-weight: 650;
-}
 
-/* Motion durations as utilities (Tailwind has no duration theme namespace for custom names). */
-@utility duration-fast {
-  transition-duration: var(--duration-fast);
-}
-@utility duration-base {
-  transition-duration: var(--duration-base);
-}
-@utility duration-slow {
-  transition-duration: var(--duration-slow);
-}
-
-/* z-index scale: sticky 10, drawer 30, overlay 40, modal 50 (menus and popovers too), toast 60. */
-@utility z-sticky {
-  z-index: 10;
-}
-@utility z-drawer {
-  z-index: 30;
-}
-@utility z-overlay {
-  z-index: 40;
-}
-@utility z-modal {
-  z-index: 50;
-}
-@utility z-toast {
-  z-index: 60;
-}
-
-@keyframes skeleton-pulse {
-  50% {
-    opacity: 0.5;
+  .dark,
+  [data-theme="dark"] {
+    color-scheme: dark;
+    --background: oklch(0.165 0.028 257);
+    --foreground: oklch(0.965 0.008 95);
+    --surface: oklch(0.218 0.031 256);
+    --surface-secondary: oklch(0.255 0.034 255);
+    --surface-tertiary: oklch(0.292 0.035 255);
+    --overlay: oklch(0.235 0.032 255);
+    --field-background: oklch(0.255 0.034 255);
+    --field-foreground: var(--foreground);
+    --border: oklch(0.345 0.03 254);
+    --separator: oklch(0.315 0.029 254);
+    --muted: oklch(0.735 0.016 253);
+    --accent: oklch(0.715 0.145 245);
+    --accent-foreground: oklch(0.16 0.03 257);
+    --focus: var(--accent);
+    --success: oklch(0.76 0.14 153);
+    --warning: oklch(0.8 0.13 80);
+    --danger: oklch(0.76 0.15 26);
+    --success-foreground: var(--background);
+    --warning-foreground: var(--background);
+    --danger-foreground: var(--background);
+    --brand-teal: oklch(0.765 0.1 181);
+    --brand-teal-soft: oklch(0.32 0.045 185);
+    --app-shadow: 0 18px 56px -36px oklch(0 0 0 / 0.62);
   }
 }
 
 @layer base {
-  * {
-    border-color: var(--border);
-  }
-  html {
-    -webkit-text-size-adjust: 100%;
-    text-size-adjust: 100%;
-  }
-  body {
-    background: var(--bg);
-    color: var(--text);
-    font-family: var(--font-sans);
-    font-size: 15px;
-    line-height: 1.8;
-  }
-  h1,
-  h2,
-  h3,
-  h4 {
-    text-wrap: balance;
-  }
-  ::selection {
-    background: var(--brand-soft);
-    color: var(--text);
-  }
-  /* One visible focus style for every interactive element: 2px brand ring with a 2px offset. */
-  :focus-visible {
-    outline: 2px solid var(--brand);
-    outline-offset: 2px;
-  }
-  /* Route-change focus target (the page h1 or main, set by AppShell): not interactive, so no ring. */
-  [data-route-focus]:focus,
-  main[tabindex="-1"]:focus {
-    outline: none;
-  }
-  /* Opacity-only transitions when the user asks for reduced motion: no transforms, no animations. */
-  @media (prefers-reduced-motion: reduce) {
-    *,
-    *::before,
-    *::after {
-      animation-duration: 0.01ms !important;
-      animation-iteration-count: 1 !important;
-      transition-property: opacity, color, background-color, border-color !important;
-      scroll-behavior: auto !important;
-    }
-  }
+  html { scroll-behavior: smooth; }
+  body { background: var(--background); color: var(--foreground); font-family: var(--font-vazirmatn), ui-sans-serif, system-ui, sans-serif; }
+  :where(button, a, input, textarea, select, [role="button"]):focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
+  :where(input, textarea, select, [dir="ltr"]) { unicode-bidi: plaintext; }
+}
+
+@layer components {
+  .app-surface { background: var(--surface); border: 1px solid var(--border); border-radius: 1.25rem; box-shadow: var(--app-shadow); }
+  .app-subtle-surface { background: var(--surface-secondary); border: 1px solid var(--border); border-radius: 1rem; }
+  .app-page-container { width: min(100% - 2rem, 80rem); margin-inline: auto; }
+  .app-section-label { color: var(--accent); font-size: 0.75rem; font-weight: 800; letter-spacing: 0.02em; }
+}
+
+@media (max-width: 640px) {
+  .app-page-container { width: min(100% - 1.5rem, 80rem); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }
 }

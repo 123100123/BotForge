@@ -50,50 +50,9 @@ export function initialMockRecords(): Record<string, DataRecord[]> {
   req("ماشین ظرفشویی", "برق دستگاه وصل نمی‌شود.", "09351234567", "تهران، سعادت‌آباد، پلاک ۴", "approved", "6001003", 20);
   req("اجاق گاز", "یکی از شعله‌ها روشن نمی‌شود.", "09101234567", "کرج، گوهردشت، بلوک ۳", "done", "6001004", 70);
 
-  // bot_niloofar: events with registrations (confirmed / waitlisted / cancelled), support and approval requests.
-  const e1 = add("event", { title: "کارگاه عکاسی خیابانی", description: "پیاده‌روی عکاسی در محلهٔ قدیمی با مربی.\nدوربین یا موبایل همراه داشته باشید.", category: "کارگاه", starts_at: iso(30 * H), location: "تهران، خیابان ولیعصر، خانهٔ هنرمندان", capacity: 12 }, {}, 200);
-  const e2 = add("event", { title: "سخنرانی: آیندهٔ کسب‌وکارهای کوچک", description: "گفت‌وگو دربارهٔ ابزارهای دیجیتال برای فروشگاه‌های محلی.", category: "سخنرانی", starts_at: iso(100 * H), location: "تالار همایش‌های نیلوفر", capacity: 40 }, {}, 190);
-  const e3 = add("event", { title: "شبکه‌سازی صاحبان کسب‌وکار", description: "دورهمی آزاد برای آشنایی و تبادل تجربه.", category: "شبکه‌سازی", starts_at: iso(200 * H), location: "کافه‌ای در سعادت‌آباد", capacity: 25 }, {}, 180);
-  const e4 = add("event", { title: "کارگاه نوشتن محتوا برای شبکه‌های اجتماعی", description: "برگزار شد.", category: "کارگاه", starts_at: iso(-120 * H), location: "تهران، میدان انقلاب", capacity: 15 }, {}, 400);
-  const nb = (item: number, status: string, n: number, ago: number) => add("book_event", {}, { status, actor_id: `70123${String(item).padStart(2, "0")}${String(n).padStart(3, "0")}`, item_id: item }, ago);
-  for (let i = 1; i <= 12; i += 1) nb(e1, "confirmed", i, 150 - i * 4);
-  nb(e1, "waitlisted", 13, 40);
-  nb(e1, "waitlisted", 14, 30);
-  nb(e1, "cancelled", 15, 90);
-  for (let i = 1; i <= 17; i += 1) nb(e2, "confirmed", i, 140 - i * 3);
-  nb(e2, "cancelled", 18, 60);
-  for (let i = 1; i <= 6; i += 1) nb(e3, "confirmed", i, 100 - i * 5);
-  for (let i = 1; i <= 15; i += 1) nb(e4, "confirmed", i, 300 - i * 6);
-
-  const sup = (subject: string, message: string, status: string, actor: string, ago: number) =>
-    add("support", { subject, message, phone: "09121230000" }, { status, actor_id: actor }, ago);
-  sup("لغو ثبت‌نام بعد از مهلت", "ثبت‌نامم را فراموش کردم لغو کنم، می‌شود هنوز انجام شود؟", "new", "70123010001", 3);
-  sup("گواهی حضور", "برای کارگاه قبلی گواهی حضور می‌خواهم.", "answered", "70123010002", 30);
-  sup("تغییر مکان رویداد", "مکان سخنرانی هنوز همان تالار است؟", "closed", "70123010003", 80);
-  const apr = (kind: string, details: string, status: string, actor: string, ago: number) => add("approvals", { kind, details }, { status, actor_id: actor }, ago);
-  apr("رزرو سالن", "سالن کوچک برای جلسهٔ تیم، پنجشنبه ساعت ۱۰.", "pending", "70123020001", 4);
-  apr("خرید", "خرید ۲۰ صندلی تاشو برای کارگاه‌ها.", "pending", "70123020002", 12);
-  apr("مرخصی", "یک روز مرخصی هفتهٔ آینده.", "approved", "70123020003", 70);
-  apr("خرید", "پروژکتور جدید.", "rejected", "70123020004", 120);
-
-  const niloofarKeys = new Set(["event", "book_event", "support", "approvals"]);
-  const byNiloofar = records.filter((r) => niloofarKeys.has(r.collection));
-  const bySepehr = records.filter((r) => r.collection !== "repair" && !niloofarKeys.has(r.collection));
+  const bySepehr = records.filter((r) => r.collection !== "repair");
   const byTamir = records.filter((r) => r.collection === "repair");
-  return { bot_sepehr: bySepehr, bot_tamir: byTamir, bot_niloofar: byNiloofar };
-}
-
-const NILOOFAR_NAMES = [
-  "نگین کاظمی", "پویا صادقی", "مهسا رحیمی", "امیرحسین نادری", "زهرا موسوی", "علی رضایی", "سارا احمدی", "محمد کریمی", "ندا حسینی",
-  "رضا قاسمی", "مریم جعفری", "کاوه فرهادی", "الهام صالحی", "بهرام یزدانی", "شیرین عباسی", "داریوش پاکزاد", "نسترن توکلی", "حامد رستمی",
-];
-
-/** Display name for the fixture actors of bot_niloofar (their ids start with 70123); null for any other id. */
-export function niloofarActorName(actorId: string): string | null {
-  if (!actorId.startsWith("70123")) return null;
-  let h = 0;
-  for (const ch of actorId) h = (h * 31 + ch.charCodeAt(0)) % 9973;
-  return NILOOFAR_NAMES[h % NILOOFAR_NAMES.length];
+  return { bot_sepehr: bySepehr, bot_tamir: byTamir };
 }
 
 export const LAST_FIXTURE_RECORD_ID = 100; // mock record ids created later start above this

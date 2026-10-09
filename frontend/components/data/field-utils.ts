@@ -1,4 +1,4 @@
-import { toFaDigits } from "@/lib/format";
+import { formatDateTime, formatNumber, toFaDigits } from "@/lib/format";
 import type { FieldDef } from "@/lib/types";
 
 export type FormValue = string | boolean;
@@ -69,4 +69,22 @@ export function splitFieldErrors(
     else general.push(message);
   }
   return { byField, general };
+}
+
+/** Plain-text rendering of one stored value for table cells. */
+export function formatCell(field: FieldDef, value: unknown, timeZone?: string): string {
+  if (value === null || value === undefined || value === "") return "";
+  switch (field.type) {
+    case "boolean":
+      return value === true ? "بله" : "خیر";
+    case "integer":
+    case "decimal":
+      return typeof value === "number" ? formatNumber(value) : toFaDigits(String(value));
+    case "datetime":
+      return formatDateTime(String(value), timeZone);
+    case "phone":
+      return toFaDigits(String(value));
+    default:
+      return String(value);
+  }
 }

@@ -3,24 +3,14 @@ import { authInit, parseErrorResponse } from "@/lib/api";
 import { handleUnauthorized } from "@/lib/session-expiry";
 import * as engine from "@/lib/mock/engine";
 import type { RawAgentEvent } from "@/lib/types";
-import { createWatchdog, STALL_MS } from "@/lib/watchdog";
-
-/** The server writes a `: heartbeat` comment this often while a run is quiet. */
-export const HEARTBEAT_MS = 15_000;
 
 export interface StreamOptions {
   /** Resume after this event id (sent as `Last-Event-ID`). */
   lastEventId?: number;
   signal: AbortSignal;
   onEvent: (event: RawAgentEvent) => void;
-  /** Called when the connection drops (or goes silent) and a reconnect is about to be attempted, and when it is back. */
+  /** Called when the connection drops and a reconnect is about to be attempted, and when it is back. */
   onConnection?: (state: "open" | "reconnecting") => void;
-  /**
-   * Called with `Date.now()` whenever ANY bytes arrive, including `: heartbeat` comments (and when the
-   * response headers arrive). Silence on this signal means the connection is dead; heartbeats without
-   * events mean the server is alive and the model is still working.
-   */
-  onBytes?: (at: number) => void;
   /** Called with a Persian message for a failure that will not be retried (for example 401 or 404). */
   onFatal?: (message: string) => void;
   /**
@@ -28,20 +18,15 @@ export interface StreamOptions {
    * (the run is still running) and false to stop until the caller restarts the stream (the run is
    * finished or waiting for the owner). Default: reconnect.
    */
-  onClosed?: (info: { broken: boolean }) => Promise<boolean>;
+  onClosed?: () => Promise<boolean>;
 }
 
 /**
  * Streams the events of one agent run until `signal` is aborted. Uses fetch (not EventSource) so the
  * request can be aborted and `Last-Event-ID` and the Authorization header sent; it authenticates like
  * every API call (`authInit` in lib/api.ts: the session cookie, or the Supabase access token, fetched
- * fresh for each connection). Reconnects with `Last-Event-ID` after a dropped connection, and after
- * `STALL_MS` without any bytes (a dead connection looks open; heartbeats prove it is not).
- *
- * The server closes the stream once the run is not running: finished, or paused for the owner
- * (waiting_user, waiting_approval), after that status's `run_status` event. `onClosed` decides whether to
- * reconnect; the caller reopens the stream after the owner acts. Mock mode replays the fixture run with
- * its recorded delays, closes the same way, sends mock heartbeats, and can simulate a stall.
+ * fresh for each connection). Reconnects with `Last-Event-ID` after a dropped connection.
+ * Mock mode replays the fixture run with its recorded delays.
  */
 export function streamRunEvents(runId: string, opts: StreamOptions): Promise<void> {
   return IS_MOCK ? streamMock(runId, opts) : streamReal(runId, opts);
@@ -84,82 +69,28 @@ export async function loadRunEvents(runId: string, signal: AbortSignal): Promise
 function streamMock(runId: string, opts: StreamOptions): Promise<void> {
   return new Promise<void>((resolve) => {
     let last = opts.lastEventId ?? 0;
-    let unsubscribe: (() => void) | null = null;
-    let heartbeat: ReturnType<typeof setInterval> | null = null;
-    let watchdog: ReturnType<typeof createWatchdog> | null = null;
-    let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    /** While in the future the mock "network" delivers nothing (the mock flag "stall"). */
-    let stalledUntil = 0;
-    let finished = false;
-
-    const bytes = () => {
-      opts.onBytes?.(Date.now());
-      watchdog?.poke();
-    };
-    const closeConnection = () => {
-      unsubscribe?.();
-      unsubscribe = null;
-      if (heartbeat) clearInterval(heartbeat);
-      heartbeat = null;
-      watchdog?.stop();
-      watchdog = null;
-    };
     const deliver = (event: RawAgentEvent) => {
-      if (finished || Date.now() < stalledUntil || event.id <= last) return;
+      if (event.id <= last) return;
       last = event.id;
-      bytes();
       opts.onEvent(event);
-      if (
-        event.type === "phase_started" &&
-        (event.payload as { phase?: string }).phase === "testgen" &&
-        engine.consumeMockFlag("stall")
-      ) {
-        stalledUntil = Date.now() + engine.MOCK_STALL_MS;
-      }
       // The real server closes the stream once a run stops running (finished or waiting for the owner);
-      // the caller then reads the run's status and reopens the stream after the owner acts.
+      // the caller then reads the run's status.
       if (event.type === "run_status") {
         const status = (event.payload as { status?: string }).status;
-        // Only the run's latest status counts: a replay also passes earlier pauses (waiting_user, then running again).
-        if (status !== "running" && engine.eventsAfter(runId, event.id).length === 0) {
-          closeConnection();
-          void opts.onClosed?.({ broken: false });
+        if (status === "done" || status === "failed" || status === "rejected" || status === "interrupted") {
+          void opts.onClosed?.();
         }
       }
     };
-    function onStall() {
-      closeConnection();
-      opts.onConnection?.("reconnecting");
-      retryTimer = setTimeout(connect, 1000);
-    }
-    function connect() {
-      retryTimer = null;
-      if (finished) return;
-      if (Date.now() < stalledUntil) {
-        retryTimer = setTimeout(connect, 1000); // the network is still down: this reconnect attempt fails
-        return;
-      }
-      watchdog = createWatchdog(onStall);
-      for (const event of engine.eventsAfter(runId, last)) deliver(event);
-      if (finished || watchdog === null) return;
-      unsubscribe = engine.subscribe(runId, deliver);
-      heartbeat = setInterval(() => {
-        if (Date.now() >= stalledUntil) bytes();
-      }, HEARTBEAT_MS);
-      opts.onConnection?.("open");
-      bytes();
-    }
+    for (const event of engine.eventsAfter(runId, last)) deliver(event);
+    const unsubscribe = engine.subscribe(runId, deliver);
+    opts.onConnection?.("open");
     const stop = () => {
-      finished = true;
-      closeConnection();
-      if (retryTimer) clearTimeout(retryTimer);
+      unsubscribe();
       resolve();
     };
     if (opts.signal.aborted) stop();
-    else {
-      opts.signal.addEventListener("abort", stop, { once: true });
-      connect();
-    }
+    else opts.signal.addEventListener("abort", stop, { once: true });
   });
 }
 
@@ -222,12 +153,11 @@ function toEvent(runId: string, frame: Frame): RawAgentEvent | null {
   return null;
 }
 
-/** Reads SSE frames from a response body until the server closes it, passing each event on (`onBytes`: any bytes arrived). */
+/** Reads SSE frames from a response body until the server closes it, passing each event on. */
 async function readEvents(
   runId: string,
   body: ReadableStream<Uint8Array>,
   onEvent: (event: RawAgentEvent) => void,
-  onBytes?: () => void,
 ): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
@@ -235,7 +165,6 @@ async function readEvents(
   for (;;) {
     const { done, value } = await reader.read();
     if (done) break;
-    onBytes?.();
     buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
     let split: number;
     while ((split = buffer.indexOf("\n\n")) !== -1) {
@@ -270,11 +199,6 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
   let broken = false;
 
   while (!signal.aborted) {
-    // One abortable request per connection: the watchdog aborts it when no bytes arrive for STALL_MS.
-    const conn = new AbortController();
-    const onAbort = () => conn.abort();
-    signal.addEventListener("abort", onAbort, { once: true });
-    const watchdog = createWatchdog(() => conn.abort(), STALL_MS);
     try {
       const auth = await authInit("GET");
       const res = await fetch(`${API_BASE_URL}/runs/${encodeURIComponent(runId)}/events`, {
@@ -284,10 +208,8 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
           Accept: "text/event-stream",
           ...(last > 0 ? { "Last-Event-ID": String(last) } : {}),
         },
-        signal: conn.signal,
+        signal,
       });
-      watchdog.poke();
-      opts.onBytes?.(Date.now());
       if (!res.ok) {
         const err = await parseErrorResponse(res);
         if (res.status === 401) void handleUnauthorized(); // the session is gone, as in request() in lib/api.ts
@@ -302,30 +224,18 @@ async function streamReal(runId: string, opts: StreamOptions): Promise<void> {
       delay = RETRY_MIN_MS;
       broken = false;
 
-      await readEvents(
-        runId,
-        res.body,
-        (event) => {
-          if (event.id <= last) return;
-          last = event.id;
-          opts.onEvent(event);
-        },
-        () => {
-          // Any bytes (an event or a `: heartbeat` comment) prove the connection is alive.
-          watchdog.poke();
-          opts.onBytes?.(Date.now());
-        },
-      );
+      await readEvents(runId, res.body, (event) => {
+        if (event.id <= last) return;
+        last = event.id;
+        opts.onEvent(event);
+      });
     } catch {
       if (signal.aborted) return;
-      broken = true; // includes the watchdog's abort
-    } finally {
-      watchdog.stop();
-      signal.removeEventListener("abort", onAbort);
+      broken = true;
     }
     if (signal.aborted) return;
     // The stream ended: ask the caller whether the run still needs it (the server closes it once a run stops running).
-    if (opts.onClosed && !(await opts.onClosed({ broken }))) return;
+    if (opts.onClosed && !(await opts.onClosed())) return;
     if (signal.aborted) return;
     if (broken) opts.onConnection?.("reconnecting"); // a normal close of a running run reconnects silently
     await wait(broken ? delay : RETRY_MIN_MS, signal);

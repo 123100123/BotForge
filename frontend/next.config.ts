@@ -8,9 +8,6 @@ const nextConfig: NextConfig = {
     if (process.env.NODE_ENV !== "development") return [];
     return [{ source: "/api/:path*", destination: "http://localhost:8000/:path*" }];
   },
-  // Development only: gzip on the /api proxy buffers the agent run's text/event-stream until it closes,
-  // so live run events never reach the browser. Production is unaffected (Caddy routes /api directly).
-  compress: process.env.NODE_ENV !== "development",
   // Self-contained server (.next/standalone/server.js) for the Docker image in frontend/Dockerfile.
   output: "standalone",
 };

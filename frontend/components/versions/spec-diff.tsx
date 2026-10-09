@@ -4,14 +4,14 @@ import type { SpecChange } from "@/lib/types";
 
 const ICONS: Record<SpecChange["kind"], typeof Plus> = { added: Plus, removed: Minus, changed: Pencil };
 const STYLES: Record<SpecChange["kind"], string> = {
-  added: "bg-success-soft",
-  removed: "bg-danger-soft",
-  changed: "bg-warning-soft",
+  added: "border-success/30 bg-success/10",
+  removed: "border-destructive/30 bg-destructive/10",
+  changed: "border-warning/30 bg-warning/15",
 };
 const ICON_STYLES: Record<SpecChange["kind"], string> = {
-  added: "text-success-text",
-  removed: "text-danger-text",
-  changed: "text-warning-text",
+  added: "text-success",
+  removed: "text-destructive",
+  changed: "text-warning",
 };
 const KIND_LABELS: Record<SpecChange["kind"], string> = { added: "افزوده شد", removed: "حذف شد", changed: "تغییر کرد" };
 
@@ -27,33 +27,28 @@ function splitChange(label: string): { head: string; oldValue: string; newValue:
 }
 
 /** The `diff` lines of a revision against its parent, with the backend's Persian labels. */
-export function SpecDiff({ diff, isFirst, emptyText }: { diff: SpecChange[]; isFirst: boolean; emptyText?: string }) {
+export function SpecDiff({ diff, isFirst }: { diff: SpecChange[]; isFirst: boolean }) {
   if (diff.length === 0) {
     return (
-      <p className="rounded-md border border-dashed border-border-strong p-4 text-small text-fg-muted">
-        {emptyText ??
-          (isFirst ? "این اولین نسخهٔ ربات است و نسخهٔ قبلی برای مقایسه وجود ندارد." : "این نسخه نسبت به نسخهٔ قبل تغییری در پیکربندی ندارد.")}
+      <p className="rounded-lg border border-dashed p-4 text-sm leading-7 text-muted-foreground">
+        {isFirst ? "این اولین نسخهٔ ربات است و نسخهٔ قبلی برای مقایسه وجود ندارد." : "این نسخه نسبت به نسخهٔ قبل تغییری در مشخصات ندارد."}
       </p>
     );
   }
   return (
-    <ul className="flex flex-col gap-2" aria-label="تغییرات پیکربندی">
+    <ul className="flex flex-col gap-2.5" aria-label="تغییرات نسبت به نسخهٔ قبل">
       {diff.map((c, i) => {
         const Icon = ICONS[c.kind];
         const parts = c.kind === "changed" ? splitChange(c.label_fa) : null;
         return (
-          <li key={i} className={cn("flex items-start gap-2.5 rounded-sm px-3 py-2 text-body", STYLES[c.kind])}>
-            <Icon strokeWidth={1.75} className={cn("mt-2 size-4 shrink-0", ICON_STYLES[c.kind])} aria-label={KIND_LABELS[c.kind]} />
+          <li key={i} className={cn("flex items-start gap-3 rounded-xl border px-4 py-3 text-sm leading-7", STYLES[c.kind])}>
+            <Icon className={cn("mt-1.5 size-4 shrink-0", ICON_STYLES[c.kind])} aria-label={KIND_LABELS[c.kind]} />
             {parts ? (
-              <span className="min-w-0">
-                {parts.head}: <del className="text-fg-muted">{parts.oldValue}</del>{" "}
-                <span aria-hidden className="inline-block text-fg-muted rtl:-scale-x-100">
-                  →
-                </span>{" "}
-                <ins className="font-medium no-underline">{parts.newValue}</ins>
+              <span>
+                {parts.head}: <del className="text-muted-foreground">{parts.oldValue}</del> ← <ins className="font-medium no-underline">{parts.newValue}</ins>
               </span>
             ) : (
-              <span className="min-w-0">{c.label_fa}</span>
+              <span>{c.label_fa}</span>
             )}
           </li>
         );

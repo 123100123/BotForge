@@ -1,41 +1,8 @@
+import type { WorkspaceTab } from "@/components/app/workspace";
 import type { CapabilityOut } from "@/lib/types";
 
 /** Capabilities that are listed but cannot be switched on yet. */
 export const COMING_SOON = new Set(["payments"]);
-
-/** True while the capability can be switched on (payments is listed as «به‌زودی» and has no switch). */
-export function isAvailable(cap: CapabilityOut): boolean {
-  return !COMING_SOON.has(cap.id);
-}
-
-/** Who sees what a capability adds, as the lead-in of its feature list. */
-export const AUDIENCE_SEES: Record<string, string> = {
-  everyone: "مشتریان در ربات تلگرام این امکانات را می‌بینند",
-  staff: "کارکنان این امکانات را می‌بینند",
-  managers: "مدیران این امکانات را می‌بینند",
-};
-
-/** Capability id → id of the navigation item (lib/nav.ts) that is its Operations or Insights page. */
-export const NAV_ITEM_OF_CAPABILITY: Record<string, string> = {
-  orders: "orders",
-  booking: "bookings",
-  events: "events",
-  forms: "requests",
-  approvals: "requests",
-  announcements: "announcements",
-  spreadsheet_intelligence: "spreadsheets",
-};
-
-/** Unifies Arabic and Persian letter forms and spacing so a search for «کتاب» also finds «كتاب». */
-export function normalizeFa(text: string): string {
-  return text
-    .replace(/ي/g, "ی")
-    .replace(/ك/g, "ک")
-    .replace(/[‌‎‏]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim()
-    .toLowerCase();
-}
 
 export const AUDIENCE_LABELS: Record<string, string> = {
   everyone: "همهٔ کاربران",
@@ -77,4 +44,20 @@ export function configLabel(key: string): string {
 /** "A، B و C" style names for a list of capability ids. */
 export function namesOf(ids: string[], byId: Map<string, CapabilityOut>): string {
   return ids.map((id) => byId.get(id)?.name ?? id).join("، ");
+}
+
+/**
+ * Switches to another section of the workspace. Uses the page's `onOpenTab` when it was passed down;
+ * otherwise presses the section's sidebar trigger (Radix tabs select on mouse down).
+ */
+export function openSection(tab: WorkspaceTab, onOpenTab?: (tab: WorkspaceTab) => void) {
+  if (onOpenTab) {
+    onOpenTab(tab);
+    return;
+  }
+  const value = tab === "agent" ? "copilot" : tab;
+  document
+    .querySelector<HTMLElement>(`[role="tab"][id$="-trigger-${value}"]`)
+    ?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, button: 0 }));
+  window.scrollTo({ top: 0 });
 }

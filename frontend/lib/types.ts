@@ -702,20 +702,8 @@ export interface EventPayloads {
   };
   deployed: { revision_id: string; number: number };
   usage: Usage;
-  /**
-   * A failure. `code`, `applied` and `retryable` are additive: an older backend sends only `message`
-   * (`applied` unknown, retry offered because the endpoint accepts every failed run).
-   */
-  error: { message: string; code?: ErrorCode; applied?: boolean; retryable?: boolean };
-  /** Persian present-progressive sentence, emitted right before each LLM call or turn. */
-  activity: { phase: Phase; label: string };
-  /** The LLM call is being retried (`attempt` is the number of the attempt about to start). */
-  retrying: { phase: Phase; attempt: number; reason: string };
-  /** The server restarted while the run was working; the run is `interrupted` and can be retried. */
-  run_interrupted: { reason: "server_restart" | string };
+  error: { message: string };
 }
-
-export type ErrorCode = "LLM_UNAVAILABLE" | "BUDGET_EXCEEDED" | "VALIDATION_FAILED" | "UNEXPECTED_ERROR" | "INTERRUPTED";
 
 export type AgentEventType = keyof EventPayloads;
 
@@ -756,9 +744,6 @@ export const KNOWN_EVENT_TYPES: readonly AgentEventType[] = [
   "usage",
   "error",
   "run_status",
-  "activity",
-  "retrying",
-  "run_interrupted",
 ];
 
 export function isKnownEvent(e: RawAgentEvent): e is AgentEvent {

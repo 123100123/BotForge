@@ -1,36 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { Link2Off, Lock, RefreshCw } from "lucide-react";
-import { ConfirmDialog } from "@/components/app/confirm-dialog";
+import { useEffect, useRef, useState } from "react";
+import { Check, Copy, Link2Off, Lock, RefreshCw, Users } from "lucide-react";
 import { ErrorNote } from "@/components/app/state-blocks";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Select } from "@/components/ui/select";
-import { Skeleton } from "@/components/ui/skeleton";
-import { StatusBadge } from "@/components/ui/status-badge";
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Select, ListBox } from "@/components/ui/select";
 import { api } from "@/lib/api";
 import { ApiError, errorMessage } from "@/lib/errors";
-import { fa, formatDate } from "@/lib/format";
+import { fa } from "@/lib/format";
 import type { TeamMemberOut, TeamOut, TeamRole } from "@/lib/types";
-import { CopyButton, DANGER_OUTLINE, LinkBox, PanelSection, SettingsPanel } from "./settings-panel";
+import { ConfirmDialog } from "./confirm-dialog";
 
 const ROLE_LABELS: Record<TeamRole, string> = { customer: "مشتری", staff: "همکار", manager: "مدیر" };
 const ROLES: TeamRole[] = ["customer", "staff", "manager"];
 
-/** Display name of a member; the Telegram id is secondary text, never the headline. */
-function memberName(m: TeamMemberOut): string {
-  return m.display_name?.trim() || "کاربر بدون نام";
+async function copyText(text: string): Promise<boolean> {
+  try {
+    await navigator.clipboard.writeText(text);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 /** The staff invite link, the head count per role, and the members with their role. */
 export function TeamSection({ botId }: { botId: string }) {
   const [team, setTeam] = useState<TeamOut | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [busy, setBusy] = useState<"rotate" | null>(null);
+  const [busy, setBusy] = useState<"rotate" | "revoke" | null>(null);
   const [confirmRevoke, setConfirmRevoke] = useState(false);
+  const [copied, setCopied] = useState<"yes" | "no" | null>(null);
   const [savingRole, setSavingRole] = useState<string | null>(null);
   // The team list does not mark the owner; the API refuses to change the owner's role, and that row is locked from then on.
   const [locked, setLocked] = useState<Set<string>>(new Set());
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -42,6 +47,9 @@ export function TeamSection({ botId }: { botId: string }) {
       cancelled = true;
     };
   }, [botId]);
+  useEffect(() => () => {
+    if (timer.current) clearTimeout(timer.current);
+  }, []);
 
   async function rotate() {
     setBusy("rotate");
@@ -49,6 +57,7 @@ export function TeamSection({ botId }: { botId: string }) {
     try {
       const link = await api.rotateStaffLink(botId);
       setTeam((t) => (t ? { ...t, ...link } : t));
+      setCopied(null);
     } catch (err) {
       setError(errorMessage(err));
     } finally {
@@ -56,11 +65,26 @@ export function TeamSection({ botId }: { botId: string }) {
     }
   }
 
-  // Throws on failure: the confirm dialog shows the message inline and stays open.
   async function revoke() {
+    setBusy("revoke");
     setError(null);
-    const link = await api.revokeStaffLink(botId);
-    setTeam((t) => (t ? { ...t, ...link } : t));
+    try {
+      const link = await api.revokeStaffLink(botId);
+      setTeam((t) => (t ? { ...t, ...link } : t));
+      setCopied(null);
+    } catch (err) {
+      setError(errorMessage(err));
+    } finally {
+      setBusy(null);
+      setConfirmRevoke(false);
+    }
+  }
+
+  async function copy() {
+    if (!team?.staff_link) return;
+    setCopied((await copyText(team.staff_link)) ? "yes" : "no");
+    if (timer.current) clearTimeout(timer.current);
+    timer.current = setTimeout(() => setCopied(null), 2500);
   }
 
   async function changeRole(member: TeamMemberOut, role: TeamRole) {
@@ -83,168 +107,146 @@ export function TeamSection({ botId }: { botId: string }) {
   }
 
   return (
-    <div className="flex flex-col gap-6">
-      {error && <ErrorNote>{error}</ErrorNote>}
-      {!team ? (
-        !error && (
-          <div role="status" aria-label="در حال بارگذاری" className="flex flex-col gap-3">
-            <Skeleton className="h-44 rounded-md" />
-            <Skeleton className="h-56 rounded-md" />
-          </div>
-        )
-      ) : (
-        <>
-          <SettingsPanel
-            title="پیوند دعوت همکار"
-            description="هر کسی این پیوند را در تلگرام باز کند، همکار ربات می‌شود؛ پس آن را فقط برای افراد مورد اعتماد بفرستید."
-            status={
-              team.staff_link ? (
-                <StatusBadge tone="success" marker>
-                  فعال
-                </StatusBadge>
-              ) : (
-                <StatusBadge tone="neutral" marker>
-                  بدون پیوند فعال
-                </StatusBadge>
-              )
-            }
-          >
-            {team.staff_link ? (
-              <>
-                <PanelSection>
-                  <LinkBox value={team.staff_link} />
+    <Card>
+      <CardHeader>
+        <CardTitle className="flex items-center gap-2">
+          <Users className="size-5 text-muted-foreground" />
+          تیم
+        </CardTitle>
+        <CardDescription>همکاران و مدیران را با یک پیوند دعوت کنید و نقش هر عضو را همین‌جا تعیین کنید.</CardDescription>
+      </CardHeader>
+      <CardContent className="flex flex-col gap-5">
+        {error && <ErrorNote>{error}</ErrorNote>}
+        {!team ? (
+          !error && <div role="status" aria-label="در حال بارگذاری" className="h-24 animate-pulse rounded-xl bg-surface-secondary" />
+        ) : (
+          <>
+            <div className="flex flex-col gap-3">
+              <h3 className="text-sm font-semibold">پیوند دعوت همکار</h3>
+              {team.staff_link ? (
+                <>
+                  <div className="rounded-md border bg-surface-secondary/40 p-3 text-sm break-all" dir="ltr">
+                    {team.staff_link}
+                  </div>
                   <div className="flex flex-wrap gap-2">
-                    <CopyButton value={team.staff_link} variant="primary" />
-                    <Button variant="secondary" onClick={() => void rotate()} loading={busy === "rotate"} disabled={busy !== null}>
-                      <RefreshCw strokeWidth={1.75} />
-                      ساخت پیوند تازه
+                    <Button variant="outline" onPress={copy}>
+                      {copied === "yes" ? <Check /> : <Copy />}
+                      {copied === "yes" ? "کپی شد" : "کپی پیوند"}
+                    </Button>
+                    <Button variant="outline" onPress={rotate} isDisabled={busy !== null}>
+                      <RefreshCw className={busy === "rotate" ? "animate-spin" : undefined} />
+                      ساخت/تعویض لینک
+                    </Button>
+                    <Button variant="ghost" className="text-destructive" onPress={() => setConfirmRevoke(true)} isDisabled={busy !== null}>
+                      <Link2Off />
+                      لغو لینک
                     </Button>
                   </div>
-                  <p className="max-w-prose text-small text-fg-muted">
-                    با ساختن پیوند تازه، پیوند قبلی از کار می‌افتد. همکارانی که قبلاً وصل شده‌اند همکار می‌مانند.
-                  </p>
-                </PanelSection>
-                <PanelSection
-                  tone="danger"
-                  title="لغو پیوند"
-                  description="پیوند فعلی از کار می‌افتد و تا ساختن پیوند تازه، کسی با آن همکار نمی‌شود."
-                >
+                  {copied === "no" && (
+                    <p role="status" className="text-sm text-destructive">
+                      کپی خودکار انجام نشد؛ پیوند را دستی انتخاب و کپی کنید.
+                    </p>
+                  )}
+                </>
+              ) : (
+                <>
+                  <p className="text-sm leading-7 text-muted-foreground">الان پیوند دعوتی فعال نیست.</p>
                   <div>
-                    <Button variant="secondary" className={DANGER_OUTLINE} onClick={() => setConfirmRevoke(true)} disabled={busy !== null}>
-                      <Link2Off strokeWidth={1.75} />
-                      لغو پیوند
+                    <Button onPress={rotate} isDisabled={busy !== null}>
+                      <RefreshCw className={busy === "rotate" ? "animate-spin" : undefined} />
+                      ساخت/تعویض لینک
                     </Button>
                   </div>
-                </PanelSection>
-              </>
-            ) : (
-              <PanelSection>
-                <p className="text-small text-fg-secondary">الان پیوند دعوتی فعال نیست. برای دعوت همکار، یک پیوند بسازید.</p>
-                <div>
-                  <Button onClick={() => void rotate()} loading={busy === "rotate"} disabled={busy !== null}>
-                    <RefreshCw strokeWidth={1.75} />
-                    ساخت پیوند دعوت
-                  </Button>
-                </div>
-              </PanelSection>
-            )}
-          </SettingsPanel>
+                </>
+              )}
+              <p className="text-sm leading-7 text-muted-foreground">
+                هر کسی این پیوند را در تلگرام باز کند، همکار ربات می‌شود؛ پس آن را فقط برای افراد مورد اعتماد بفرستید. با تعویض یا لغو
+                پیوند، پیوند قبلی از کار می‌افتد و همکارانی که قبلاً وصل شده‌اند همکار می‌مانند.
+              </p>
+            </div>
 
-          <SettingsPanel
-            title="اعضای تیم"
-            description="نقش هر عضو را همین‌جا تعیین کنید. اگر نقش کسی را به «مشتری» برگردانید از این فهرست بیرون می‌رود."
-          >
-            <PanelSection>
-              <ul aria-label="تعداد اعضا به تفکیک نقش" className="flex flex-wrap gap-x-6 gap-y-2">
-                {ROLES.map((r) => (
-                  <li key={r} className="flex items-baseline gap-2 text-small text-fg-secondary">
-                    <span>{ROLE_LABELS[r]}</span>
-                    <span className="text-metric-sm text-fg">{fa(team.counts[r] ?? 0)}</span>
-                  </li>
-                ))}
-              </ul>
-            </PanelSection>
-            {team.members.length === 0 ? (
-              <PanelSection>
-                <p className="text-small text-fg-secondary">
+            <div role="group" aria-label="تعداد اعضا به تفکیک نقش" className="flex flex-wrap gap-2">
+              {ROLES.map((r) => (
+                <Badge key={r} variant="outline">
+                  {ROLE_LABELS[r]}: {fa(team.counts[r] ?? 0)}
+                </Badge>
+              ))}
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <h3 className="text-sm font-semibold">اعضا</h3>
+              {team.members.length === 0 ? (
+                <p className="text-sm leading-7 text-muted-foreground">
                   هنوز عضوی ثبت نشده است. پس از اینکه کسی ربات را در تلگرام شروع کند، اینجا نمایش داده می‌شود.
                 </p>
-              </PanelSection>
-            ) : (
-              <table className="w-full border-t border-border text-small">
-                <caption className="sr-only">اعضای تیم و نقش آن‌ها</caption>
-                <thead className="bg-surface-sunken text-fg-muted">
-                  <tr>
-                    <th scope="col" className="px-5 py-2 text-start font-medium">
-                      عضو
-                    </th>
-                    <th scope="col" className="hidden px-3 py-2 text-start font-medium md:table-cell">
-                      شروع همکاری
-                    </th>
-                    <th scope="col" className="px-5 py-2 text-start font-medium">
-                      نقش
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {team.members.map((m) => {
-                    const name = memberName(m);
-                    const isLocked = locked.has(m.actor_id);
-                    return (
-                      <tr key={m.actor_id} className="border-t border-border">
-                        <td className="min-w-0 px-5 py-3">
-                          <div className="text-body text-fg">{name}</div>
-                          {!m.display_name?.trim() && (
-                            <div className="text-caption text-fg-muted">
+              ) : (
+                <div className="overflow-x-auto rounded-md border">
+                  <table className="w-full min-w-[30rem] text-sm">
+                    <thead className="bg-surface-secondary/50 text-muted-foreground">
+                      <tr>
+                        <th className="px-3 py-2 text-start font-medium">نام</th>
+                        <th className="px-3 py-2 text-start font-medium">شناسه</th>
+                        <th className="px-3 py-2 text-start font-medium">نقش</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {team.members.map((m) => {
+                        const label = m.display_name ?? m.actor_id;
+                        const isLocked = locked.has(m.actor_id);
+                        return (
+                          <tr key={m.actor_id} className="border-t">
+                            <td className="px-3 py-2">{m.display_name ?? "بدون نام"}</td>
+                            <td className="px-3 py-2 text-muted-foreground">
                               <span dir="ltr" className="inline-block">
                                 {m.actor_id}
                               </span>
-                            </div>
-                          )}
-                        </td>
-                        <td className="hidden px-3 py-3 text-fg-secondary md:table-cell">{formatDate(m.first_seen)}</td>
-                        <td className="px-5 py-3">
-                          {isLocked ? (
-                            <StatusBadge tone="brand" icon={<Lock strokeWidth={1.75} aria-hidden />}>
-                              مالک (مدیر)
-                            </StatusBadge>
-                          ) : (
-                            <Select
-                              aria-label={`نقش ${name}`}
-                              className="h-9 w-28"
-                              value={m.role}
-                              disabled={savingRole === m.actor_id}
-                              onChange={(e) => void changeRole(m, e.target.value as TeamRole)}
-                            >
-                              {ROLES.map((r) => (
-                                <option key={r} value={r}>
-                                  {ROLE_LABELS[r]}
-                                </option>
-                              ))}
-                            </Select>
-                          )}
-                        </td>
-                      </tr>
-                    );
-                  })}
-                </tbody>
-              </table>
-            )}
-            <p className="border-t border-border p-5 text-small text-fg-muted">
-              مالک ربات همیشه مدیر است و نقش او قابل تغییر نیست.
-            </p>
-          </SettingsPanel>
-        </>
-      )}
+                            </td>
+                            <td className="px-3 py-2">
+                              {isLocked ? (
+                                <Badge variant="accent">
+                                  <Lock />
+                                  مالک (مدیر)
+                                </Badge>
+                              ) : (
+                                <Select
+                                  aria-label={`نقش ${label}`}
+                                  className="h-8 w-28"
+                                  value={m.role}
+                                  isDisabled={savingRole === m.actor_id}
+                                  onChange={(key) => key !== null && changeRole(m, String(key) as TeamRole)}
+                                >
+                                  <Select.Trigger><Select.Value /><Select.Indicator /></Select.Trigger><Select.Popover><ListBox>{ROLES.map((r) => (
+                                    <ListBox.Item key={r} id={r} textValue={ROLE_LABELS[r]}>
+                                      {ROLE_LABELS[r]}
+                                    </ListBox.Item>
+                                  ))}
+                                </ListBox></Select.Popover></Select>
+                              )}
+                            </td>
+                          </tr>
+                        );
+                      })}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+              <p className="text-sm leading-7 text-muted-foreground">
+                مالک ربات همیشه مدیر است و نقش او قابل تغییر نیست. این فهرست همکاران و مدیران را نشان می‌دهد؛ اگر نقش کسی را به «مشتری» برگردانید از فهرست بیرون می‌رود.
+              </p>
+            </div>
+          </>
+        )}
+      </CardContent>
       <ConfirmDialog
         open={confirmRevoke}
-        onOpenChange={setConfirmRevoke}
         title="لغو پیوند دعوت همکار؟"
         description="پیوند فعلی از کار می‌افتد و تا ساختن پیوند تازه، کسی با آن همکار نمی‌شود. همکارانی که قبلاً وصل شده‌اند همکار می‌مانند."
         confirmLabel="لغو پیوند"
         destructive
+        busy={busy === "revoke"}
         onConfirm={revoke}
+        onCancel={() => setConfirmRevoke(false)}
       />
-    </div>
+    </Card>
   );
 }

@@ -1,0 +1,36 @@
+.calendar :global(.rmdp-wrapper) {
+  background: var(--surface);
+  color: var(--foreground);
+  border: 1px solid var(--border);
+  box-shadow: var(--app-shadow);
+}
+
+.calendar :global(.rmdp-header-values),
+.calendar :global(.rmdp-day),
+.calendar :global(.rmdp-time-picker input) {
+  color: var(--foreground);
+}
+
+.calendar :global(.rmdp-week-day),
+.calendar :global(.rmdp-day.rmdp-deactive) {
+  color: var(--muted);
+}
+
+.calendar :global(.rmdp-day.rmdp-today span),
+.calendar :global(.rmdp-day.rmdp-selected span:not(.highlight)) {
+  background: var(--accent);
+  color: var(--accent-foreground);
+}
+
+.calendar :global(.rmdp-day:not(.rmdp-day-hidden) span:hover) {
+  background: var(--surface-secondary);
+  color: var(--foreground);
+}
+
+.calendar :global(.rmdp-arrow) {
+  border-color: var(--accent);
+}
+
+.calendar :global(.rmdp-time-picker input) {
+  background: var(--field-background);
+}

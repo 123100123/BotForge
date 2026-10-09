@@ -17,10 +17,7 @@ export function computeDelta(value: number | null, previous: number | null): Del
   return { direction: pct > 0 ? "up" : "down", text: `${fa(Math.abs(pct))}٪` };
 }
 
-/**
- * One number with its label, unit and (when `previous` is known) the change against the previous period.
- * Reports use `MetricStrip` (components/app/metric-strip.tsx), which also knows which direction is good.
- */
+/** One number with its label, unit and (when `previous` is known) the change against the previous period. */
 export function StatTile({
   label,
   value,
@@ -36,20 +33,20 @@ export function StatTile({
 }) {
   const delta = computeDelta(value, previous);
   return (
-    <Card className={cn("gap-2 py-4", className)}>
-      <CardContent className="flex flex-col gap-1.5">
-        <span className="text-caption text-fg-muted">{label}</span>
-        <span className="text-metric text-fg">
-          {value === null ? "-" : formatNumber(value)}
-          {unit && <span className="ms-1 text-caption font-normal text-fg-muted">{unit}</span>}
+    <Card className={cn("min-w-0 gap-4 rounded-2xl border border-border py-5", className)}>
+      <CardContent className="flex flex-col gap-2">
+        <span className="text-sm font-medium text-muted-foreground">{label}</span>
+        <span className="flex min-w-0 flex-wrap items-baseline gap-1 text-3xl leading-tight font-extrabold tabular-nums tracking-tight">
+          <span className="min-w-0 [overflow-wrap:anywhere]">{value === null ? "-" : formatNumber(value)}</span>
+          {unit && <span className="ms-1 text-xs font-normal text-muted-foreground">{unit}</span>}
         </span>
         {delta && (
           <span
             className={cn(
-              "inline-flex items-center gap-1 text-caption",
-              delta.direction === "up" && "text-success-text",
-              delta.direction === "down" && "text-danger-text",
-              delta.direction === "flat" && "text-fg-muted",
+              "inline-flex flex-wrap items-center gap-1 text-xs",
+              delta.direction === "up" && "text-success",
+              delta.direction === "down" && "text-destructive",
+              delta.direction === "flat" && "text-muted-foreground",
             )}
           >
             {delta.direction !== "flat" && <span aria-hidden>{delta.direction === "up" ? "▲" : "▼"}</span>}
@@ -58,7 +55,7 @@ export function StatTile({
               {delta.direction === "down" && <span className="sr-only">کاهش </span>}
               {delta.text}
             </span>
-            <span className="text-fg-muted">نسبت به دورهٔ قبل</span>
+            <span className="text-muted-foreground">نسبت به دورهٔ قبل</span>
           </span>
         )}
       </CardContent>

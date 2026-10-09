@@ -1,79 +1,14 @@
 "use client";
 
-import { useRef } from "react";
+import { Radio, RadioGroup, Label } from "@heroui/react";
 import { cn } from "@/lib/utils";
-
-export interface SegmentedOption<T extends string> {
-  value: T;
-  label: string;
-}
-
-/**
- * Compact single-choice control for filters and modes that change what a region shows (a radiogroup, not
- * ARIA tabs: there are no tab panels). One tab stop; arrow keys move and select, as a native radio group does.
- */
-export function Segmented<T extends string>({
-  value,
-  onChange,
-  options,
-  label,
-  className,
-}: {
-  value: T;
-  onChange: (value: T) => void;
-  options: SegmentedOption<T>[];
-  label: string;
-  className?: string;
+export interface SegmentedOption<T extends string> { value: T; label: string }
+export function Segmented<T extends string>({ value, onChange, options, label, className }: {
+  value: T; onChange: (value: T) => void; options: SegmentedOption<T>[]; label: string; className?: string;
 }) {
-  const refs = useRef<(HTMLButtonElement | null)[]>([]);
-  const selected = Math.max(
-    0,
-    options.findIndex((o) => o.value === value),
-  );
-
-  function onKeyDown(e: React.KeyboardEvent, index: number) {
-    const rtl = getComputedStyle(e.currentTarget).direction === "rtl";
-    let step = 0;
-    if (e.key === "ArrowDown") step = 1;
-    else if (e.key === "ArrowUp") step = -1;
-    else if (e.key === "ArrowRight") step = rtl ? -1 : 1;
-    else if (e.key === "ArrowLeft") step = rtl ? 1 : -1;
-    else return;
-    e.preventDefault();
-    const next = (index + step + options.length) % options.length;
-    onChange(options[next].value);
-    refs.current[next]?.focus();
-  }
-
-  return (
-    <div
-      role="radiogroup"
-      aria-label={label}
-      className={cn("inline-flex w-fit max-w-full items-center gap-0.5 overflow-x-auto rounded-sm border bg-surface-sunken p-0.5", className)}
-    >
-      {options.map((o, i) => {
-        const active = i === selected;
-        return (
-          <button
-            key={o.value}
-            ref={(el) => {
-              refs.current[i] = el;
-            }}
-            type="button"
-            role="radio"
-            aria-checked={active}
-            tabIndex={active ? 0 : -1}
-            onClick={() => onChange(o.value)}
-            onKeyDown={(e) => onKeyDown(e, i)}
-            className={cn(
-              "shrink-0 rounded-xs border px-3 py-1 text-small font-medium whitespace-nowrap transition-colors duration-fast",
-              active ? "border-border bg-surface text-fg" : "border-transparent text-fg-muted hover:text-fg",
-            )}
-          >
-            {o.label}
-          </button>
-        );
-      })}
-    </div>
-  );
+  return <RadioGroup aria-label={label} value={value} onChange={(next) => onChange(next as T)} orientation="horizontal" className={cn("flex max-w-full flex-row flex-wrap gap-1 rounded-2xl border bg-surface-secondary/60 p-1", className)}>
+    {options.map((option) => <Radio key={option.value} value={option.value} className={cn("rounded-xl", value === option.value && "bg-card shadow-sm")}>
+      <Radio.Content className="rounded-xl px-3 py-2"><Radio.Control className="sr-only"><Radio.Indicator /></Radio.Control><Label className={cn("cursor-pointer text-xs font-semibold sm:text-sm", value === option.value ? "text-primary" : "text-muted-foreground")}>{option.label}</Label></Radio.Content>
+    </Radio>)}
+  </RadioGroup>;
 }

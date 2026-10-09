@@ -20,7 +20,6 @@ import type {
   Bot,
   DataRecord,
   EventPayloads,
-  Phase,
   RunKind,
 } from "@/lib/types";
 
@@ -62,61 +61,6 @@ const playing = new Set<string>();
 const listeners = new Map<string, Set<(e: AgentEvent) => void>>();
 
 export const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
-
-/* ------------------------------------------------------------------ failure simulation flags */
-
-/**
- * `localStorage["botforge.mock.agent"]` holds space- or comma-separated one-shot flags that make the next
- * run misbehave, to see every status the Changes page can show without a real backend:
- *  - "retry": the build phase reports an LLM retry, then continues
- *  - "fail": the build phase fails with LLM_UNAVAILABLE (nothing applied, retryable)
- *  - "interrupt": the run is interrupted (server restart) when it reaches testgen
- *  - "slow": the model goes silent for 30 s in testgen (only heartbeats arrive)
- *  - "stall": the connection delivers no bytes for MOCK_STALL_MS from testgen on (the stream watchdog fires)
- * A flag is removed when it fires, so a retry runs clean.
- */
-export const MOCK_FLAG_KEY = "botforge.mock.agent";
-export const MOCK_STALL_MS = 45_000;
-const MOCK_SLOW_MS = 30_000;
-
-function readFlags(): string[] {
-  try {
-    return (window.localStorage.getItem(MOCK_FLAG_KEY) ?? "").split(/[\s,;|]+/).filter(Boolean);
-  } catch {
-    return [];
-  }
-}
-
-/** True (once) when `name` is set; the flag is removed. */
-export function consumeMockFlag(name: string): boolean {
-  const flags = readFlags();
-  if (!flags.includes(name)) return false;
-  try {
-    window.localStorage.setItem(MOCK_FLAG_KEY, flags.filter((f) => f !== name).join(" "));
-  } catch {
-    /* storage unavailable: the flag stays */
-  }
-  return true;
-}
-
-/** The sentence the assistant announces before each simulated LLM call (a Persian present progressive). */
-const PHASE_ACTIVITY: Partial<Record<Phase, string>> = {
-  triage: "در حال بررسی نوع درخواست شما…",
-  understand: "در حال خواندن و فهمیدن درخواست شما…",
-  build: "در حال ساخت پیکربندی ربات…",
-  testgen: "در حال نوشتن آزمون‌ها…",
-  repair: "در حال بررسی آزمون ناموفق و رفع مشکل…",
-  review: "در حال آماده‌سازی خلاصهٔ تغییرات…",
-};
-
-const TOOL_ACTIVITY: Record<string, string> = {
-  set_spec: "در حال نوشتن پیکربندی ربات…",
-  apply_spec_patch: "در حال اعمال تغییر در پیکربندی…",
-  validate_spec: "در حال بررسی درستی پیکربندی…",
-  get_failure: "در حال بررسی آزمون ناموفق…",
-  run_tests: "در حال اجرای دوبارهٔ آزمون‌ها…",
-  finish: "در حال نهایی کردن کار…",
-};
 
 export function persist() {
   if (!db) return;
@@ -208,31 +152,11 @@ function emit<T extends AgentEventType>(run: StoredRun, type: T, payload: EventP
 
   if (event.type === "phase_started") run.phase = event.payload.phase;
   if (event.type === "usage") run.usage = event.payload;
-  if (event.type === "approval_requested" && event.payload.revision_id) ensureDraft(run, event.payload.revision_id);
   if (event.type === "deployed") applyDeployed(run, event.payload.revision_id, event.payload.number);
 
   touch(run);
   listeners.get(run.id)?.forEach((fn) => fn(event));
   return event;
-}
-
-/** The real backend stores the draft version when it asks for approval; the mock does the same. */
-function ensureDraft(run: StoredRun, revisionId: string) {
-  const d = getDb();
-  if (d.revisions.some((r) => r.id === revisionId)) return;
-  const first = (d.events[run.id] ?? []).find((e) => e.type === "owner_message");
-  const parent = d.revisions.find((r) => r.id === run.base_revision_id);
-  d.revisions.push({
-    id: revisionId,
-    bot_id: run.bot_id,
-    number: run.meta.revisionNumber,
-    parent_id: run.base_revision_id,
-    status: "draft",
-    change_request: first && first.type === "owner_message" ? first.payload.text : null,
-    created_at: new Date().toISOString(),
-    activated_at: null,
-    variant: nextVariant(parent?.variant ?? null),
-  });
 }
 
 function applyDeployed(run: StoredRun, revisionId: string, number: number) {
@@ -241,13 +165,19 @@ function applyDeployed(run: StoredRun, revisionId: string, number: number) {
   for (const rev of d.revisions) {
     if (rev.bot_id === run.bot_id && rev.status === "active") rev.status = "superseded";
   }
-  ensureDraft(run, revisionId);
-  const draft = d.revisions.find((r) => r.id === revisionId);
-  if (draft) {
-    draft.number = number;
-    draft.status = "active";
-    draft.activated_at = now;
-  }
+  const first = (d.events[run.id] ?? []).find((e) => e.type === "owner_message");
+  const parent = d.revisions.find((r) => r.id === run.base_revision_id);
+  d.revisions.push({
+    id: revisionId,
+    bot_id: run.bot_id,
+    number,
+    parent_id: run.base_revision_id,
+    status: "active",
+    change_request: first && first.type === "owner_message" ? first.payload.text : null,
+    created_at: now,
+    activated_at: now,
+    variant: nextVariant(parent?.variant ?? null),
+  });
   const bot = d.bots.find((b) => b.id === run.bot_id);
   if (bot) {
     bot.status = "live";
@@ -277,59 +207,11 @@ async function advance(runId: string): Promise<void> {
       await sleep(item.delay);
       if (run.status !== "running") return;
       run.meta.cursor += 1;
-      // The assistant announces each model turn before it starts.
-      if (item.event.type === "tool_call") {
-        const { loop, name } = item.event.payload;
-        emit(run, "activity", { phase: loop, label: TOOL_ACTIVITY[name] ?? "در حال کار روی ربات…" });
-      }
-      const event = emit(run, item.event.type, item.event.payload as never);
-      if (event.type === "phase_started" && !(await simulatePhaseStart(run, event.payload.phase))) return;
+      emit(run, item.event.type, item.event.payload as never);
     }
   } finally {
     playing.delete(runId);
   }
-}
-
-/**
- * After a phase starts: announce the model turn and apply the failure flags. Returns false when the run
- * ended (failed or interrupted) and the script must stop.
- */
-async function simulatePhaseStart(run: StoredRun, phase: Phase): Promise<boolean> {
-  const label = PHASE_ACTIVITY[phase];
-  if (label) {
-    await sleep(120);
-    if (run.status !== "running") return false;
-    emit(run, "activity", { phase, label });
-  }
-  if (phase === "build") {
-    if (consumeMockFlag("retry")) {
-      await sleep(1500);
-      emit(run, "retrying", { phase, attempt: 2, reason: "timeout" });
-      await sleep(2500);
-    }
-    if (consumeMockFlag("fail")) {
-      await sleep(1500);
-      run.phase = "failed";
-      emit(run, "error", {
-        message: "اتصال به مدل زبانی برقرار نشد. چند بار تلاش کردیم و پاسخی نگرفتیم.",
-        code: "LLM_UNAVAILABLE",
-        applied: false,
-        retryable: true,
-      });
-      setStatus(run, "failed");
-      return false;
-    }
-  }
-  if (phase === "testgen") {
-    if (consumeMockFlag("interrupt")) {
-      await sleep(1500);
-      emit(run, "run_interrupted", { reason: "server_restart" });
-      setStatus(run, "interrupted");
-      return false;
-    }
-    if (consumeMockFlag("slow")) await sleep(MOCK_SLOW_MS);
-  }
-  return run.status === "running";
 }
 
 function resume(run: StoredRun) {
@@ -474,22 +356,10 @@ export function rejectRun(runId: string): AgentRun {
   if (run.status !== "waiting_approval") {
     throw new ApiError("run_not_waiting", "این اجرا منتظر تأیید نیست.", 409);
   }
-  const draft = getDb().revisions.find((r) => r.id === run.meta.revisionId);
-  if (draft && draft.status === "draft") draft.status = "rejected";
+  emit(run, "phase_finished", { phase: "await_approval", ok: false, summary: "پیش‌نویس رد شد" });
   emit(run, "agent_message", { text: "پیش‌نویس کنار گذاشته شد و ربات فعلی بدون تغییر ماند." });
   setStatus(run, "rejected");
   return publicRun(run);
-}
-
-/** A new run from the first owner message of a failed or interrupted run (the real endpoint answers 409 otherwise). */
-export function retryRun(runId: string): AgentRun {
-  const run = findRun(runId);
-  if (run.status !== "failed" && run.status !== "interrupted") {
-    throw new ApiError("run_not_retryable", "فقط اجرای ناموفق یا متوقف‌شده را می‌شود دوباره امتحان کرد.", 409);
-  }
-  const first = (getDb().events[runId] ?? []).find((e) => e.type === "owner_message");
-  const message = first && first.type === "owner_message" ? first.payload.text : "";
-  return createRun(run.bot_id, message);
 }
 
 /** Events with id greater than `afterId`, oldest first. */

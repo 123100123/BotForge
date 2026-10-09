@@ -30,9 +30,11 @@ export function createRunScript(ctx: ScriptContext): ScriptItem[] {
     ev("phase_finished", { phase: "understand", ok: true, summary: "۱۰ نیازمندی استخراج شد؛ یک پرسش ضروری باقی ماند" }, 500),
 
     // --- clarify ---
+    ev("phase_started", { phase: "clarify" }, 400),
     ev("agent_message", { text: "برای ساختن درست ربات یک نکته را باید از شما بپرسم." }, 600),
     ev("questions", { questions: [CAPACITY_QUESTION] }, 400),
     waitFor("message"),
+    ev("phase_finished", { phase: "clarify", ok: true, summary: "پاسخ دریافت شد" }, 500),
 
     // --- understand (round 2) ---
     ev("phase_started", { phase: "understand" }, 400),
@@ -101,10 +103,12 @@ export function createRunScript(ctx: ScriptContext): ScriptItem[] {
     ev("phase_finished", { phase: "review", ok: true, summary: `خلاصهٔ نسخهٔ ${ctx.revisionNumber.toLocaleString("fa-IR")} آماده شد` }, 700),
 
     // --- await approval ---
+    ev("phase_started", { phase: "await_approval" }, 400),
     ev("agent_message", { text: "ربات ساخته و آزمایش شد. می‌توانید آن را در تب شبیه‌ساز امتحان کنید؛ اگر مورد تأیید بود، تأیید را بزنید تا فعال شود." }, 300),
     // The pause follows `approval_requested` immediately, so the approve button never shows before the run waits.
     ev("approval_requested", { revision_id: ctx.revisionId, can_approve: true }, 300),
     waitFor("approve"),
+    ev("phase_finished", { phase: "await_approval", ok: true, summary: "تأیید شد" }, 400),
 
     // --- deploy ---
     ev("phase_started", { phase: "deploy" }, 400),

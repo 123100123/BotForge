@@ -75,10 +75,9 @@ class SubmissionsOut(BaseModel):
 
 
 def get_llm_optional() -> LLMClient | None:
-    """The configured LLM client, or None when no model is reachable (no API key for the Anthropic
-    provider). Tests override this dependency with a ``FakeLLM``."""
+    """The configured provider, or None when its required settings are absent."""
     settings = get_settings()
-    if settings.LLM_PROVIDER == "anthropic" and not settings.ANTHROPIC_API_KEY:
+    if not settings.llm_configured:
         return None
     return make_llm()
 
