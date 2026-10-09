@@ -15,6 +15,12 @@ TelegramMode = Literal["webhook", "polling"]
 AuthProvider = Literal["local", "supabase"]
 
 
+LLM_PROVIDERS = ("anthropic", "claude_cli", "liara", "top_tools", "gemini", "chain")
+CHAIN_PROVIDERS = ("gemini", "top_tools", "liara")  # OpenAI-compatible providers only
+GEMINI_DEFAULT_URL = "https://generativelanguage.googleapis.com/v1beta/openai"
+GEMINI_MAX_KEYS = 5
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", extra="ignore", hide_input_in_errors=True)
 
@@ -75,8 +81,13 @@ class Settings(BaseSettings):
     LLM_MODEL_FAST: str | None = None
 
     # "anthropic": the API (production). "claude_cli": headless Claude Code with the developer's login
-    # (local development and live evals; needs `uv sync --group headless`).
-    LLM_PROVIDER: Literal["anthropic", "claude_cli", "liara", "top_tools"] = "anthropic"
+    # (local development and live evals; needs `uv sync --group headless`). "gemini", "liara",
+    # "top_tools": one OpenAI-compatible provider. "chain": the providers of LLM_CHAIN, in order, each
+    # model call falling through to the next on failure. An unknown value never stops the app from
+    # starting: agent runs fail with a clear configuration error instead.
+    LLM_PROVIDER: str = "anthropic"
+    LLM_CHAIN: str = "gemini,top_tools"
+    LLM_COOLDOWN_SECONDS: float = Field(default=60, ge=0, allow_inf_nan=False)
     CLAUDE_CLI_MODEL: str = "claude-opus-5-5"
     CLAUDE_CLI_EFFORT: str = "medium"
     CLAUDE_CLI_PATH: str | None = None  # default: the CLI bundled with claude-agent-sdk, else `claude`
@@ -103,6 +114,20 @@ class Settings(BaseSettings):
     TOP_TOOLS_MAX_RETRIES: int = Field(default=2, ge=0, le=10)
     TOP_TOOLS_TOKEN_PRICES_JSON: str = Field(default="", repr=False)
 
+    # Google Gemini through its OpenAI-compatible endpoint. GEMINI_API_KEYS is comma-separated (up to 5
+    # keys, tried in turn); GEMINI_API_KEY, _2 and _3 are also accepted. Pro models are not on the free tier.
+    GEMINI_API_KEYS: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    GEMINI_API_KEY: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    GEMINI_API_KEY_2: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    GEMINI_API_KEY_3: SecretStr | None = Field(default=None, repr=False, exclude=True)
+    GEMINI_BASE_URL: str | None = Field(default=GEMINI_DEFAULT_URL, repr=False)
+    GEMINI_MODEL_STRONG: str = "gemini-flash-latest"
+    GEMINI_MODEL_FAST: str = "gemini-flash-latest"
+    GEMINI_MAX_TOKENS: int = Field(default=32000, gt=0)
+    GEMINI_TIMEOUT_SECONDS: float = Field(default=90, gt=0, allow_inf_nan=False)
+    GEMINI_MAX_RETRIES: int = Field(default=1, ge=0, le=10)
+    GEMINI_TOKEN_PRICES_JSON: str = Field(default="", repr=False)
+
     TOKEN_ENC_KEY: str | None = None
     LOG_LLM_BODIES: bool = False
 
@@ -124,7 +149,33 @@ class Settings(BaseSettings):
     # counted like AGENT_DAILY_RUN_CAP).
     COPILOT_DAILY_CAP: int = Field(default=50, ge=0)
 
-    @field_validator("LIARA_API_KEY", "TOP_TOOLS_API_KEY", mode="after")
+    @field_validator("LLM_PROVIDER", mode="before")
+    @classmethod
+    def _llm_provider(cls, value: Any) -> Any:
+        """Case and spaces do not matter and empty means "anthropic". Unknown values are kept (not a
+        startup error); ``llm_configured`` is then false and ``make_llm`` reports the problem."""
+        if isinstance(value, str):
+            return value.strip().lower() or "anthropic"
+        return value
+
+    @field_validator("GEMINI_API_KEYS", mode="after")
+    @classmethod
+    def _gemini_keys(cls, value: SecretStr | None) -> SecretStr | None:
+        if value is None:
+            return None
+        keys = [key.strip() for key in value.get_secret_value().split(",") if key.strip()]
+        if not all(re.fullmatch(r"[!-~]+", key) for key in keys):
+            raise ValueError("AI API keys must be opaque ASCII tokens without whitespace")
+        return SecretStr(",".join(keys)) if keys else None
+
+    @field_validator(
+        "LIARA_API_KEY",
+        "TOP_TOOLS_API_KEY",
+        "GEMINI_API_KEY",
+        "GEMINI_API_KEY_2",
+        "GEMINI_API_KEY_3",
+        mode="after",
+    )
     @classmethod
     def _ai_key(cls, value: SecretStr | None) -> SecretStr | None:
         if value is None or not value.get_secret_value().strip():
@@ -143,13 +194,20 @@ class Settings(BaseSettings):
     def _top_tools_url(cls, value: str | None) -> str | None:
         return validate_top_tools_url(value)
 
-    @field_validator("TOP_TOOLS_MODEL_STRONG", "TOP_TOOLS_MODEL_FAST")
+    @field_validator("GEMINI_BASE_URL")
+    @classmethod
+    def _gemini_url(cls, value: str | None) -> str | None:
+        return validate_gemini_url(value)
+
+    @field_validator(
+        "TOP_TOOLS_MODEL_STRONG", "TOP_TOOLS_MODEL_FAST", "GEMINI_MODEL_STRONG", "GEMINI_MODEL_FAST"
+    )
     @classmethod
     def _top_tools_model(cls, value: str) -> str:
         if not value.strip():
             return ""
         if not re.fullmatch(r"[A-Za-z0-9_.:/-]+", value):
-            raise ValueError("Top Tools models must be model identifiers")
+            raise ValueError("Top Tools and Gemini models must be model identifiers")
         return value
 
     @field_validator("LIARA_MODEL_STRONG", "LIARA_MODEL_FAST")
@@ -159,24 +217,49 @@ class Settings(BaseSettings):
             raise ValueError("Liara model must be a nonempty model identifier")
         return value
 
-    @field_validator("LIARA_TOKEN_PRICES_JSON", "TOP_TOOLS_TOKEN_PRICES_JSON")
+    @field_validator("LIARA_TOKEN_PRICES_JSON", "TOP_TOOLS_TOKEN_PRICES_JSON", "GEMINI_TOKEN_PRICES_JSON")
     @classmethod
     def _ai_prices(cls, value: str) -> str:
         parse_token_prices(value)
         return value
 
     @property
-    def llm_configured(self) -> bool:
-        if self.LLM_PROVIDER == "top_tools":
+    def gemini_api_keys(self) -> list[SecretStr]:
+        """GEMINI_API_KEYS then GEMINI_API_KEY, _2, _3: duplicates dropped, at most the first 5."""
+        keys: list[str] = []
+        listed = self.GEMINI_API_KEYS.get_secret_value().split(",") if self.GEMINI_API_KEYS else []
+        singles = (self.GEMINI_API_KEY, self.GEMINI_API_KEY_2, self.GEMINI_API_KEY_3)
+        for key in listed + [single.get_secret_value() for single in singles if single]:
+            if key not in keys:
+                keys.append(key)
+        return [SecretStr(key) for key in keys[:GEMINI_MAX_KEYS]]
+
+    @property
+    def llm_chain(self) -> list[str]:
+        """LLM_CHAIN provider names in order, lower-cased; empty entries dropped."""
+        return [name for part in self.LLM_CHAIN.split(",") if (name := part.strip().lower())]
+
+    def provider_configured(self, provider: str) -> bool:
+        if provider == "top_tools":
             return bool(
                 self.TOP_TOOLS_API_KEY
                 and self.TOP_TOOLS_BASE_URL
                 and self.TOP_TOOLS_MODEL_STRONG
                 and self.TOP_TOOLS_MODEL_FAST
             )
-        if self.LLM_PROVIDER == "liara":
+        if provider == "liara":
             return bool(self.LIARA_API_KEY and self.LIARA_BASE_URL)
-        return self.LLM_PROVIDER == "claude_cli" or bool(self.ANTHROPIC_API_KEY)
+        if provider == "gemini":
+            return bool(self.gemini_api_keys and self.GEMINI_BASE_URL)
+        if provider == "chain":
+            return any(name in CHAIN_PROVIDERS and self.provider_configured(name) for name in self.llm_chain)
+        if provider == "claude_cli":
+            return True
+        return provider == "anthropic" and bool(self.ANTHROPIC_API_KEY)
+
+    @property
+    def llm_configured(self) -> bool:
+        return self.provider_configured(self.LLM_PROVIDER)
 
     @field_validator("AUTH_PROVIDER", mode="before")
     @classmethod
@@ -218,6 +301,15 @@ def validate_top_tools_url(value: str | None) -> str | None:
         return None
     if not re.fullmatch(r"https://top-tools-ai\.com/(?:api/)?v1/?", value):
         raise ValueError("TOP_TOOLS_BASE_URL must be https://top-tools-ai.com/api/v1 or /v1")
+    return value.rstrip("/")
+
+
+def validate_gemini_url(value: str | None) -> str | None:
+    """Allow only Google's OpenAI-compatible Gemini root; credentials never follow a redirect."""
+    if value is None or not value.strip():
+        return None
+    if not re.fullmatch(r"https://generativelanguage\.googleapis\.com/v1beta/openai/?", value):
+        raise ValueError("GEMINI_BASE_URL must be " + GEMINI_DEFAULT_URL)
     return value.rstrip("/")
 
 

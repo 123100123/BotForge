@@ -116,7 +116,8 @@ $env:FRONTEND_ORIGIN = 'http://localhost:3000'
 
 LLM credentials and model settings are needed only for agent runs. The default provider is Anthropic;
 `LLM_PROVIDER=claude_cli` uses a local Claude Code login, `LLM_PROVIDER=liara` uses a Liara AI project,
-and `LLM_PROVIDER=top_tools` uses Top Tools AI. Owners sign in with the backend's own accounts (email and
+`LLM_PROVIDER=top_tools` uses Top Tools AI, `LLM_PROVIDER=gemini` uses Google Gemini, and `LLM_PROVIDER=chain`
+tries several of them in order (see Gemini first, then a fallback chain). Owners sign in with the backend's own accounts (email and
 password, a `bf_session` cookie); see Run the API.
 
 Authentication has a switch: `AUTH_PROVIDER=local|supabase` on the backend and `NEXT_PUBLIC_AUTH_PROVIDER=local|supabase`
@@ -260,6 +261,35 @@ Use `LLM_PROVIDER=anthropic` to return to the default API provider, or `LLM_PROV
 headless Claude Code, and restart the backend after every provider or credential change. This integration
 has offline mocked coverage only; it has not been tested against a funded Liara account or a live model.
 
+### Gemini first, then a fallback chain
+
+`LLM_PROVIDER=chain` sends every model call to the providers of `LLM_CHAIN` (default `gemini,top_tools`;
+`liara` may also be listed) in order. Gemini uses its OpenAI-compatible endpoint
+(`https://generativelanguage.googleapis.com/v1beta/openai`) and tries each of its keys in turn:
+
+```powershell
+$env:LLM_PROVIDER = 'chain'
+$env:GEMINI_API_KEYS = '<key 1>,<key 2>,<key 3>'   # up to 5; GEMINI_API_KEY, _2, _3 also work
+$env:TOP_TOOLS_API_KEY = '<Top Tools API key>'
+$env:TOP_TOOLS_MODEL_STRONG = '<confirmed model ID>'
+$env:TOP_TOOLS_MODEL_FAST = '<confirmed model ID>'
+```
+
+A call moves to the next key or provider after a rate-limit, quota, auth, unknown-model or other HTTP
+error, after a 5xx or timeout once that provider's `*_MAX_RETRIES` are spent (429s are not retried in
+place), or after an empty or malformed response. A key or provider that returned 429, 401 or 403 is
+skipped for `LLM_COOLDOWN_SECONDS` (default 60) in that backend process. The run fails only when every
+provider failed; the error lists a code per provider (`gemini#1: api_error (HTTP 429); top_tools: ...`)
+and never a key. The backend log records which provider and model served each call. Inside one agent run
+a later call may be served by a different provider than an earlier one.
+
+`GEMINI_MODEL_STRONG` and `GEMINI_MODEL_FAST` default to `gemini-flash-latest`: Pro models return 429 on
+free-tier keys. `GEMINI_TIMEOUT_SECONDS=90`, `GEMINI_MAX_RETRIES=1` and `GEMINI_MAX_TOKENS=32000` are the
+defaults, and `GEMINI_TOKEN_PRICES_JSON` takes the same optional price map as the other providers.
+`LLM_PROVIDER=gemini` uses Gemini alone, still rotating its keys. An unknown `LLM_PROVIDER` value does
+not stop the backend from starting: agent features report the provider as not configured and runs fail
+with a message naming the bad value. Coverage is offline (mocked HTTP) only; no live Gemini call was made.
+
 ### Running the agent through Top Tools AI
 
 Top Tools is a backend-only provider for the same bot creation and modification, spreadsheet analysis, and
@@ -359,11 +389,13 @@ posts webhooks to the API's public address. The API must run as a single instanc
    auto-deploy off, free plan for testing and `starter` for the demo; and the `botforge-web` service of
    step 4). Fill the `sync: false` variables: `DATABASE_URL`, `SUPABASE_URL`, `SUPABASE_JWKS_URL` (or
    `SUPABASE_JWT_SECRET`), `TOKEN_ENC_KEY`, `ANTHROPIC_API_KEY`, `LLM_MODEL_STRONG`, `LLM_MODEL_FAST`,
-   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`. The Blueprint keeps `LLM_PROVIDER=anthropic` by default. To use
+   `PUBLIC_BASE_URL`, `FRONTEND_ORIGIN`, and `GEMINI_API_KEYS`. To use
    Liara, set `LLM_PROVIDER=liara` and supply `LIARA_API_KEY` plus `LIARA_BASE_URL` as the project endpoint;
    the optional Liara model, limits, retry and price variables are also declared there. For Top Tools, set
    `LLM_PROVIDER=top_tools`, `TOP_TOOLS_API_KEY`, `TOP_TOOLS_MODEL_STRONG`, and `TOP_TOOLS_MODEL_FAST`;
    its documented base URL and optional limits, retry and price variables are declared in the Blueprint.
+   The Blueprint now selects `LLM_PROVIDER=chain` with `LLM_CHAIN=gemini,top_tools`: fill `GEMINI_API_KEYS`
+   (comma-separated) and the Top Tools variables above, or set `LLM_PROVIDER` back to a single provider.
    The remaining variables have defaults in the Blueprint (agent limits, `TELEGRAM_MODE=webhook`, the Business
    OS variables of step 7). Add `AUTH_PROVIDER=supabase` (step 6).
    Check in the service settings that the Dockerfile path resolves to `backend/Dockerfile`.
