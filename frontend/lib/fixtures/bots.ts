@@ -13,6 +13,7 @@ export function initialMockBots(): Bot[] {
       status: "draft",
       active_revision_id: null,
       active_revision_number: null,
+      platform: "telegram",
       tg_username: null,
       owner_link_code: "novin-demo-code",
       owner_linked: false,
@@ -24,6 +25,7 @@ export function initialMockBots(): Bot[] {
       status: "live",
       active_revision_id: "rev_sepehr_3",
       active_revision_number: 3,
+      platform: "telegram",
       tg_username: "sepehr_workshops_bot",
       owner_link_code: null, // used when the owner linked; the backend keeps no code armed after a link
       owner_linked: true,
@@ -35,6 +37,7 @@ export function initialMockBots(): Bot[] {
       status: "live",
       active_revision_id: "rev_tamir_1",
       active_revision_number: 1,
+      platform: "telegram",
       tg_username: "tamirat_khaneh_bot",
       owner_link_code: "tamir-demo-code",
       owner_linked: false,

@@ -7,6 +7,7 @@ import { ErrorNote, LoadingBlock } from "@/components/app/state-blocks";
 import type { WorkspaceTab } from "@/components/app/workspace";
 import { api } from "@/lib/api";
 import { errorMessage } from "@/lib/errors";
+import { platformName } from "@/lib/platform";
 import type { Bot, TelegramStatus } from "@/lib/types";
 import { AnnouncementsSection } from "./announcements-section";
 import { GroupsSection } from "./groups-section";
@@ -57,8 +58,8 @@ export function SettingsTab({
 
   return (
     <div className="min-w-0 space-y-6">
-      <PageHeader eyebrow="مدیریت ربات" title="تنظیمات و اتصال‌ها" description="تلگرام، اعضای تیم و ارتباط با مشتری‌ها را از یک جای مشخص مدیریت کنید." />
-      <div className="flex flex-wrap gap-2" role="group" aria-label="بخش تنظیمات">{[{id:"connection",label:"تلگرام و مدیر"},{id:"team",label:"تیم"},{id:"groups",label:"گروه‌ها"},{id:"messages",label:"اعلان و زمان‌بندی"}].map((item) => <Button key={item.id} variant={section === item.id ? "secondary" : "ghost"} aria-pressed={section === item.id} onPress={() => setSection(item.id)} size="sm">{item.label}</Button>)}</div>
+      <PageHeader eyebrow="مدیریت ربات" title="تنظیمات و اتصال‌ها" description={`${platformName(status.platform)}، اعضای تیم و ارتباط با مشتری‌ها را از یک جای مشخص مدیریت کنید.`} />
+      <div className="flex flex-wrap gap-2" role="group" aria-label="بخش تنظیمات">{[{id:"connection",label:`${platformName(status.platform)} و مدیر`},{id:"team",label:"تیم"},{id:"groups",label:"گروه‌ها"},{id:"messages",label:"اعلان و زمان‌بندی"}].map((item) => <Button key={item.id} variant={section === item.id ? "secondary" : "ghost"} aria-pressed={section === item.id} onPress={() => setSection(item.id)} size="sm">{item.label}</Button>)}</div>
       {error && <ErrorNote>{error}</ErrorNote>}
       <div hidden={section !== "connection"} className="grid min-w-0 items-start gap-5 xl:grid-cols-2">
       <TelegramConnect

@@ -43,6 +43,7 @@ import type {
   TeamMemberOut,
   TeamOut,
   TelegramStatus,
+  BotPlatform,
   TestReport,
   UploadOut,
 } from "@/lib/types";
@@ -102,7 +103,7 @@ export interface Api {
   ): Promise<DataActionResult>;
   // Telegram
   getTelegram(botId: string): Promise<TelegramStatus>;
-  connectTelegram(botId: string, token: string): Promise<TelegramStatus>;
+  connectTelegram(botId: string, token: string, platform?: BotPlatform): Promise<TelegramStatus>;
   disconnectTelegram(botId: string): Promise<TelegramStatus>;
   // Capability Center
   listCapabilities(botId: string): Promise<CapabilityListOut>;
@@ -302,7 +303,8 @@ export const realApi: Api = {
     request("POST", `/bots/${enc(botId)}/data/${enc(collection)}/${recordId}/actions/${enc(action)}`),
 
   getTelegram: (botId) => request("GET", `/bots/${enc(botId)}/telegram`),
-  connectTelegram: (botId, token) => request("POST", `/bots/${enc(botId)}/telegram/connect`, { token }),
+  connectTelegram: (botId, token, platform = "telegram") =>
+    request("POST", `/bots/${enc(botId)}/telegram/connect`, { token, platform }),
   disconnectTelegram: async (botId) =>
     (await request<TelegramStatus | undefined>("DELETE", `/bots/${enc(botId)}/telegram`)) ??
     (await request<TelegramStatus>("GET", `/bots/${enc(botId)}/telegram`)),

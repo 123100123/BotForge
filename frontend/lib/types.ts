@@ -445,11 +445,15 @@ export interface SimulatorResetResult {
 
 export type BotStatus = "draft" | "live" | "paused";
 
+/** backend/app/integrations/telegram/platforms.py Platform: the messenger a bot runs on. */
+export type BotPlatform = "telegram" | "bale";
+
 /** backend/app/api/bots.py BotOut */
 export interface Bot {
   id: string;
   name: string;
   status: BotStatus;
+  platform: BotPlatform;
   tg_username: string | null;
   active_revision_id: string | null;
   active_revision_number: number | null;
@@ -629,6 +633,7 @@ export interface DataActionResult {
 
 /** GET/POST connect on /bots/{bot_id}/telegram; DELETE returns the same shape. */
 export interface TelegramStatus {
+  platform: BotPlatform;
   connected: boolean;
   username: string | null;
   bot_link: string | null;

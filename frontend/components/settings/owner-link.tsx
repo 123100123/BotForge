@@ -5,6 +5,7 @@ import { Bell, Check, Copy, ExternalLink, RefreshCw } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { platformName } from "@/lib/platform";
 import type { TelegramStatus } from "@/lib/types";
 
 interface OwnerLinkProps {
@@ -21,8 +22,9 @@ async function copyText(text: string): Promise<boolean> {
   }
 }
 
-/** The deep link the owner opens in Telegram so alerts (new bookings, requests) reach them. */
+/** The deep link the owner opens in Telegram (or Bale) so alerts (new bookings, requests) reach them. */
 export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
+  const name = platformName(status.platform);
   const [copied, setCopied] = useState<"yes" | "no" | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -51,7 +53,7 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
       <CardHeader>
         <CardTitle className="flex items-center gap-2">
           <Bell className="size-5 text-muted-foreground" />
-          دریافت اعلان‌ها در تلگرام
+          دریافت اعلان‌ها در {name}
           {status.connected && (
             <Badge variant={status.owner_linked ? "success" : "warning"} className="ms-auto">
               {status.owner_linked ? "متصل شد" : "هنوز متصل نشده"}
@@ -59,13 +61,13 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
           )}
         </CardTitle>
         <CardDescription>
-          با باز کردن پیوند زیر در تلگرام، شما مدیر ربات می‌شوید و ثبت‌نام‌ها و درخواست‌های جدید را همان‌جا می‌گیرید.
+          با باز کردن پیوند زیر در {name}، شما مدیر ربات می‌شوید و ثبت‌نام‌ها و درخواست‌های جدید را همان‌جا می‌گیرید.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-4">
         {!status.connected ? (
           <p className="text-sm leading-7 text-muted-foreground">
-            پس از اتصال ربات به تلگرام (کادر بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
+            پس از اتصال ربات به {name} (کادر بالا)، پیوند دریافت اعلان‌ها ساخته و اینجا نمایش داده می‌شود.
           </p>
         ) : status.owner_linked ? (
           // No link while an owner is linked: the code was used, and a code never replaces a linked
@@ -73,10 +75,10 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
           <div className="flex flex-col gap-3">
             <p role="status" className="flex items-start gap-2 rounded-md bg-success/10 p-3 text-sm leading-7 text-success">
               <Check className="mt-1.5 size-4 shrink-0" />
-              حساب تلگرام شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
+              حساب {name} شما به‌عنوان مدیر متصل است و اعلان‌ها را همان‌جا دریافت می‌کنید.
             </p>
             <p className="text-sm leading-7 text-muted-foreground">
-              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای دریافت اعلان‌ها در حساب تلگرام دیگری، اتصال ربات را قطع کنید و توکن را
+              پیوند دریافت اعلان فقط یک بار قابل استفاده است. برای دریافت اعلان‌ها در حساب {name} دیگری، اتصال ربات را قطع کنید و توکن را
               دوباره وارد کنید. با قطع اتصال، این حساب هم از مدیریت ربات جدا می‌شود و پس از اتصال دوباره، پیوند تازه‌ای همین‌جا نمایش داده
               می‌شود که باید آن را با حساب جدید باز کنید.
             </p>
@@ -94,7 +96,7 @@ export function OwnerLink({ status, onRefresh }: OwnerLinkProps) {
 
                 <a href={status.owner_link} target="_blank" rel="noreferrer" className={buttonVariants({ variant: "primary" })}>
                   <ExternalLink />
-                  باز کردن در تلگرام
+                  باز کردن در {name}
                 </a>
               <Button variant="outline" onPress={copy}>
                 {copied === "yes" ? <Check /> : <Copy />}
